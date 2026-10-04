@@ -41,7 +41,7 @@ describe('마이그레이션 (v2 → v3)', () => {
     expect(doc.settings).toEqual({
       zoom: 'l', theme: 'dark', autoAdv: false, metro: true, loop: 'measure', padMode: 'fret', fretShift: 12,
       haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false,
-      trainer: { on: false, start: 60, step: 5, max: 120 }
+      trainer: { on: false, start: 60, step: 5, max: 120 }, drums: 'off', swing: 0
     });
   });
   it('트레이너 설정 검증', () => {

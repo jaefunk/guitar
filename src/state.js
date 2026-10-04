@@ -12,7 +12,7 @@ import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures
 export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
-  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer'
+  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer', 'drums', 'swing'
 ];
 
 export function defaultSettings() {
@@ -21,7 +21,9 @@ export function defaultSettings() {
     fretShift: 0, haptic: true, collapsed: false, seen: false, instr: 'acoustic',
     volume: 0.8, reverb: 0.25, countIn: false, preview: true,
     // 속도 트레이너: 반복 한 바퀴마다 step만큼 빨라져 max까지
-    trainer: { on: false, start: 60, step: 5, max: 120 }
+    trainer: { on: false, start: 60, step: 5, max: 120 },
+    drums: 'off',   // off | rock | pop | ballad
+    swing: 0        // 0~0.7: 홀수 16분음표를 한 칸의 이 비율만큼 늦춘다 (0.67 ≈ 셋잇단 스윙)
   };
 }
 
@@ -99,6 +101,8 @@ export function sanitizeSettings(d) {
   if (d.instr && INSTR[d.instr]) s.instr = d.instr;
   if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) s.volume = d.volume;
   if (typeof d.reverb === 'number' && d.reverb >= 0 && d.reverb <= 1) s.reverb = d.reverb;
+  if (['off', 'rock', 'pop', 'ballad'].indexOf(d.drums) >= 0) s.drums = d.drums;
+  if (typeof d.swing === 'number' && d.swing >= 0 && d.swing <= 0.7) s.swing = d.swing;
   if (d.trainer && typeof d.trainer === 'object') {
     const t = d.trainer, o = s.trainer;
     if (typeof t.on === 'boolean') o.on = t.on;

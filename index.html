@@ -134,6 +134,9 @@
     <h2 style="margin-top:6px">소리</h2>
     <div class="setting"><div><div class="l">음량</div></div><input type="range" id="volume" min="0" max="100" step="1" aria-label="음량"></div>
     <div class="setting"><div><div class="l">리버브</div><div class="d">공간감. 0이면 바짝 마른 소리</div></div><input type="range" id="reverb" min="0" max="100" step="1" aria-label="리버브"></div>
+    <div class="setting"><div><div class="l">드럼 백킹</div><div class="d">재생할 때 합성 드럼이 같이 나와요</div></div>
+      <select id="drums" aria-label="드럼"><option value="off">끔</option><option value="rock">록 (8비트)</option><option value="pop">팝</option><option value="ballad">발라드 (하프타임)</option></select></div>
+    <div class="setting"><div><div class="l">스윙</div><div class="d">홀수 16분음표를 늦춰 셔플 느낌. 67%가 셋잇단</div></div><input type="range" id="swing" min="0" max="70" step="1" aria-label="스윙"></div>
     <div class="setting"><div><div class="l">재생 전 카운트 인</div><div class="d">한 마디(4박) 클릭 후 시작</div></div><label class="switch"><input type="checkbox" id="countIn"><i></i></label></div>
     <div class="setting"><div><div class="l">입력할 때 미리듣기</div><div class="d">프렛을 넣으면 그 음이 바로 들려요</div></div><label class="switch"><input type="checkbox" id="preview"><i></i></label></div>
     <div class="row" style="justify-content:space-between;margin-top:6px">

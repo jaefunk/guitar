@@ -6,7 +6,7 @@ import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
 
 const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
-let actx = null, master = null, comp = null, revBus = null;
+let actx = null, master = null, comp = null, revBus = null, drumBus = null, noiseBuf = null;
 const chains = {};
 const bufCache = {};
 let active = [], playTimer = null, hlTimers = [], playPos = 0, nextTime = 0, loopA = 0, loopB = 0, loopOn = false;
@@ -28,6 +28,7 @@ export function ensureAudio() {
     revBus = actx.createGain(); revBus.gain.value = state.reverb * 0.7;
     const conv = actx.createConvolver(); conv.buffer = makeIR(1.6);
     revBus.connect(conv); conv.connect(master);
+    drumBus = actx.createGain(); drumBus.gain.value = 0.8; drumBus.connect(master);
   }
   if (actx.state === 'suspended') { try { actx.resume(); } catch (e) { /* 무시 */ } }
   return true;
@@ -139,11 +140,71 @@ function click(t, accent) {
   const g = actx.createGain(); g.gain.setValueAtTime(accent ? 0.55 : 0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
 }
+/* ---------- 드럼 (노이즈·사인 합성) ---------- */
+function noise() {
+  if (noiseBuf) return noiseBuf;
+  const N = actx.sampleRate; noiseBuf = actx.createBuffer(1, N, actx.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < N; i++) d[i] = Math.random() * 2 - 1;
+  return noiseBuf;
+}
+function env(g, t, peak, dur) { g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); }
+function kick(t) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+  env(g, t, 0.9, 0.28); o.connect(g); g.connect(drumBus); o.start(t); o.stop(t + 0.3);
+}
+function snare(t) {
+  const n = actx.createBufferSource(); n.buffer = noise();
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+  const g = actx.createGain(); env(g, t, 0.55, 0.18);
+  n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(drumBus); n.start(t); n.stop(t + 0.2);
+  const o = actx.createOscillator(), g2 = actx.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(190, t); env(g2, t, 0.4, 0.08);
+  o.connect(g2); g2.connect(drumBus); o.start(t); o.stop(t + 0.1);
+}
+function hat(t, accent) {
+  const n = actx.createBufferSource(); n.buffer = noise();
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7000;
+  const g = actx.createGain(); env(g, t, accent ? 0.3 : 0.18, 0.05);
+  n.connect(hp); hp.connect(g); g.connect(drumBus); n.start(t); n.stop(t + 0.06);
+}
+/**
+ * 드럼 패턴: 칸 i에서 울릴 악기 목록. BEAT = 한 박의 칸 수, slots = 한 마디 칸 수.
+ *  rock: 하이햇 8분, 킥 홀수 박, 스네어 짝수 박
+ *  pop: rock + 3박 뒷박에 킥 하나 더
+ *  ballad: 하프타임. 하이햇 박마다, 킥 1박, 스네어 3박
+ */
+export function drumHits(style, i, BEAT, slots) {
+  if (!style || style === 'off') return [];
+  const beat = Math.floor(i / BEAT), sub = i % BEAT, beats = slots / BEAT, hits = [];
+  const half = Math.floor(BEAT / 2);
+  if (style === 'ballad') {
+    if (sub === 0 || sub === half) hits.push(sub === 0 ? 'hat!' : 'hat');
+    if (beat === 0 && sub === 0) hits.push('kick');
+    if (beats >= 3 && beat === Math.floor(beats / 2) && sub === 0) hits.push('snare');
+    else if (beats < 3 && beat === 1 && sub === 0) hits.push('snare');
+    return hits;
+  }
+  if (i % 2 === 0) hits.push(sub === 0 ? 'hat!' : 'hat');
+  if (sub === 0) hits.push(beat % 2 === 0 ? 'kick' : 'snare');
+  if (style === 'pop' && beat === 2 && sub === half && BEAT >= 4) hits.push('kick');
+  return hits;
+}
+/** 스윙: 홀수 16분음표를 한 칸 길이의 swing 비율만큼 늦춘다 */
+export function swingDelay(i, swing, dur) { return (swing > 0 && i % 2 === 1) ? swing * dur : 0; }
+function scheduleDrums(i, t) {
+  drumHits(state.drums, i, beatOf(state), SL).forEach((h) => {
+    if (h === 'kick') kick(t); else if (h === 'snare') snare(t); else hat(t, h === 'hat!');
+  });
+}
+
 function scheduleSlot(pos, t) {
   const { m, i } = posToMI(pos), meas = state.measures[m];
   if (!meas) return;
   const midis = TUNINGS[state.tuning].midi, dur = slotDur(), notes = [], BEAT = beatOf(state);
   if (state.metro && i % BEAT === 0) click(t, i === 0);
+  scheduleDrums(i, t);
   for (let s = STRINGS - 1; s >= 0; s--) {
     const v = meas[s][i]; if (!v) continue;
     const p = parse(v);
@@ -249,7 +310,8 @@ playOrder.identity = function () { const o = []; for (let m = 0; m < state.measu
 function tick() {
   const dur = slotDur();
   while (nextTime < actx.currentTime + 0.25) {
-    scheduleSlot(playPos, nextTime); scheduleHL(playPos, nextTime);
+    const sw = swingDelay(playPos % SL, state.swing || 0, dur); // 격자(nextTime)는 그대로 두고 소리만 늦춘다
+    scheduleSlot(playPos, nextTime + sw); scheduleHL(playPos, nextTime + sw);
     nextTime += dur; playPos++;
     if (playPos >= loopB) {
       if (loopOn) {

@@ -254,6 +254,8 @@ function bind() {
   $('volume').addEventListener('input', function () { setVolume(this.value / 100); save(); });
   $('reverb').addEventListener('input', function () { setReverb(this.value / 100); save(); });
   $('countIn').addEventListener('change', function () { state.countIn = this.checked; save(); });
+  $('drums').addEventListener('change', function () { state.drums = this.value; save(); });
+  $('swing').addEventListener('input', function () { state.swing = this.value / 100; save(); });
   $('preview').addEventListener('change', function () { state.preview = this.checked; save(); });
   window.addEventListener('resize', () => { updatePadH(); if (state.zoom === 'fit') applyZoom(); });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
@@ -284,6 +286,7 @@ function boot() {
   $('bpm').value = state.bpm; $('loop').value = state.loop; $('haptic').checked = state.haptic; s.value = state.instr;
   $('volume').value = Math.round(state.volume * 100); $('reverb').value = Math.round(state.reverb * 100);
   $('countIn').checked = state.countIn; $('preview').checked = state.preview;
+  $('drums').value = state.drums; $('swing').value = Math.round(state.swing * 100);
   syncAuto(); syncMetro(); applyTheme(); applyZoom();
   ed.sel = { m: 0, s: 0, i: 0 };
   render();

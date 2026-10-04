@@ -227,6 +227,17 @@ await page.click('#playBtn');
 await page.click('#trainerBtn'); await page.waitForTimeout(250); await page.$eval('#trOn', (el) => el.click()); await page.click('#closeTrainer');
 await page.selectOption('#loop', 'none');
 check('트레이너 끔', !(await page.$eval('#trainerBtn', (el) => el.classList.contains('on'))));
+// 드럼 + 스윙을 켜고 재생해도 오류가 없어야 한다
+await page.click('#settingsBtn');
+await page.selectOption('#drums', 'pop');
+await page.$eval('#swing', (el) => { el.value = 60; el.dispatchEvent(new Event('input', { bubbles: true })); });
+await page.click('#closeSettings');
+await page.click('#playBtn');
+await page.waitForTimeout(900);
+check('드럼·스윙 재생 중', await page.$eval('#playBtn', (el) => el.textContent) === '■');
+await page.click('#playBtn');
+await page.reload(); await page.waitForSelector('.cell');
+check('드럼·스윙 설정 저장', await page.$eval('#drums', (el) => el.value) === 'pop' && await page.$eval('#swing', (el) => el.value) === '60');
 await openMenuItem('exportMenu', '이미지로 저장');
 check('PNG 생성', await page.$eval('#imgOut img', (img) => img.src.startsWith('data:image/png') && img.naturalWidth > 100));
 {
