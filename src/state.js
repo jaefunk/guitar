@@ -5,11 +5,11 @@
 // save()가 책상 위 내용을 책장에 꽂힌 그 책에 다시 써 넣는다. 곡을 바꾸면
 // 책상 위의 책만 갈아 끼운다.
 import {
-  KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
+  KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES, METERS, DEFAULT_METER
 } from './constants.js';
-import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
+import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures, slotsOf } from './tab.js';
 
-export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'measures', 'marks'];
+export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
   'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview'
@@ -27,16 +27,17 @@ export function newId() {
   return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-export function defaultSong(now) {
+export function defaultSong(now, meter) {
+  meter = METERS[meter] ? meter : DEFAULT_METER;
   const ms = [];
-  for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure());
+  for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure(METERS[meter].slots));
   const t = now || Date.now();
-  return { id: newId(), title: '', tuning: 'standard', bpm: 90, measures: ms, marks: {}, createdAt: t, updatedAt: t };
+  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, createdAt: t, updatedAt: t };
 }
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
 export const state = Object.assign({}, defaultSettings(), {
-  title: '', tuning: 'standard', bpm: 90, measures: [], marks: {}
+  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}
 });
 
 /** 편집 세션 상태(저장 안 함) */
@@ -47,13 +48,17 @@ export const library = { songs: {}, order: [], currentId: null };
 
 /* ---------- 검증 ---------- */
 export function sanitizeSong(d, now) {
-  const s = defaultSong(now);
+  const s = defaultSong(now, d && d.meter);
   if (!d || typeof d !== 'object') return s;
   if (typeof d.id === 'string' && d.id) s.id = d.id;
   if (typeof d.title === 'string') s.title = d.title;
   if (TUNINGS[d.tuning]) s.tuning = d.tuning;
   if (typeof d.bpm === 'number' && d.bpm >= 40 && d.bpm <= 240) s.bpm = d.bpm;
-  if (validMeasures(d.measures)) s.measures = padMeasures(cloneMeasures(d.measures));
+  if (validMeasures(d.measures)) {
+    const slots = slotsOf(s);
+    // 칸 수가 박자표와 어긋나면(손상 등) 박자표에 맞춰 자르거나 채운다
+    s.measures = padMeasures(resizeMeasures(d.measures, slots), slots);
+  }
   if (d.marks && typeof d.marks === 'object') {
     Object.keys(d.marks).forEach((k) => {
       if (/^\d+:\d+$/.test(k) && typeof d.marks[k] === 'string' && d.marks[k]) s.marks[k] = d.marks[k];
@@ -142,7 +147,7 @@ export function activate(id) {
   const song = library.songs[id];
   library.currentId = id;
   SONG_FIELDS.forEach((k) => { state[k] = song[k]; });
-  padMeasures(state.measures);
+  padMeasures(state.measures, slotsOf(state));
   ed.undoStack = [];
   ed.pending = false;
   ed.sel = { m: 0, s: 0, i: 0 };

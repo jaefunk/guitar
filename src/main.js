@@ -1,17 +1,17 @@
 // 진입점: 이벤트 바인딩과 초기화.
-import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
+import { TUNINGS, CHORDS, MODS, INSTR, METERS } from './constants.js';
 import { state, ed, load, save } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
 import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
-  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz
+  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
 import { toText, parseText, renderImage } from './io.js';
 import { bindSongs } from './songs.js';
-import { padMeasures } from './tab.js';
+import { padMeasures, slotsOf, beatOf } from './tab.js';
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
 function openExport() { $('exportText').value = toText(state); $('modal').hidden = false; }
@@ -28,14 +28,17 @@ function copyText() {
   else fallback();
 }
 function doImport() {
-  const ms = parseText($('importText').value);
-  if (!ms) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
-  // pushUndo와 같은 순서: 스냅샷 → 변경 → 저장
-  ed.undoStack.push(JSON.stringify({ measures: state.measures, marks: state.marks }));
-  state.measures = ms; state.marks = {}; padMeasures(state.measures);
+  const r = parseText($('importText').value);
+  if (!r) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
+  pushUndo();
+  state.measures = r.measures; state.marks = r.marks; state.meter = r.meter;
+  if (r.bpm && r.bpm >= 40 && r.bpm <= 240) { state.bpm = r.bpm; $('bpm').value = r.bpm; }
+  if (r.title && !state.title) { state.title = r.title; $('title').value = r.title; }
+  $('meter').value = state.meter;
+  padMeasures(state.measures, slotsOf(state));
   ed.sel = { m: 0, s: 0, i: 0 };
   save(); render(); $('importModal').hidden = true;
-  toast(ms.length + '마디 불러옴');
+  toast(r.measures.length + '마디 불러옴');
 }
 function openImage() {
   let cv;
@@ -66,7 +69,13 @@ function bind() {
     if (b.dataset.digit !== undefined) { buzz(); inputDigit(b.dataset.digit); }
     else if (b.dataset.mod !== undefined) { buzz(); inputMod(b.dataset.mod); }
     else if (b.id === 'del') { buzz(); del(false); }
-    else if (b.dataset.move) { if (!ed.sel) { setSel({ m: 0, s: 0, i: 0 }, true); return; } const mv = b.dataset.move.split(','); move(+mv[0], +mv[1]); }
+    else if (b.dataset.move) {
+      if (!ed.sel) { setSel({ m: 0, s: 0, i: 0 }, true); return; }
+      const mv = b.dataset.move.split(',');
+      const di = +mv[0];
+      // ±4는 "한 박"을 뜻한다(박자표에 따라 칸 수가 다름)
+      move(Math.abs(di) === 4 ? Math.sign(di) * beatOf(state) : di, +mv[1]);
+    }
     else if (b.classList.contains('fb-cell')) { buzz(); fretTap(+b.dataset.s, +b.dataset.f); }
   });
   $('playBtn').addEventListener('click', togglePlay);
@@ -106,13 +115,13 @@ function bind() {
     else if (k === 'Backspace') { e.preventDefault(); del(false); }
     else if (k === 'Delete') { e.preventDefault(); del(true); }
     else if (k === 'Enter') { e.preventDefault(); editMark(sel.m, sel.i); }
-    else if (k === 'ArrowLeft') { e.preventDefault(); move(e.shiftKey ? -4 : -1, 0); }
-    else if (k === 'ArrowRight') { e.preventDefault(); move(e.shiftKey ? 4 : 1, 0); }
-    else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -4 : 4, 0); }
+    else if (k === 'ArrowLeft') { e.preventDefault(); move(e.shiftKey ? -beatOf(state) : -1, 0); }
+    else if (k === 'ArrowRight') { e.preventDefault(); move(e.shiftKey ? beatOf(state) : 1, 0); }
+    else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -beatOf(state) : beatOf(state), 0); }
     else if (k === 'ArrowUp') { e.preventDefault(); move(0, -1); }
     else if (k === 'ArrowDown') { e.preventDefault(); move(0, 1); }
     else if (k === 'Home') { e.preventDefault(); move(-sel.i, 0); }
-    else if (k === 'End') { e.preventDefault(); move(SLOTS - 1 - sel.i, 0); }
+    else if (k === 'End') { e.preventDefault(); move(slotsOf(state) - 1 - sel.i, 0); }
   });
 
   $('addLine').addEventListener('click', addLine);
@@ -166,6 +175,7 @@ function bind() {
   $('zoom').addEventListener('change', function () { state.zoom = this.value; save(); applyZoom(); });
   $('theme').addEventListener('change', function () { state.theme = this.value; save(); applyTheme(); });
   $('tuning').addEventListener('change', function () { state.tuning = this.value; save(); render(); if (state.padMode === 'fret') buildFretboard(); });
+  $('meter').addEventListener('change', function () { const sel = this; setMeter(sel.value).then((ok) => { if (!ok) sel.value = state.meter; }); });
   const syncAuto = () => { $('autoAdv').checked = state.autoAdv; $('autoAdv2').checked = state.autoAdv; };
   $('autoAdv').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('autoAdv2').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
@@ -187,6 +197,8 @@ function boot() {
   load();
   const t = $('tuning');
   Object.keys(TUNINGS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = TUNINGS[k].name; t.appendChild(o); });
+  const mt = $('meter');
+  Object.keys(METERS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = k; mt.appendChild(o); });
   const g = $('chordGrid');
   CHORDS.forEach((ch) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'chord'; b.dataset.name = ch[0]; b.dataset.fing = ch[1];
@@ -197,7 +209,7 @@ function boot() {
   const s = $('instr');
   Object.keys(INSTR).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = INSTR[k].name; s.appendChild(o); });
   const { syncAuto, syncMetro } = bind();
-  $('title').value = state.title; $('tuning').value = state.tuning; $('zoom').value = state.zoom; $('theme').value = state.theme;
+  $('title').value = state.title; $('tuning').value = state.tuning; $('meter').value = state.meter; $('zoom').value = state.zoom; $('theme').value = state.theme;
   $('bpm').value = state.bpm; $('loop').value = state.loop; $('haptic').checked = state.haptic; s.value = state.instr;
   $('volume').value = Math.round(state.volume * 100); $('reverb').value = Math.round(state.reverb * 100);
   $('countIn').checked = state.countIn; $('preview').checked = state.preview;

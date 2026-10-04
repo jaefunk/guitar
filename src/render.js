@@ -1,7 +1,7 @@
 // 악보 DOM 생성과 선택 표시. 값 변경은 전체 재렌더 없이 paintCell/paintMark로.
-import { STRINGS, SLOTS, PER_LINE, TUNINGS } from './constants.js';
+import { STRINGS, PER_LINE, TUNINGS } from './constants.js';
 import { state, ed } from './state.js';
-import { parse } from './tab.js';
+import { parse, slotsOf, beatOf } from './tab.js';
 import { $ } from './ui.js';
 import { pb, applyLoopMarks } from './audio.js';
 import { updateFretboard } from './fretboard.js';
@@ -38,6 +38,7 @@ export function render() {
   dom.cells = []; dom.marks = []; dom.rulers = [];
   const names = TUNINGS[state.tuning].names;
   const lines = state.measures.length / PER_LINE;
+  const SLOTS = slotsOf(state), BEAT = beatOf(state);
   for (let L = 0; L < lines; L++) {
     const sys = document.createElement('div'); sys.className = 'system';
 
@@ -64,8 +65,8 @@ export function render() {
       const md = document.createElement('div'); md.className = 'measure'; md.dataset.m = m; md.title = '마디 ' + (m + 1) + ' 처음으로 이동';
       const mn = document.createElement('span'); mn.className = 'mnum'; mn.textContent = m + 1; md.appendChild(mn);
       for (let i = 0; i < SLOTS; i++) {
-        const t = document.createElement('div'); t.className = 'tick' + (i % 4 ? ' sub' : '');
-        if (i % 4 === 0) t.textContent = (i / 4 + 1);
+        const t = document.createElement('div'); t.className = 'tick' + (i % BEAT ? ' sub' : '');
+        if (i % BEAT === 0) t.textContent = (i / BEAT + 1);
         md.appendChild(t);
       }
       dom.rulers[m] = md; ruler.appendChild(md);
@@ -144,11 +145,12 @@ export function updateInfo() {
   const sel = ed.sel;
   selInfo.classList.remove('hint', 'pend');
   if (pb.playing && pb.lastHL !== null) {
-    selInfo.textContent = '재생 중: 마디 ' + (Math.floor(pb.lastHL / SLOTS) + 1) + ' / ' + state.measures.length;
+    selInfo.textContent = '재생 중: 마디 ' + (pb.lastHL.m + 1) + ' / ' + state.measures.length;
     return;
   }
   if (!sel) { selInfo.textContent = '악보의 칸을 탭해서 선택하세요'; selInfo.classList.add('hint'); return; }
   const names = TUNINGS[state.tuning].names;
   if (ed.pending) { selInfo.textContent = '두 자리 프렛? 다음 숫자를 누르세요 (아니면 → 로 이동)'; selInfo.classList.add('pend'); return; }
-  selInfo.textContent = '마디 ' + (sel.m + 1) + '의 ' + (Math.floor(sel.i / 4) + 1) + '박 ' + (sel.i % 4 + 1) + '번째, ' + names[sel.s] + '줄';
+  const BEAT = beatOf(state);
+  selInfo.textContent = '마디 ' + (sel.m + 1) + '의 ' + (Math.floor(sel.i / BEAT) + 1) + '박 ' + (sel.i % BEAT + 1) + '번째, ' + names[sel.s] + '줄';
 }

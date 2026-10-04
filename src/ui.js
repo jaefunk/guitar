@@ -1,6 +1,7 @@
 // 시트/대화상자/토스트/테마·크기 등 UI 공통.
-import { PER_LINE, SLOTS } from './constants.js';
+import { PER_LINE } from './constants.js';
 import { state } from './state.js';
+import { slotsOf } from './tab.js';
 
 export function $(id) { return document.getElementById(id); }
 
@@ -80,7 +81,7 @@ export function applyZoom() {
     return;
   }
   const wrapW = $('sheetWrap').clientWidth || window.innerWidth;
-  let slot = Math.floor((wrapW - 36 - 26) / (PER_LINE * SLOTS));
+  let slot = Math.floor((wrapW - 36 - 26) / (PER_LINE * slotsOf(state)));
   slot = Math.max(14, Math.min(40, slot));
   const row = Math.max(20, Math.min(30, slot + 2));
   const fs = slot < 18 ? 10 : (slot < 28 ? 11 : 13);

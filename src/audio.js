@@ -1,7 +1,7 @@
 // 소리 엔진: 확장 Karplus-Strong을 오프라인 합성해 AudioBuffer로 캐시하고, 악기별 체인으로 내보낸다.
-import { STRINGS, SLOTS, PER_LINE, TUNINGS, INSTR } from './constants.js';
+import { STRINGS, PER_LINE, TUNINGS, INSTR } from './constants.js';
 import { state, ed } from './state.js';
-import { parse, nextNoteOnString } from './tab.js';
+import { parse, nextNoteOnString, slotsOf, beatOf } from './tab.js';
 import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
 
@@ -10,9 +10,11 @@ let actx = null, master = null, comp = null, revBus = null;
 const chains = {};
 const bufCache = {};
 let active = [], playTimer = null, hlTimers = [], playPos = 0, nextTime = 0, loopA = 0, loopB = 0, loopOn = false;
+// 재생 순서: order[k] = k번째로 연주할 마디 번호(반복 기호를 펼친 결과). SL = 한 마디 칸 수.
+let order = [], SL = 16;
 let previewVoices = [];
 
-/** 재생 상태(다른 모듈이 읽기만 함) */
+/** 재생 상태(다른 모듈이 읽기만 함). lastHL = {m, i, pos} */
 export const pb = { playing: false, lastHL: null };
 
 export function ensureAudio() {
@@ -128,6 +130,8 @@ function stopVoice(v, t) {
   try { v.src.stop(t + 0.15); } catch (e) { /* 이미 멈춤 */ }
 }
 function slotDur() { return 60 / state.bpm / 4; }
+/** 재생 위치 → {m, i} */
+function posToMI(pos) { return { m: order[Math.floor(pos / SL)], i: pos % SL }; }
 function click(t, accent) {
   const o = actx.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(accent ? 2300 : 1700, t); o.frequency.exponentialRampToValueAtTime(accent ? 1500 : 1100, t + 0.03);
@@ -135,13 +139,14 @@ function click(t, accent) {
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
 }
 function scheduleSlot(pos, t) {
-  const m = Math.floor(pos / SLOTS), i = pos % SLOTS, meas = state.measures[m];
+  const { m, i } = posToMI(pos), meas = state.measures[m];
   if (!meas) return;
-  const midis = TUNINGS[state.tuning].midi, dur = slotDur(), notes = [];
-  if (state.metro && i % 4 === 0) click(t, i === 0);
+  const midis = TUNINGS[state.tuning].midi, dur = slotDur(), notes = [], BEAT = beatOf(state);
+  if (state.metro && i % BEAT === 0) click(t, i === 0);
   for (let s = STRINGS - 1; s >= 0; s--) {
     const v = meas[s][i]; if (!v) continue;
-    const p = parse(v); if (!p.num && p.mod !== 'x') continue;
+    const p = parse(v);
+    if (!p.num && p.mod !== 'x') continue;
     notes.push({ s, p });
   }
   const spread = notes.length >= 3 ? 0.009 : 0.004;
@@ -151,7 +156,7 @@ function scheduleSlot(pos, t) {
     const muted = (p.mod === 'x'), midi = midis[s] + (p.num ? +p.num : 0), soft = (p.mod === 'h' || p.mod === 'p');
     const o = { muted, soft, vel: muted ? 0.5 : (soft ? 0.5 : 0.72), mod: p.mod };
     if ((p.mod === '/' || p.mod === '\\') && p.num) {
-      const nx = nextNoteOnString(state.measures, m, s, i);
+      const nx = nextNoteOnString(state.measures, m, s, i, SL);
       if (nx) { o.slideRatio = Math.pow(2, (nx.fret - (+p.num)) / 12); o.slideFrom = ts + Math.min(dur * 0.5, 0.08); o.slideTo = t + nx.dist * dur; }
     }
     active[s] = playNote(midi, ts, o);
@@ -178,48 +183,67 @@ function scheduleHL(pos, t) {
 }
 function highlight(pos) {
   clearHL();
-  const m = Math.floor(pos / SLOTS), i = pos % SLOTS;
+  const { m, i } = posToMI(pos);
   if (!dom.cells[m]) return;
-  pb.lastHL = pos;
+  pb.lastHL = { m, i, pos };
   for (let s = 0; s < STRINGS; s++) dom.cells[m][s][i].classList.add('play');
   if (i === 0) updateInfo();
-  if (i % 4 === 0) { const top = dom.cells[m][0][i]; if (top.scrollIntoView) top.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  if (i % beatOf(state) === 0) { const top = dom.cells[m][0][i]; if (top.scrollIntoView) top.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
 }
 function clearHL() {
   if (pb.lastHL === null) return;
-  const m = Math.floor(pb.lastHL / SLOTS), i = pb.lastHL % SLOTS;
+  const { m, i } = pb.lastHL;
   if (dom.cells[m]) for (let s = 0; s < STRINGS; s++) dom.cells[m][s][i].classList.remove('play');
   pb.lastHL = null;
 }
 export function applyLoopMarks() {
   dom.rulers.forEach((r) => { if (r) r.classList.remove('loop'); });
   if (!pb.playing || !loopOn) return;
-  for (let m = Math.floor(loopA / SLOTS); m < Math.ceil(loopB / SLOTS); m++) if (dom.rulers[m]) dom.rulers[m].classList.add('loop');
+  for (let k = Math.floor(loopA / SL); k < Math.ceil(loopB / SL); k++) { const r = dom.rulers[order[k]]; if (r) r.classList.add('loop'); }
+}
+/** 반복 기호를 펼친 마디 순서. 지금은 그대로(반복 기호는 다음 단계). */
+export function playOrder() {
+  const o = [];
+  for (let m = 0; m < state.measures.length; m++) o.push(m);
+  return o;
 }
 export function startPlay(fromPos) {
   if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return; }
   stopPlay();
-  const sel = ed.sel, total = state.measures.length * SLOTS;
+  const sel = ed.sel;
+  SL = slotsOf(state);
   loopOn = state.loop !== 'none';
-  if (state.loop === 'measure' && sel) { loopA = sel.m * SLOTS; loopB = loopA + SLOTS; }
-  else if (state.loop === 'line' && sel) { const L = Math.floor(sel.m / PER_LINE); loopA = L * PER_LINE * SLOTS; loopB = Math.min(total, loopA + PER_LINE * SLOTS); }
-  else { loopA = 0; loopB = total; }
-  playPos = (fromPos !== undefined) ? fromPos : (loopOn ? loopA : (sel ? sel.m * SLOTS : 0));
+  // 마디/줄 반복은 선택한 범위를 그대로 돌리므로 반복 기호를 펼치지 않는다
+  if ((state.loop === 'measure' || state.loop === 'line') && sel) {
+    order = playOrder.identity();
+    if (state.loop === 'measure') { loopA = sel.m * SL; loopB = loopA + SL; }
+    else { const L = Math.floor(sel.m / PER_LINE); loopA = L * PER_LINE * SL; loopB = Math.min(order.length * SL, loopA + PER_LINE * SL); }
+  } else {
+    order = playOrder();
+    loopA = 0; loopB = order.length * SL;
+  }
+  let startAt;
+  if (fromPos !== undefined) startAt = fromPos;
+  else if (loopOn) startAt = loopA;
+  else if (sel) { const k = order.indexOf(sel.m); startAt = k < 0 ? 0 : k * SL; }
+  else startAt = 0;
+  playPos = startAt;
   if (playPos < loopA || playPos >= loopB) playPos = loopA;
   pb.playing = true;
   $('playBtn').textContent = '■'; $('playBtn').setAttribute('aria-label', '정지');
   applyLoopMarks();
   const t0 = actx.currentTime + 0.1;
   if (state.countIn) {
-    const beat = slotDur() * 4;
-    for (let k = 0; k < 4; k++) {
+    const beat = slotDur() * beatOf(state), n = SL / beatOf(state);
+    for (let k = 0; k < n; k++) {
       click(t0 + k * beat, k === 0);
-      hlTimers.push(setTimeout(() => { $('selInfo').textContent = '카운트 ' + (4 - k); $('selInfo').classList.add('pend'); }, Math.max(0, (t0 + k * beat - actx.currentTime) * 1000)));
+      hlTimers.push(setTimeout(() => { $('selInfo').textContent = '카운트 ' + (n - k); $('selInfo').classList.add('pend'); }, Math.max(0, (t0 + k * beat - actx.currentTime) * 1000)));
     }
-    nextTime = t0 + 4 * beat;
+    nextTime = t0 + n * beat;
   } else nextTime = t0;
   tick();
 }
+playOrder.identity = function () { const o = []; for (let m = 0; m < state.measures.length; m++) o.push(m); return o; };
 function tick() {
   const dur = slotDur();
   while (nextTime < actx.currentTime + 0.25) {

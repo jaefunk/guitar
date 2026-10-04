@@ -75,6 +75,17 @@ describe('마이그레이션 (v2 → v3)', () => {
     const d = sanitizeDoc({ songs: { a: { measures: [emptyMeasure(), emptyMeasure(), emptyMeasure()] } } }, 5);
     expect(d.songs.a.measures.length).toBe(4);
   });
+  it('박자표: 저장된 meter를 쓰고, 칸 수가 어긋나면 맞춘다', () => {
+    const d = sanitizeDoc({ songs: { a: { meter: '3/4', measures: [emptyMeasure(12)] }, b: { meter: '6/8', measures: [emptyMeasure(16)] }, c: { meter: 'zzz' } } }, 5);
+    expect(d.songs.a.meter).toBe('3/4');
+    expect(d.songs.a.measures[0][0].length).toBe(12);
+    expect(d.songs.b.measures[0][0].length).toBe(12);
+    expect(d.songs.c.meter).toBe('4/4');
+    expect(d.songs.c.measures[0][0].length).toBe(16);
+    // v2에는 meter가 없으므로 4/4
+    const mig = migrateLegacy(v2Blob(), 1);
+    expect(mig.songs[mig.order[0]].meter).toBe('4/4');
+  });
 });
 
 describe('곡 관리', () => {

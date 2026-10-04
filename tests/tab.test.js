@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent } from '../src/tab.js';
+import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures } from '../src/tab.js';
 import { SLOTS, PER_LINE } from '../src/constants.js';
 
 describe('parse', () => {
@@ -79,7 +79,25 @@ describe('padMeasures / 기타', () => {
   });
   it('prevPos는 마디 경계를 넘는다', () => {
     expect(prevPos({ m: 1, s: 2, i: 0 })).toEqual({ m: 0, s: 2, i: SLOTS - 1 });
+    expect(prevPos({ m: 1, s: 2, i: 0 }, 12)).toEqual({ m: 0, s: 2, i: 11 });
     expect(prevPos({ m: 0, s: 2, i: 0 })).toBeNull();
+  });
+  it('박자표 헬퍼와 마디 크기 조정', () => {
+    expect(slotsOf({ meter: '3/4' })).toBe(12);
+    expect(beatOf({ meter: '6/8' })).toBe(6);
+    expect(slotsOf({ meter: 'nope' })).toBe(16);
+    const ms = [emptyMeasure()];
+    ms[0][0][0] = '1'; ms[0][0][15] = '9';
+    const small = resizeMeasures(ms, 12);
+    expect(small[0][0].length).toBe(12);
+    expect(small[0][0][0]).toBe('1');
+    const big = resizeMeasures(small, 20);
+    expect(big[0][0].length).toBe(20);
+    expect(big[0][0][19]).toBe('');
+    expect(validMeasures(small)).toBe(true);
+    expect(validMeasures(small, 12)).toBe(true);
+    expect(validMeasures(small, 16)).toBe(false);
+    expect(padMeasures([emptyMeasure(12)]).every((m) => m[0].length === 12)).toBe(true);
   });
   it('nextNoteOnString은 같은 줄 다음 음을 찾는다', () => {
     const ms = [emptyMeasure(), emptyMeasure()];

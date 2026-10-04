@@ -1,5 +1,5 @@
 // 타브 데이터에 대한 순수 함수 모음. DOM/오디오/저장소를 건드리지 않아 테스트하기 쉽다.
-import { STRINGS, SLOTS, PER_LINE, MAX_FRET } from './constants.js';
+import { STRINGS, SLOTS, PER_LINE, MAX_FRET, METERS, DEFAULT_METER } from './constants.js';
 
 /** 셀 문자열 '12h' → {num:'12', mod:'h'} */
 export function parse(v) {
@@ -7,28 +7,48 @@ export function parse(v) {
   return { num: m[1], mod: m[2] };
 }
 
-export function emptyMeasure() {
+/** 곡(또는 {meter})의 한 마디 칸 수 */
+export function slotsOf(song) { return (METERS[song && song.meter] || METERS[DEFAULT_METER]).slots; }
+/** 한 박의 칸 수 */
+export function beatOf(song) { return (METERS[song && song.meter] || METERS[DEFAULT_METER]).beat; }
+
+export function emptyMeasure(slots) {
+  slots = slots || SLOTS;
   const m = [];
   for (let s = 0; s < STRINGS; s++) {
     const r = [];
-    for (let i = 0; i < SLOTS; i++) r.push('');
+    for (let i = 0; i < slots; i++) r.push('');
     m.push(r);
   }
   return m;
 }
 
+/** 마디 칸 수를 바꾼다(잘라내거나 빈 칸으로 채움). 새 배열을 돌려준다. */
+export function resizeMeasures(ms, slots) {
+  return ms.map((m) => m.map((r) => {
+    const n = r.slice(0, slots);
+    while (n.length < slots) n.push('');
+    return n;
+  }));
+}
+
 export function cloneMeasure(m) { return m.map((r) => r.slice()); }
 export function cloneMeasures(ms) { return ms.map(cloneMeasure); }
 
-export function validMeasures(ms) {
-  return Array.isArray(ms) && ms.length > 0 && ms.every((m) =>
+/** 모양이 맞는 마디 배열인지. slots를 주면 칸 수까지 검사하고, 안 주면 모든 행의 길이가 같기만 하면 된다. */
+export function validMeasures(ms, slots) {
+  if (!Array.isArray(ms) || !ms.length) return false;
+  const n = slots || (ms[0] && ms[0][0] && ms[0][0].length);
+  if (!n) return false;
+  return ms.every((m) =>
     Array.isArray(m) && m.length === STRINGS && m.every((r) =>
-      Array.isArray(r) && r.length === SLOTS && r.every((v) => typeof v === 'string')));
+      Array.isArray(r) && r.length === n && r.every((v) => typeof v === 'string')));
 }
 
 /** 마디 수가 PER_LINE의 배수가 되도록 빈 마디를 덧붙인다(제자리 변경). */
-export function padMeasures(ms) {
-  while (ms.length % PER_LINE) ms.push(emptyMeasure());
+export function padMeasures(ms, slots) {
+  slots = slots || (ms[0] ? ms[0][0].length : SLOTS);
+  while (ms.length % PER_LINE) ms.push(emptyMeasure(slots));
   return ms;
 }
 
@@ -98,22 +118,23 @@ export function applyMod(cur, prev, ch) {
   return { target: 'cur', value: ch, advance: false };
 }
 
-/** 전역 칸 번호 ↔ {m,i} */
-export function posToG(p) { return p.m * SLOTS + p.i; }
-export function gToPos(g, s) { return { m: Math.floor(g / SLOTS), s, i: g % SLOTS }; }
-export function prevPos(p) {
-  const g = posToG(p) - 1;
+/** 전역 칸 번호 ↔ {m,i} (slots = 한 마디 칸 수) */
+export function posToG(p, slots) { return p.m * (slots || SLOTS) + p.i; }
+export function gToPos(g, s, slots) { slots = slots || SLOTS; return { m: Math.floor(g / slots), s, i: g % slots }; }
+export function prevPos(p, slots) {
+  const g = posToG(p, slots) - 1;
   if (g < 0) return null;
-  return gToPos(g, p.s);
+  return gToPos(g, p.s, slots);
 }
 
-/** 같은 줄에서 다음 음(최대 32칸 앞)을 찾는다. 슬라이드 목표 계산용. */
-export function nextNoteOnString(measures, m, s, i) {
-  const total = measures.length * SLOTS;
-  const g = m * SLOTS + i;
+/** 같은 줄에서 다음 음(최대 32칸 앞)을 찾는다. 슬라이드 목표 계산용. 끊기('.')를 만나면 없음. */
+export function nextNoteOnString(measures, m, s, i, slots) {
+  slots = slots || (measures[0] ? measures[0][0].length : SLOTS);
+  const total = measures.length * slots;
+  const g = m * slots + i;
   for (let d = 1; d <= 32 && g + d < total; d++) {
     const gg = g + d;
-    const v = measures[Math.floor(gg / SLOTS)][s][gg % SLOTS];
+    const v = measures[Math.floor(gg / slots)][s][gg % slots];
     if (v) {
       const p = parse(v);
       if (p.num) return { fret: +p.num, dist: d };
