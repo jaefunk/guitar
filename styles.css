@@ -160,6 +160,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .pad-info .pos{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pad-info .pos.hint{color:var(--muted);font-weight:500}
 .pad-info .pos.pend{color:var(--accent)}
+.chip{flex:0 0 auto;height:24px;padding:0 9px;border:1px solid var(--accent);border-radius:12px;background:var(--sel);color:var(--accent);font:700 12px/1 var(--mono)}
+.chip:active{background:var(--accent);color:var(--accent-ink)}
 .info-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .toggle{display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer;font:600 12px/1 var(--sans);color:var(--muted)}
 .toggle input{accent-color:var(--accent);margin:0}
@@ -240,7 +242,8 @@ input[type=range]{accent-color:var(--accent);width:46%;margin:0}
 .chords{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .chord{border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);padding:9px 4px;display:flex;flex-direction:column;align-items:center;gap:3px}
 .chord b{font:700 15px/1 var(--mono)}
-.chord small{font:500 10px/1 var(--mono);color:var(--muted)}
+.chord .diagram{display:block;color:var(--ink);line-height:0}
+.chord .diagram svg{display:block}
 .chord:active{background:var(--sel)}
 .img-out{text-align:center}
 .img-out img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:4px}

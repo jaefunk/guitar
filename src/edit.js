@@ -330,3 +330,12 @@ export function repeatMenuItems(m) {
     { k: '3.', label: '3번 괄호', disabled: r.v === 3, action: () => { setRep(m, { v: 3 }); } }
   ];
 }
+
+/** 메모를 바로 넣는다(코드 인식 칩용) */
+export function setMark(m, i, v) {
+  const k = m + ':' + i;
+  if ((state.marks[k] || '') === v) return;
+  pushUndo();
+  if (v) state.marks[k] = v; else delete state.marks[k];
+  paintMark(m, i); save();
+}

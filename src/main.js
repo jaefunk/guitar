@@ -6,12 +6,13 @@ import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
   copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
-  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems
+  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
 import { toText, parseText, renderImage } from './io.js';
 import { toMidi } from './midi.js';
+import { chordDiagramSVG } from './chords.js';
 import { bindSongs } from './songs.js';
 import { padMeasures, slotsOf, beatOf } from './tab.js';
 
@@ -217,6 +218,7 @@ function bind() {
   $('clearAll').addEventListener('click', clearAll);
   $('chordBtn').addEventListener('click', () => { if (!needSel()) return; $('chordModal').hidden = false; });
   $('markBtn').addEventListener('click', () => { if (!needSel()) return; editMark(ed.sel.m, ed.sel.i); });
+  $('chordHint').addEventListener('click', function () { if (!ed.sel) return; setMark(ed.sel.m, ed.sel.i, this.dataset.name); toast(this.dataset.name + ' 메모로 넣음'); });
   $('helpBtn').addEventListener('click', () => { $('helpModal').hidden = false; });
   $('closeModal').addEventListener('click', () => { $('modal').hidden = true; });
   $('closeImport').addEventListener('click', () => { $('importModal').hidden = true; });
@@ -270,9 +272,10 @@ function boot() {
   const g = $('chordGrid');
   CHORDS.forEach((ch) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'chord'; b.dataset.name = ch[0]; b.dataset.fing = ch[1];
+    b.title = ch[0] + ' (' + ch[1] + ')';
     const n = document.createElement('b'); n.textContent = ch[0];
-    const f = document.createElement('small'); f.textContent = ch[1];
-    b.appendChild(n); b.appendChild(f); g.appendChild(b);
+    const d = document.createElement('span'); d.className = 'diagram'; d.innerHTML = chordDiagramSVG(ch[1]);
+    b.appendChild(n); b.appendChild(d); g.appendChild(b);
   });
   const s = $('instr');
   Object.keys(INSTR).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = INSTR[k].name; s.appendChild(o); });

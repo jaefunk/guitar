@@ -5,6 +5,7 @@ import { parse, slotsOf, beatOf } from './tab.js';
 import { $ } from './ui.js';
 import { pb, applyLoopMarks } from './audio.js';
 import { updateFretboard } from './fretboard.js';
+import { detectColumn } from './chords.js';
 
 /** 셀 캐시: cells[m][s][i], marks[m][i], rulers[m], mdivs[m] = 줄별 마디 컨테이너 */
 export const dom = { cells: [], marks: [], rulers: [], mdivs: [] };
@@ -174,9 +175,18 @@ export function setSel(n, scroll) {
     if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }
+/** 선택한 칸의 코드 이름 칩 */
+function updateChordHint() {
+  const chip = $('chordHint'); if (!chip) return;
+  const sel = ed.sel;
+  const ch = sel && !pb.playing ? detectColumn(state.measures[sel.m], sel.i, state.tuning) : null;
+  chip.hidden = !ch;
+  if (ch) { chip.textContent = ch.name; chip.dataset.name = ch.name; chip.title = ch.name + ' 코드로 인식됨. 탭하면 메모로 넣어요'; }
+}
 export function updateInfo() {
   const selInfo = $('selInfo');
   const sel = ed.sel;
+  updateChordHint();
   selInfo.classList.remove('hint', 'pend');
   if (pb.playing && pb.lastHL !== null) {
     selInfo.textContent = '재생 중: 마디 ' + (pb.lastHL.m + 1) + ' / ' + state.measures.length + (pb.trainer ? ' · 트레이너 ' + pb.bpm + ' BPM' : '');

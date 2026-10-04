@@ -157,6 +157,25 @@ console.log('4b. 다중 마디 선택 · 팜뮤트 · 조옮김');
   check('되돌리기 6번 후 원상복구', await cellText(1, 1, 0) === '12h' && await cellText(5, 1, 1) === '' && await page.$$eval('.mk.pm', (els) => els.length) === 0);
 }
 
+console.log('4b2. 코드 인식 칩');
+{
+  await page.click('.cell[data-m="6"][data-s="0"][data-i="0"]');
+  await page.click('#chordBtn');
+  check('코드 라이브러리에 다이어그램', await page.$$eval('#chordGrid .chord svg', (els) => els.length) === 30);
+  await page.click('#closeChord');
+  // 직접 E 코드를 쌓는다 (e:0, B:0, G:1, D:2 → E B G# E, 베이스 E) → E
+  for (const [s, d] of [[0, '0'], [1, '0'], [2, '1'], [3, '2']]) { await page.click(`.cell[data-m="6"][data-s="${s}"][data-i="0"]`); await page.click(`.key[data-digit="${d}"]`); }
+  await page.click('.cell[data-m="6"][data-s="0"][data-i="0"]');
+  check('E 인식', !(await page.$eval('#chordHint', (el) => el.hidden)) && await page.textContent('#chordHint') === 'E', await page.textContent('#chordHint'));
+  await page.click('.cell[data-m="6"][data-s="1"][data-i="4"]');
+  check('음 없는 칸은 칩 숨김', await page.$eval('#chordHint', (el) => el.hidden));
+  await page.click('.cell[data-m="6"][data-s="0"][data-i="0"]');
+  await page.click('#chordHint');
+  check('칩 탭 → 메모', await page.$eval('.mk[data-m="6"][data-i="0"]', (el) => el.textContent) === 'E');
+  for (let u = 0; u < 5; u++) await page.click('#undo');
+  check('되돌림', await cellText(6, 0, 0) === '' && await page.$eval('.mk[data-m="6"][data-i="0"]', (el) => el.textContent) === '');
+}
+
 console.log('4c. 반복 기호');
 {
   await page.click('.cell[data-m="1"][data-s="0"][data-i="0"]');
