@@ -174,7 +174,7 @@ export function renderImage(song) {
           c.fillStyle = P.bg; c.fillRect(cx - tw / 2 - 1, cy - 7, tw + 2, 14);
           let tx = cx - tw / 2; c.textAlign = 'left';
           if (p.num) { c.fillStyle = P.ink; c.font = monoB; c.fillText(p.num, tx, cy); tx += wn; }
-          if (p.mod) { c.fillStyle = P.mod; c.font = monoR; c.fillText(p.mod, tx, cy); }
+          if (p.mod) { c.fillStyle = p.mod === '.' ? P.muted : P.mod; c.font = monoR; c.fillText(p.mod === '.' ? '·' : p.mod, tx, cy); }
         }
       }
     }

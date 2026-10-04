@@ -146,6 +146,7 @@ function scheduleSlot(pos, t) {
   for (let s = STRINGS - 1; s >= 0; s--) {
     const v = meas[s][i]; if (!v) continue;
     const p = parse(v);
+    if (p.mod === '.') { stopVoice(active[s], t); active[s] = null; continue; } // 끊기
     if (!p.num && p.mod !== 'x') continue;
     notes.push({ s, p });
   }

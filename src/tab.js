@@ -1,11 +1,13 @@
 // 타브 데이터에 대한 순수 함수 모음. DOM/오디오/저장소를 건드리지 않아 테스트하기 쉽다.
-import { STRINGS, SLOTS, PER_LINE, MAX_FRET, METERS, DEFAULT_METER } from './constants.js';
+import { STRINGS, SLOTS, PER_LINE, MAX_FRET, METERS, DEFAULT_METER, REST } from './constants.js';
 
-/** 셀 문자열 '12h' → {num:'12', mod:'h'} */
+/** 셀 문자열 '12h' → {num:'12', mod:'h'}. 끊기('.')는 {num:'', mod:'.'} */
 export function parse(v) {
   const m = /^(\d{0,2})(.*)$/.exec(v || '');
   return { num: m[1], mod: m[2] };
 }
+/** 끊기(쉼표) 칸인가 */
+export function isRest(v) { return v === REST; }
 
 /** 곡(또는 {meter})의 한 마디 칸 수 */
 export function slotsOf(song) { return (METERS[song && song.meter] || METERS[DEFAULT_METER]).slots; }
@@ -101,7 +103,7 @@ export function nextDigit(cur, d, pending) {
 
 /**
  * 기법 입력 규칙.
- *  - x: 현재 셀을 'x'로.
+ *  - x / .(끊기): 현재 셀을 그 글자 하나로.
  *  - 현재 셀에 숫자가 있으면 거기에 붙인다.
  *  - 현재 셀이 비어 있고 이전 셀에 숫자가 있으면 이전 셀에 붙인다(자동 이동 뒤 h를 누르는 흐름).
  *  - 그 외엔 현재 셀에 기법만 단독 저장.
@@ -109,7 +111,7 @@ export function nextDigit(cur, d, pending) {
  */
 export function applyMod(cur, prev, ch) {
   const p = parse(cur);
-  if (ch === 'x') return { target: 'cur', value: 'x', advance: true };
+  if (ch === 'x' || ch === REST) return { target: 'cur', value: ch, advance: true };
   if (p.num) return { target: 'cur', value: p.num + ch, advance: true };
   if (!cur && prev != null) {
     const pp = parse(prev);

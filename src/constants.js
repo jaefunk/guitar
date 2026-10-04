@@ -40,7 +40,9 @@ export const CHORDS = [
   ['Cadd9', 'x32030'], ['Dsus4', 'xx0233'], ['Asus2', 'x02200'], ['Esus4', '022200'], ['G/B', 'x20003'], ['D/F#', '2x0232']
 ];
 
-export const MODS = ['h', 'p', 'b', '/', '\\', '~', 'x'];
+// 기법 문자. 'x' 뮤트와 '.' 끊기(쉼표)는 단독으로 쓰인다.
+export const MODS = ['h', 'p', 'b', '/', '\\', '~', 'x', '.'];
+export const REST = '.';
 
 export const INSTR = {
   acoustic: { name: '어쿠스틱 (스틸)', g: 0.9965, S: 0.45, bright: 0.8, pick: 0.16, len: 3.0 },

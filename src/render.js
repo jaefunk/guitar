@@ -19,7 +19,12 @@ export function paintCell(c, v) {
   const p = parse(v);
   const span = document.createElement('span'); span.className = 'v';
   if (p.num) { const a = document.createElement('span'); a.textContent = p.num; span.appendChild(a); }
-  if (p.mod) { const b = document.createElement('span'); b.className = 'mod'; b.textContent = p.mod; span.appendChild(b); }
+  if (p.mod) {
+    const b = document.createElement('span');
+    b.className = 'mod' + (p.mod === '.' ? ' rest' : '');
+    b.textContent = p.mod === '.' ? '·' : p.mod;
+    span.appendChild(b);
+  }
   c.appendChild(span);
 }
 

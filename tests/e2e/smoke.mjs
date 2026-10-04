@@ -55,6 +55,13 @@ await page.click('#del');
 check('Backspace: 빈 칸이면 왼쪽을 지움', await cellText(1, 1, 1) === '');
 await page.click('#undo');
 check('실행 취소', await cellText(1, 1, 1) === '5');
+await page.click('.cell[data-m="1"][data-s="1"][data-i="3"]');
+await page.click('.key[data-mod="."]');
+check('끊기(·) 입력', await page.$eval('.cell[data-m="1"][data-s="1"][data-i="3"] .rest', (el) => el.textContent) === '·');
+await page.keyboard.press('Escape');
+await page.click('.cell[data-m="1"][data-s="1"][data-i="3"]');
+await page.keyboard.press('Backspace');
+check('끊기 지움', await cellText(1, 1, 3) === '');
 
 console.log('3. 텍스트 내보내기 왕복');
 await openMenuItem('exportMenu', '텍스트 타브');

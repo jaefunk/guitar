@@ -34,8 +34,10 @@ describe('nextDigit (두 자리 입력 규칙)', () => {
 });
 
 describe('applyMod (기법 붙이기 규칙)', () => {
-  it('x는 단독으로 현재 칸에', () => {
+  it('x와 .(끊기)는 단독으로 현재 칸에', () => {
     expect(applyMod('7', '5', 'x')).toEqual({ target: 'cur', value: 'x', advance: true });
+    expect(applyMod('', '5', '.')).toEqual({ target: 'cur', value: '.', advance: true });
+    expect(parse('.')).toEqual({ num: '', mod: '.' });
   });
   it('현재 칸에 숫자가 있으면 붙인다', () => {
     expect(applyMod('7', '5', 'h')).toEqual({ target: 'cur', value: '7h', advance: true });
@@ -105,6 +107,8 @@ describe('padMeasures / 기타', () => {
     ms[1][3][1] = '7';
     expect(nextNoteOnString(ms, 0, 3, 2)).toEqual({ fret: 7, dist: SLOTS - 1 });
     ms[0][3][5] = 'x';
+    expect(nextNoteOnString(ms, 0, 3, 2)).toBeNull();
+    ms[0][3][5] = '.';
     expect(nextNoteOnString(ms, 0, 3, 2)).toBeNull();
     expect(hasContent(ms)).toBe(true);
   });

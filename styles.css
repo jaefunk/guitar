@@ -104,6 +104,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
   background:var(--bg);padding:0 1px;font:700 var(--fs)/1 var(--mono);color:var(--ink);white-space:nowrap;
 }
 .cell .v .mod{color:var(--mod);font-weight:500}
+.cell .v .rest{color:var(--muted);font-weight:700;font-size:1.3em;line-height:.6}
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
 
@@ -142,7 +143,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .mini:active{background:var(--key)}
 .pad-row{display:grid;gap:6px;margin-bottom:6px}
 .pad-row.digits{grid-template-columns:repeat(10,1fr)}
-.pad-row.mods{grid-template-columns:repeat(8,1fr)}
+.pad-row.mods{grid-template-columns:repeat(9,1fr)}
 .pad-row.nav{grid-template-columns:repeat(6,1fr);margin-bottom:0}
 .key{
   appearance:none;-webkit-appearance:none;border:1px solid var(--border);background:var(--key);color:var(--key-ink);

@@ -70,8 +70,9 @@ describe('텍스트 타브 왕복', () => {
       expect(r.marks).toEqual(s.marks);
     });
   });
-  it('기법만 단독인 칸(h)도 살아남는다', () => {
-    const s = song({ measures: withNotes([[0, 0, 0, 'h'], [0, 0, 1, '5']]) });
+  it('기법만 단독인 칸(h)과 끊기(.)도 살아남는다', () => {
+    const s = song({ measures: withNotes([[0, 0, 0, 'h'], [0, 0, 1, '5'], [0, 0, 3, '.'], [1, 5, 0, '.']]) });
+    expect(toText(s)).toMatch(/\|h-5-.-/);
     expect(parseText(toText(s)).measures).toEqual(s.measures);
   });
   it('다른 튜닝(두 글자 줄 이름)', () => {
