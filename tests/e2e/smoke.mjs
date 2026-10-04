@@ -114,6 +114,48 @@ await page.click('#dlgOk');
 check('삭제 후 2곡, 이웃 곡 열림', await page.$$eval('#songList .song', (els) => els.length) === 2 && await page.inputValue('#title') === '옛 곡 사본');
 await page.click('#closeSongs');
 
+console.log('4b. 다중 마디 선택 · 팜뮤트 · 조옮김');
+{
+  const r1 = await page.$('.ruler .measure[data-m="1"]');
+  await r1.scrollIntoViewIfNeeded();
+  const box = await r1.boundingBox();
+  // 왼쪽 끝은 고정된 줄 이름 칸에 가릴 수 있으니 마디 가운데를 누른다
+  await page.mouse.move(box.x + box.width / 2, box.y + 6);
+  await page.mouse.down();
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  check('길게 눌러 범위 시작', !(await page.$eval('#rangeBar', (el) => el.hidden)));
+  await page.click('.ruler .measure[data-m="2"]');
+  check('범위 2~3 확장', (await page.textContent('#rangeLabel')).indexOf('마디 2~3') === 0);
+  check('범위 표시', await page.$$eval('.ruler .measure.range', (els) => els.length) === 2);
+  await page.click('#rangeBar [data-act="pm"]');
+  check('팜뮤트 켬', await page.$$eval('.mk.pm', (els) => els.length) === 32 && await page.$$eval('.mk.pm-start', (els) => els.length) === 1);
+  await page.click('#rangeBar [data-act="transpose"]');
+  await page.fill('#dlgInput', '2');
+  await page.click('#dlgOk');
+  check('조옮김 +2 (12h→14h)', await cellText(1, 1, 0) === '14h');
+  await page.click('#rangeBar [data-act="right"]');
+  check('오른쪽 밀기', await cellText(1, 1, 1) === '14h' && await cellText(1, 1, 0) === '');
+  await openMenuItem('exportMenu', '텍스트 타브');
+  const t3 = await page.inputValue('#exportText');
+  check('텍스트에 PM 줄', /^PM/m.test(t3));
+  await page.click('#closeModal');
+  check('밀기 후 팜뮤트도 한 칸 밀림', await page.$$eval('.mk.pm', (els) => els.length) === 31);
+  await page.click('#rangeBar [data-act="pm"]'); // 일부만 켜져 있으면 전부 켠다
+  check('팜뮤트 전부 켬', await page.$$eval('.mk.pm', (els) => els.length) === 32);
+  await page.click('#rangeBar [data-act="pm"]');
+  check('팜뮤트 끔', await page.$$eval('.mk.pm', (els) => els.length) === 0);
+  await page.click('#rangeBar [data-act="copy"]');
+  await page.click('.ruler .measure[data-m="4"]'); // 범위 중엔 확장이므로 먼저 해제
+  await page.click('#rangeBar [data-act="close"]');
+  check('범위 해제', await page.$eval('#rangeBar', (el) => el.hidden));
+  await page.click('.cell[data-m="5"][data-s="0"][data-i="0"]');
+  await openMenuItem('measureMenu', '붙여넣기');
+  check('두 마디 붙여넣기', await cellText(5, 1, 1) === '14h');
+  await page.click('#undo'); await page.click('#undo'); await page.click('#undo'); await page.click('#undo');
+  check('되돌리기 4번 후 원상복구', await cellText(1, 1, 0) === '12h' && await cellText(5, 1, 1) === '');
+}
+
 console.log('5. 새로고침 후 복원');
 await page.reload();
 await page.waitForSelector('.cell');

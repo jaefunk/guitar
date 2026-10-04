@@ -2,15 +2,16 @@
 import { STRINGS, PER_LINE, DEFAULT_MEASURES, METERS } from './constants.js';
 import { state, ed, save, touch } from './state.js';
 import {
-  parse, nextDigit, applyMod, prevPos, emptyMeasure, cloneMeasure, hasContent,
-  measureMarks, shiftMarks, padMeasures, slotsOf, beatOf, resizeMeasures
+  parse, nextDigit, applyMod, prevPos, emptyMeasure, hasContent,
+  shiftMarks, padMeasures, slotsOf, beatOf, resizeMeasures,
+  sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm
 } from './tab.js';
-import { paintCell, paintMark, setSel, setPending, cellAt, render } from './render.js';
+import { paintCell, paintMark, setSel, setPending, cellAt, render, applyRange } from './render.js';
 import { $, toast, ask } from './ui.js';
 import { preview } from './audio.js';
 import { updateFretboard } from './fretboard.js';
 
-function snapshot() { return JSON.stringify({ measures: state.measures, marks: state.marks }); }
+function snapshot() { return JSON.stringify({ measures: state.measures, marks: state.marks, pm: state.pm }); }
 export function pushUndo() {
   ed.undoStack.push(snapshot());
   if (ed.undoStack.length > 120) ed.undoStack.shift();
@@ -88,7 +89,7 @@ export function clearColumn() {
 export function doUndo() {
   if (!ed.undoStack.length) { toast('되돌릴 작업이 없어요'); return; }
   const d = JSON.parse(ed.undoStack.pop());
-  state.measures = d.measures; state.marks = d.marks || {};
+  state.measures = d.measures; state.marks = d.marks || {}; state.pm = d.pm || {};
   touch(); save(); render(); toast('되돌림');
 }
 
@@ -109,7 +110,7 @@ export function delLine() {
     if (!ok) return;
     pushUndo();
     state.measures.splice(-PER_LINE, PER_LINE);
-    state.marks = shiftMarks(state.marks, from, -PER_LINE);
+    state.marks = shiftMarks(state.marks, from, -PER_LINE); state.pm = shiftMarks(state.pm, from, -PER_LINE);
     if (ed.sel && ed.sel.m >= state.measures.length) ed.sel = null;
     save(); render(); toast('마지막 줄 삭제됨');
   });
@@ -119,7 +120,7 @@ export function insertMeasure(after) {
   const at = ed.sel.m + (after ? 1 : 0);
   pushUndo();
   state.measures.splice(at, 0, blank());
-  state.marks = shiftMarks(state.marks, at, 1);
+  state.marks = shiftMarks(state.marks, at, 1); state.pm = shiftMarks(state.pm, at, 1);
   padMeasures(state.measures, slotsOf(state));
   ed.sel = { m: at, s: ed.sel.s, i: 0 };
   save(); render(); toast('마디 ' + (at + 1) + '에 빈 마디 삽입');
@@ -134,27 +135,27 @@ export function deleteMeasure() {
     if (!ok) return;
     pushUndo();
     state.measures.splice(m, 1);
-    state.marks = shiftMarks(state.marks, m, -1);
+    state.marks = shiftMarks(state.marks, m, -1); state.pm = shiftMarks(state.pm, m, -1);
     if (!state.measures.length) state.measures.push(blank());
     padMeasures(state.measures, slotsOf(state));
     if (ed.sel.m >= state.measures.length) ed.sel.m = state.measures.length - 1;
     save(); render(); toast('마디 ' + (m + 1) + ' 삭제됨');
   });
 }
+/** 범위가 있으면 범위를, 없으면 선택 마디 하나를 복사 */
 export function copyMeasure() {
-  if (!needSel()) return;
-  ed.clip = { m: cloneMeasure(state.measures[ed.sel.m]), marks: measureMarks(state.marks, ed.sel.m) };
-  toast('마디 ' + (ed.sel.m + 1) + ' 복사됨');
+  const r = rangeOrSel();
+  if (!r) return;
+  ed.clip = sliceRange(state, r.from, r.to);
+  toast(r.from === r.to ? '마디 ' + (r.from + 1) + ' 복사됨' : '마디 ' + (r.from + 1) + '~' + (r.to + 1) + ' 복사됨');
 }
 export function pasteMeasure() {
   if (!needSel()) return;
   if (!ed.clip) { toast('복사한 마디가 없어요'); return; }
-  const m = ed.sel.m;
+  const m = ed.sel.m, n = ed.clip.measures.length;
   pushUndo();
-  state.measures[m] = cloneMeasure(ed.clip.m);
-  Object.keys(state.marks).forEach((k) => { if (+k.split(':')[0] === m) delete state.marks[k]; });
-  Object.keys(ed.clip.marks).forEach((i) => { state.marks[m + ':' + i] = ed.clip.marks[i]; });
-  save(); render(); toast('마디 ' + (m + 1) + '에 붙여넣음');
+  pasteRange(state, ed.clip, m);
+  save(); render(); toast(n === 1 ? '마디 ' + (m + 1) + '에 붙여넣음' : '마디 ' + (m + 1) + '~' + (m + n) + '에 붙여넣음');
 }
 export function clearMeasure() {
   if (!needSel()) return;
@@ -172,7 +173,7 @@ export function clearAll() {
     pushUndo();
     state.measures = [];
     for (let k = 0; k < DEFAULT_MEASURES; k++) state.measures.push(blank());
-    state.marks = {};
+    state.marks = {}; state.pm = {}; ed.range = null;
     ed.sel = { m: 0, s: 0, i: 0 };
     save(); render(); $('settingsModal').hidden = true; toast('전체 지움');
   });
@@ -227,9 +228,75 @@ export function setMeter(meter) {
     state.measures = resizeMeasures(state.measures, slots);
     // 잘린 칸의 메모와 팜뮤트도 버린다
     Object.keys(state.marks).forEach((k) => { if (+k.split(':')[1] >= slots) delete state.marks[k]; });
+    Object.keys(state.pm).forEach((k) => { if (+k.split(':')[1] >= slots) delete state.pm[k]; });
     state.meter = meter;
     if (ed.sel && ed.sel.i >= slots) ed.sel.i = slots - 1;
     save(); render(); toast('박자표 ' + meter);
     return true;
   });
+}
+
+/* ---------- 마디 범위(다중 선택) ---------- */
+function rangeOrSel() {
+  if (ed.range) return ed.range;
+  if (!needSel()) return null;
+  return { from: ed.sel.m, to: ed.sel.m };
+}
+/** 범위 시작 또는 확장. 범위가 없으면 m 하나짜리 범위를 만든다. */
+export function setRange(m) {
+  if (!ed.range) ed.range = { from: m, to: m };
+  else if (m < ed.range.from) ed.range.from = m;
+  else ed.range.to = m;
+  applyRange();
+}
+export function clearRange() { if (!ed.range) return; ed.range = null; applyRange(); }
+export function rangeLabel() {
+  const r = ed.range; if (!r) return '';
+  return r.from === r.to ? '마디 ' + (r.from + 1) : '마디 ' + (r.from + 1) + '~' + (r.to + 1) + ' (' + (r.to - r.from + 1) + '마디)';
+}
+export function deleteRange() {
+  const r = ed.range; if (!r) return;
+  const n = r.to - r.from + 1;
+  const go = hasContent(state.measures.slice(r.from, r.to + 1))
+    ? ask({ title: '마디 삭제', msg: rangeLabel() + '을(를) 삭제하고 뒤 마디를 당길까요?', ok: '삭제' })
+    : Promise.resolve(true);
+  go.then((ok) => {
+    if (!ok) return;
+    pushUndo();
+    state.measures.splice(r.from, n);
+    state.marks = shiftMarks(state.marks, r.from, -n); state.pm = shiftMarks(state.pm, r.from, -n);
+    if (!state.measures.length) state.measures.push(blank());
+    padMeasures(state.measures, slotsOf(state));
+    ed.range = null;
+    if (ed.sel) ed.sel.m = Math.min(r.from, state.measures.length - 1);
+    save(); render(); toast(n + '마디 삭제됨');
+  });
+}
+export function transposeRange() {
+  const r = rangeOrSel(); if (!r) return;
+  ask({ title: '조옮김', msg: (rangeLabel() || ('마디 ' + (r.from + 1))) + '의 모든 프렛에 더할 수 (예: 2, -3, 12)', input: true, value: '', placeholder: '반음 수', ok: '적용' })
+    .then((v) => {
+      if (v === null) return;
+      const n = Math.round(+v);
+      if (!n) { toast('0이 아닌 정수를 넣으세요'); return; }
+      const part = transposeMeasures(state.measures.slice(r.from, r.to + 1), n);
+      if (!part) { toast('0 미만이나 24 초과 프렛이 생겨서 바꾸지 않았어요'); return; }
+      pushUndo();
+      part.forEach((m, k) => { state.measures[r.from + k] = m; });
+      save(); render(); toast((n > 0 ? '+' : '') + n + ' 프렛 조옮김');
+    });
+}
+export function shiftRange(dir) {
+  const r = rangeOrSel(); if (!r) return;
+  const res = shiftCells(state, r.from, r.to, dir);
+  pushUndo();
+  state.measures = res.measures; state.marks = res.marks; state.pm = res.pm;
+  save(); render(); toast(dir > 0 ? '한 칸 오른쪽으로 밀었어요' : '한 칸 왼쪽으로 밀었어요');
+}
+export function togglePmRange() {
+  const r = rangeOrSel(); if (!r) return;
+  const slots = slotsOf(state), on = !allPm(state.pm, r.from, r.to, slots);
+  pushUndo();
+  state.pm = togglePm(state.pm, r.from, r.to, slots);
+  save(); render(); toast(on ? '팜뮤트 켬 (P.M.)' : '팜뮤트 끔');
 }

@@ -9,7 +9,7 @@ import {
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures, slotsOf } from './tab.js';
 
-export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks'];
+export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
   'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview'
@@ -32,12 +32,12 @@ export function defaultSong(now, meter) {
   const ms = [];
   for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure(METERS[meter].slots));
   const t = now || Date.now();
-  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, createdAt: t, updatedAt: t };
+  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, pm: {}, createdAt: t, updatedAt: t };
 }
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
 export const state = Object.assign({}, defaultSettings(), {
-  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}
+  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}, pm: {}
 });
 
 /** 편집 세션 상태(저장 안 함) */
@@ -63,6 +63,9 @@ export function sanitizeSong(d, now) {
     Object.keys(d.marks).forEach((k) => {
       if (/^\d+:\d+$/.test(k) && typeof d.marks[k] === 'string' && d.marks[k]) s.marks[k] = d.marks[k];
     });
+  }
+  if (d.pm && typeof d.pm === 'object') {
+    Object.keys(d.pm).forEach((k) => { if (/^\d+:\d+$/.test(k) && d.pm[k]) s.pm[k] = 1; });
   }
   if (typeof d.createdAt === 'number') s.createdAt = d.createdAt;
   if (typeof d.updatedAt === 'number') s.updatedAt = d.updatedAt;

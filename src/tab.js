@@ -145,3 +145,102 @@ export function nextNoteOnString(measures, m, s, i, slots) {
   }
   return null;
 }
+
+/* ---------- 마디 범위 연산 (다중 선택) ---------- */
+
+/** 'm:i' 키 맵에서 마디 from..to(포함)에 속한 항목을 상대 마디 번호 'dm:i'로 옮겨 돌려준다 */
+export function keysInRange(map, from, to) {
+  const o = {};
+  Object.keys(map || {}).forEach((k) => {
+    const p = k.split(':'), m = +p[0];
+    if (m >= from && m <= to) o[(m - from) + ':' + p[1]] = map[k];
+  });
+  return o;
+}
+
+/** 범위를 클립보드 꼴로 복사: {measures, marks, pm} (marks/pm는 상대 키) */
+export function sliceRange(song, from, to) {
+  return {
+    measures: cloneMeasures(song.measures.slice(from, to + 1)),
+    marks: keysInRange(song.marks, from, to),
+    pm: keysInRange(song.pm, from, to)
+  };
+}
+
+/** 클립을 at 마디부터 덮어쓴다(제자리). 부족하면 마디를 늘리고 PER_LINE 배수로 채운다. */
+export function pasteRange(song, clip, at) {
+  const slots = slotsOf(song);
+  const src = resizeMeasures(clip.measures, slots);
+  while (song.measures.length < at + src.length) song.measures.push(emptyMeasure(slots));
+  src.forEach((m, k) => { song.measures[at + k] = cloneMeasure(m); });
+  ['marks', 'pm'].forEach((f) => {
+    const map = song[f] || {};
+    Object.keys(map).forEach((k) => { const m = +k.split(':')[0]; if (m >= at && m < at + src.length) delete map[k]; });
+    Object.keys(clip[f] || {}).forEach((k) => {
+      const p = k.split(':');
+      if (+p[1] < slots) map[(at + +p[0]) + ':' + p[1]] = clip[f][k];
+    });
+    song[f] = map;
+  });
+  padMeasures(song.measures, slots);
+}
+
+/**
+ * 조옮김. 모든 프렛에 n을 더한다. 0 미만이나 MAX_FRET 초과가 생기면 바꾸지 않고 null.
+ * 기법 글자는 유지한다.
+ */
+export function transposeMeasures(ms, n) {
+  const out = cloneMeasures(ms);
+  for (let m = 0; m < out.length; m++) {
+    for (let s = 0; s < STRINGS; s++) {
+      for (let i = 0; i < out[m][s].length; i++) {
+        const p = parse(out[m][s][i]);
+        if (!p.num) continue;
+        const f = +p.num + n;
+        if (f < 0 || f > MAX_FRET) return null;
+        out[m][s][i] = f + p.mod;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 마디 from..to 안의 모든 칸(음·메모·팜뮤트)을 dir(+1 오른쪽, -1 왼쪽)만큼 민다.
+ * 범위 밖으로 밀려난 칸은 버려지고 반대쪽엔 빈 칸이 들어온다. 새 {measures, marks, pm}을 돌려준다.
+ */
+export function shiftCells(song, from, to, dir) {
+  const slots = slotsOf(song), count = to - from + 1, total = count * slots;
+  const measures = cloneMeasures(song.measures);
+  for (let s = 0; s < STRINGS; s++) {
+    const flat = [];
+    for (let m = from; m <= to; m++) flat.push.apply(flat, song.measures[m][s]);
+    const moved = new Array(total).fill('');
+    for (let g = 0; g < total; g++) { const ng = g + dir; if (ng >= 0 && ng < total) moved[ng] = flat[g]; }
+    for (let m = from; m <= to; m++) measures[m][s] = moved.slice((m - from) * slots, (m - from + 1) * slots);
+  }
+  const mv = (map) => {
+    const o = {};
+    Object.keys(map || {}).forEach((k) => {
+      const p = k.split(':'), m = +p[0], i = +p[1];
+      if (m < from || m > to) { o[k] = map[k]; return; }
+      const ng = (m - from) * slots + i + dir;
+      if (ng < 0 || ng >= total) return;
+      o[(from + Math.floor(ng / slots)) + ':' + (ng % slots)] = map[k];
+    });
+    return o;
+  };
+  return { measures, marks: mv(song.marks), pm: mv(song.pm) };
+}
+
+/** 범위의 모든 칸이 팜뮤트인가 */
+export function allPm(pm, from, to, slots) {
+  for (let m = from; m <= to; m++) for (let i = 0; i < slots; i++) if (!pm || !pm[m + ':' + i]) return false;
+  return true;
+}
+/** 범위 팜뮤트 토글: 전부 켜져 있으면 끄고, 아니면 전부 켠다. 새 객체. */
+export function togglePm(pm, from, to, slots) {
+  const o = Object.assign({}, pm || {}), on = !allPm(pm, from, to, slots);
+  for (let m = from; m <= to; m++) for (let i = 0; i < slots; i++) { const k = m + ':' + i; if (on) o[k] = 1; else delete o[k]; }
+  return o;
+}

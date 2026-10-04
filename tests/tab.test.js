@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures } from '../src/tab.js';
+import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures, sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm } from '../src/tab.js';
 import { SLOTS, PER_LINE } from '../src/constants.js';
 
 describe('parse', () => {
@@ -111,5 +111,80 @@ describe('padMeasures / 기타', () => {
     ms[0][3][5] = '.';
     expect(nextNoteOnString(ms, 0, 3, 2)).toBeNull();
     expect(hasContent(ms)).toBe(true);
+  });
+});
+
+describe('마디 범위 연산', () => {
+  function mk() {
+    const ms = [];
+    for (let k = 0; k < 8; k++) ms.push(emptyMeasure());
+    ms[1][0][0] = '5'; ms[1][2][4] = '7h'; ms[2][5][15] = '0'; ms[3][1][0] = 'x';
+    return { meter: '4/4', measures: ms, marks: { '1:0': 'A', '2:8': 'B', '5:0': 'C' }, pm: { '1:0': 1, '1:1': 1 } };
+  }
+  it('sliceRange는 상대 키로 복사한다', () => {
+    const c = sliceRange(mk(), 1, 2);
+    expect(c.measures.length).toBe(2);
+    expect(c.measures[0][0][0]).toBe('5');
+    expect(c.marks).toEqual({ '0:0': 'A', '1:8': 'B' });
+    expect(c.pm).toEqual({ '0:0': 1, '0:1': 1 });
+  });
+  it('pasteRange는 덮어쓰고 필요하면 마디를 늘린다', () => {
+    const song = mk(), c = sliceRange(song, 1, 2);
+    pasteRange(song, c, 7);
+    expect(song.measures.length).toBe(12);
+    expect(song.measures[7][0][0]).toBe('5');
+    expect(song.measures[8][5][15]).toBe('0');
+    expect(song.marks['7:0']).toBe('A');
+    expect(song.marks['8:8']).toBe('B');
+    expect(song.pm['7:1']).toBe(1);
+    // 기존 메모는 지워진다
+    pasteRange(song, c, 5);
+    expect(song.marks['5:0']).toBe('A');
+  });
+  it('pasteRange는 박자표가 다른 클립을 칸 수에 맞춘다', () => {
+    const song = { meter: '3/4', measures: [emptyMeasure(12)], marks: {}, pm: {} };
+    const c = sliceRange(mk(), 2, 2); // 16칸, 마지막 칸에 '0'
+    pasteRange(song, c, 0);
+    expect(song.measures[0][5].length).toBe(12);
+    expect(song.measures[0][5][11]).toBe('');
+    expect(song.measures.length).toBe(4);
+  });
+  it('transposeMeasures: 기법 유지, 범위 밖이면 null', () => {
+    const ms = mk().measures;
+    const up = transposeMeasures(ms, 2);
+    expect(up[1][0][0]).toBe('7');
+    expect(up[1][2][4]).toBe('9h');
+    expect(up[3][1][0]).toBe('x');
+    expect(transposeMeasures(ms, -1)).toBeNull();   // 0 → -1
+    expect(transposeMeasures(ms, 20)).toBeNull();   // 7 → 27
+    expect(transposeMeasures(ms, 12)[1][2][4]).toBe('19h');
+    expect(ms[1][0][0]).toBe('5'); // 원본 유지
+  });
+  it('shiftCells: 범위 안에서 칸을 밀고 메모·팜뮤트도 따라간다', () => {
+    const song = mk();
+    const r = shiftCells(song, 1, 2, 1);
+    expect(r.measures[1][0][1]).toBe('5');
+    expect(r.measures[1][0][0]).toBe('');
+    expect(r.measures[2][5][15]).toBe('');       // 범위 끝에서 밀려나 사라짐
+    expect(r.measures[3][1][0]).toBe('x');       // 범위 밖은 그대로
+    expect(r.marks).toEqual({ '1:1': 'A', '2:9': 'B', '5:0': 'C' });
+    expect(r.pm).toEqual({ '1:1': 1, '1:2': 1 });
+    const l = shiftCells(song, 1, 2, -1);
+    expect(l.measures[1][2][3]).toBe('7h');
+    expect(l.measures[1][0][0]).toBe('');        // 왼쪽 끝에서 사라짐
+    expect(l.measures[2][5][14]).toBe('0');
+    expect(l.marks['2:7']).toBe('B');
+    expect(l.pm).toEqual({ '1:0': 1 });
+  });
+  it('togglePm / allPm', () => {
+    const pm = togglePm({}, 0, 1, 4);
+    expect(Object.keys(pm).length).toBe(8);
+    expect(allPm(pm, 0, 1, 4)).toBe(true);
+    expect(allPm(pm, 0, 2, 4)).toBe(false);
+    const off = togglePm(pm, 0, 0, 4);
+    expect(Object.keys(off).length).toBe(4);
+    expect(allPm(off, 1, 1, 4)).toBe(true);
+    const on = togglePm(off, 0, 1, 4); // 일부만 켜져 있으면 전부 켠다
+    expect(Object.keys(on).length).toBe(8);
   });
 });

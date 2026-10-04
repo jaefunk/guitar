@@ -50,6 +50,19 @@ describe('텍스트 타브 왕복', () => {
     expect(r.marks['3:15']).toBe('end');
     expect(Object.values(r.marks)).toContain('A');
   });
+  it('팜뮤트 줄(PM) 왕복: 메모가 있을 때와 없을 때', () => {
+    const base = withNotes([[0, 0, 0, '3'], [1, 0, 0, '5']]);
+    const pm = { '0:0': 1, '0:1': 1, '0:2': 1, '1:15': 1, '2:0': 1 };
+    const a = song({ measures: base, pm });
+    const ta = toText(a);
+    expect(ta).toMatch(/^PM ?______/m);
+    expect(parseText(ta).pm).toEqual(pm);
+    const b = song({ measures: base, pm, marks: { '0:4': 'Am', '2:0': 'B' } });
+    const rb = parseText(toText(b));
+    expect(rb.pm).toEqual(pm);
+    expect(rb.marks).toEqual({ '0:4': 'Am', '2:0': 'B' });
+    expect(parseText(toText(song({ measures: base }))).pm).toEqual({});
+  });
   it('옛 텍스트(헤더 없음)는 4/4로 읽고 메모는 없다', () => {
     const s = song({ measures: withNotes([[0, 1, 2, '5']]) });
     const txt = toText(s).split('\n').slice(2).join('\n');

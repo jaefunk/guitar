@@ -108,6 +108,19 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
 
+/* 다중 선택 범위 */
+.ruler .measure.range{background:var(--sel)}
+.srow .measure.range{background:var(--col)}
+.mk.pm{border-top:2px dashed var(--mod);border-radius:0}
+.mk.pm-start::after{content:'P.M.';position:absolute;left:1px;top:1px;font:700 8px/1 var(--mono);color:var(--mod)}
+.range-bar{display:flex;align-items:center;gap:8px;padding:6px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;max-width:760px;margin-left:auto;margin-right:auto}
+.range-label{flex:0 0 auto;font:600 12px/1.3 var(--sans);color:var(--accent);max-width:38%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.range-acts{flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.range-acts::-webkit-scrollbar{display:none}
+.range-acts button{flex:0 0 auto;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);font:600 12px/1 var(--sans)}
+.range-acts button.danger{color:var(--danger)}
+.range-acts button:active{background:var(--sel)}
+
 /* ---------- 입력 패드 ---------- */
 .pad{
   position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--pad);border-top:1px solid var(--border);

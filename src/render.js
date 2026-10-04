@@ -6,8 +6,8 @@ import { $ } from './ui.js';
 import { pb, applyLoopMarks } from './audio.js';
 import { updateFretboard } from './fretboard.js';
 
-/** 셀 캐시: cells[m][s][i], marks[m][i], rulers[m] */
-export const dom = { cells: [], marks: [], rulers: [] };
+/** 셀 캐시: cells[m][s][i], marks[m][i], rulers[m], mdivs[m] = 줄별 마디 컨테이너 */
+export const dom = { cells: [], marks: [], rulers: [], mdivs: [] };
 
 export function cellAt(p) {
   return dom.cells[p.m] && dom.cells[p.m][p.s] && dom.cells[p.m][p.s][p.i];
@@ -35,12 +35,17 @@ export function paintMark(m, i) {
   const t = state.marks[m + ':' + i];
   el.classList.toggle('empty', !t);
   if (t) { const s = document.createElement('span'); s.className = 't'; s.textContent = t; el.appendChild(s); }
+  // 팜뮤트: 점선 띠. 구간의 첫 칸에 P.M. 표시
+  const pm = !!(state.pm && state.pm[m + ':' + i]);
+  el.classList.toggle('pm', pm);
+  const prevPm = pm && (i > 0 ? state.pm[m + ':' + (i - 1)] : (m > 0 && state.pm[(m - 1) + ':' + (state.measures[m - 1][0].length - 1)]));
+  el.classList.toggle('pm-start', pm && !prevPm);
 }
 
 export function render() {
   const sheet = $('sheet');
   sheet.innerHTML = '';
-  dom.cells = []; dom.marks = []; dom.rulers = [];
+  dom.cells = []; dom.marks = []; dom.rulers = []; dom.mdivs = [];
   const names = TUNINGS[state.tuning].names;
   const lines = state.measures.length / PER_LINE;
   const SLOTS = slotsOf(state), BEAT = beatOf(state);
@@ -85,6 +90,7 @@ export function render() {
       for (let k2 = 0; k2 < PER_LINE; k2++) {
         const m2 = L * PER_LINE + k2;
         const md2 = document.createElement('div'); md2.className = 'measure' + (k2 === 0 ? ' m0' : '');
+        dom.mdivs[m2] = dom.mdivs[m2] || []; dom.mdivs[m2][s] = md2;
         dom.cells[m2] = dom.cells[m2] || [];
         dom.cells[m2][s] = dom.cells[m2][s] || [];
         for (let i2 = 0; i2 < SLOTS; i2++) {
@@ -104,7 +110,23 @@ export function render() {
     sheet.appendChild(sys);
   }
   if (ed.sel && ed.sel.m >= state.measures.length) ed.sel = null;
-  applySel(); updateInfo(); updateFretboard(); applyLoopMarks();
+  if (ed.range && ed.range.to >= state.measures.length) ed.range = null;
+  applySel(); applyRange(); updateInfo(); updateFretboard(); applyLoopMarks();
+}
+
+/** 다중 선택 범위 표시 + 범위 작업 막대 */
+export function applyRange() {
+  const r = ed.range;
+  dom.rulers.forEach((el, m) => {
+    const on = !!r && m >= r.from && m <= r.to;
+    el.classList.toggle('range', on);
+    (dom.mdivs[m] || []).forEach((d) => { d.classList.toggle('range', on); });
+  });
+  const bar = $('rangeBar');
+  if (bar) {
+    bar.hidden = !r;
+    if (r) $('rangeLabel').textContent = r.from === r.to ? '마디 ' + (r.from + 1) + ' 선택 · 다른 마디 번호를 탭해 넓히기' : '마디 ' + (r.from + 1) + '~' + (r.to + 1) + ' (' + (r.to - r.from + 1) + '마디)';
+  }
 }
 
 export function eachCol(fn) {

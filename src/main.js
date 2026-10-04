@@ -5,7 +5,8 @@ import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkV
 import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
-  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo
+  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
+  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
@@ -51,11 +52,27 @@ function openImage() {
 
 /* ---------- 이벤트 ---------- */
 function bind() {
-  $('sheet').addEventListener('click', (e) => {
+  // 마디 번호 길게 누르기 → 범위 선택 시작
+  let pressT = null, pressed = false;
+  const sheetEl = $('sheet');
+  sheetEl.addEventListener('pointerdown', (e) => {
+    const rm = e.target.closest('.ruler .measure'); if (!rm) return;
+    pressed = false;
+    pressT = setTimeout(() => { pressed = true; buzz(); if (!ed.range) setRange(+rm.dataset.m); else setRange(+rm.dataset.m); toast('범위 선택: 다른 마디 번호를 탭해 넓히세요'); }, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => sheetEl.addEventListener(ev, () => { clearTimeout(pressT); }));
+  sheetEl.addEventListener('contextmenu', (e) => { if (e.target.closest('.ruler .measure')) e.preventDefault(); });
+  sheetEl.addEventListener('click', (e) => {
+    if (pressed) { pressed = false; return; }
     const mk = e.target.closest('.mk');
     if (mk) { const mm = +mk.dataset.m, ii = +mk.dataset.i; setSel({ m: mm, s: ed.sel ? ed.sel.s : 0, i: ii }, false); editMark(mm, ii); return; }
     const rm = e.target.closest('.ruler .measure');
-    if (rm) { setSel({ m: +rm.dataset.m, s: ed.sel ? ed.sel.s : 0, i: 0 }, true); if (state.collapsed) setCollapsed(false); return; }
+    if (rm) {
+      const m = +rm.dataset.m;
+      if (e.shiftKey && ed.sel && !ed.range) { setRange(ed.sel.m); setRange(m); return; }
+      if (ed.range) { setRange(m); return; }
+      setSel({ m, s: ed.sel ? ed.sel.s : 0, i: 0 }, true); if (state.collapsed) setCollapsed(false); return;
+    }
     const c = e.target.closest('.cell'); if (!c) return;
     setSel({ m: +c.dataset.m, s: +c.dataset.s, i: +c.dataset.i }, false);
     if (state.collapsed) setCollapsed(false);
@@ -107,7 +124,7 @@ function bind() {
     if (mod && k.toLowerCase() === 'v') { e.preventDefault(); pasteMeasure(); return; }
     if (mod || e.altKey) return;
     if (k === ' ') { e.preventDefault(); togglePlay(); return; }
-    if (k === 'Escape') { setSel(null, false); return; }
+    if (k === 'Escape') { if (ed.range) clearRange(); else setSel(null, false); return; }
     if (!ed.sel) { if (k.indexOf('Arrow') === 0) { e.preventDefault(); setSel({ m: 0, s: 0, i: 0 }, true); } return; }
     const sel = ed.sel;
     if (/^[0-9]$/.test(k)) { e.preventDefault(); inputDigit(k); }
@@ -133,9 +150,24 @@ function bind() {
       { k: '⎘', label: '마디 복사', desc: 'Ctrl+C', action: copyMeasure, disabled: !has },
       { k: '⎗', label: '붙여넣기', desc: ed.clip ? '복사한 마디로 덮어써요' : '복사한 마디가 없어요', action: pasteMeasure, disabled: !has || !ed.clip },
       { k: '○', label: '마디 비우기', desc: '음만 지우고 마디는 남겨요', action: clearMeasure, disabled: !has },
+      { k: '♯', label: '조옮김', desc: '모든 프렛에 ±n', action: transposeRange, disabled: !has },
+      { k: 'PM', label: '팜뮤트 켜기/끄기', desc: '이 마디 전체', action: togglePmRange, disabled: !has },
+      { k: '▭', label: '여러 마디 선택', desc: '마디 번호를 길게 눌러도 돼요', action: () => { setRange(ed.sel.m); }, disabled: !has },
       { k: '×', label: '마디 삭제', desc: '뒤 마디를 당겨요', action: deleteMeasure, danger: true, disabled: !has },
       { k: '×', label: '마지막 줄 삭제', desc: '4마디를 지워요', action: delLine, danger: true }
     ]);
+  });
+  $('rangeBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'copy') copyMeasure();
+    else if (act === 'paste') pasteMeasure();
+    else if (act === 'delete') deleteRange();
+    else if (act === 'transpose') transposeRange();
+    else if (act === 'left') shiftRange(-1);
+    else if (act === 'right') shiftRange(1);
+    else if (act === 'pm') togglePmRange();
+    else if (act === 'close') clearRange();
   });
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [

@@ -16,16 +16,20 @@ export function toText(song) {
   if (song.title) out.push(song.title, '');
   out.push('(BPM ' + song.bpm + ', ' + meter + ', 한 칸 = 16분음표)', '');
   const lines = song.measures.length / PER_LINE;
+  const pmMap = song.pm || {};
   for (let L = 0; L < lines; L++) {
     let mline = '', any = false, pos = labelW + 1;
+    let pline = 'PM', anyPm = false, ppos = labelW + 1;
     for (let k0 = 0; k0 < PER_LINE; k0++) {
       for (let j = 0; j < SLOTS; j++) {
-        const t = song.marks[(L * PER_LINE + k0) + ':' + j];
+        const key = (L * PER_LINE + k0) + ':' + j, t = song.marks[key];
         if (t) { any = true; while (mline.length < pos) mline += ' '; if (mline.length > pos) mline += '  '; mline += t; }
-        pos += w;
+        if (pmMap[key]) { anyPm = true; while (pline.length < ppos) pline += ' '; for (let q = 0; q < w; q++) pline += '_'; }
+        pos += w; ppos += w;
       }
-      pos += 1;
+      pos += 1; ppos += 1;
     }
+    if (anyPm) out.push(pline);
     if (any) out.push(mline);
     let ruler = new Array(labelW + 2).join(' ');
     for (let k = 0; k < PER_LINE; k++) {
@@ -78,7 +82,7 @@ export function parseText(txt) {
   });
   if (!groups.length) return null;
 
-  const measures = [], marks = {};
+  const measures = [], marks = {}, pm = {};
   for (let gI = 0; gI < groups.length; gI++) {
     const g = groups[gI];
     const parts = g.rows.map((r) => r.replace(/\|\s*$/, '').split('|'));
@@ -104,22 +108,32 @@ export function parseText(txt) {
       }
       measures.push(meas);
     }
-    // 메모 줄: 눈금 줄(숫자와 공백만) 바로 위 줄
-    const rulerLine = lines[g.start - 1], markLine = lines[g.start - 2];
-    if (rulerLine !== undefined && /^\s*\d[\d\s]*$/.test(rulerLine) && markLine && markLine.trim() && !ROW_RE.test(markLine)) {
-      const re = /\S+(?: \S+)*/g; // 토큰 = 공백 두 칸 이상으로 구분
-      let t;
-      while ((t = re.exec(markLine))) {
-        let c = t.index - g.col0;
-        if (c < 0) c = 0;
-        let k = 0;
-        while (k < n - 1 && c >= SLOTS * widths[k] + 1) { c -= SLOTS * widths[k] + 1; k++; }
-        const i = Math.min(SLOTS - 1, Math.floor(c / widths[k]));
-        marks[(firstM + k) + ':' + i] = t[0];
+    // 열 → (마디, 칸)
+    const colToKey = (col) => {
+      let c = Math.max(0, col - g.col0), k = 0;
+      while (k < n - 1 && c >= SLOTS * widths[k] + 1) { c -= SLOTS * widths[k] + 1; k++; }
+      return (firstM + k) + ':' + Math.min(SLOTS - 1, Math.floor(c / widths[k]));
+    };
+    // 줄 순서: [PM 줄] [메모 줄] 눈금 줄 → 6줄
+    const rulerLine = lines[g.start - 1];
+    if (rulerLine !== undefined && /^\s*\d[\d\s]*$/.test(rulerLine)) {
+      let idx = g.start - 2;
+      const isPm = (l) => l !== undefined && /^\s*PM[\s_]*$/.test(l) && l.indexOf('_') >= 0;
+      const readPm = (l) => { for (let c = 0; c < l.length; c++) if (l[c] === '_') pm[colToKey(c)] = 1; };
+      if (isPm(lines[idx])) { readPm(lines[idx]); idx--; }
+      else {
+        const markLine = lines[idx];
+        if (markLine && markLine.trim() && !ROW_RE.test(markLine)) {
+          const re = /\S+(?: \S+)*/g; // 토큰 = 공백 두 칸 이상으로 구분
+          let t;
+          while ((t = re.exec(markLine))) marks[colToKey(t.index)] = t[0];
+          idx--;
+          if (isPm(lines[idx])) readPm(lines[idx]);
+        }
       }
     }
   }
-  return { measures, marks, meter: meter || DEFAULT_METER, bpm, title };
+  return { measures, marks, pm, meter: meter || DEFAULT_METER, bpm, title };
 }
 
 /** 캔버스에 악보를 그려 돌려준다. */
@@ -145,6 +159,12 @@ export function renderImage(song) {
       for (let j = 0; j < SLOTS; j++) {
         const t = song.marks[m + ':' + j];
         if (t) { c.fillStyle = P.accent; c.font = '600 11px -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif'; c.fillText(t, mx + j * slot + 1, my + 12); }
+        if (song.pm && song.pm[m + ':' + j]) {
+          c.fillStyle = P.muted;
+          c.fillRect(mx + j * slot, my + 14, slot - 2, 1);
+          const prev = j > 0 ? song.pm[m + ':' + (j - 1)] : (m > 0 && song.pm[(m - 1) + ':' + (SLOTS - 1)]);
+          if (!prev) { c.font = '700 8px "Red Hat Mono", Menlo, Consolas, monospace'; c.fillText('P.M.', mx + j * slot + 1, my + 10); }
+        }
       }
       c.fillStyle = P.muted; c.font = '700 9px "Red Hat Mono", Menlo, Consolas, monospace'; c.fillText(String(m + 1), mx + 3, ry + 8);
       c.font = '500 10px "Red Hat Mono", Menlo, Consolas, monospace'; c.textAlign = 'center';

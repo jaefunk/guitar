@@ -71,15 +71,16 @@ function getChain(kind) {
  * 분수 지연 + 2탭 손실 필터 + 피킹 위치 콤 필터를 넣은 Karplus-Strong.
  * sampleRate/length를 넘기면 AudioContext 없이도(테스트) Float32Array를 만든다.
  */
-export function synthSamples(freq, I, soft, muted, sr) {
-  const len = muted ? 0.25 : I.len, N = Math.floor(sr * len);
+export function synthSamples(freq, I, soft, muted, sr, pm) {
+  // 팜뮤트: 손바닥으로 줄을 눌러 짧고 둔탁하게. 감쇠를 세게, 밝기를 낮게.
+  const len = muted ? 0.25 : (pm ? 0.9 : I.len), N = Math.floor(sr * len);
   const out = new Float32Array(N);
-  const S = muted ? 0.5 : I.S, g = muted ? 0.55 : I.g;
+  const S = (muted || pm) ? 0.5 : I.S, g = muted ? 0.55 : (pm ? 0.975 : I.g);
   const P = sr / freq - S; let Pi = Math.floor(P), frac = P - Pi;
   if (Pi < 2) { Pi = 2; frac = 0; }
   const L = Pi + 3, ring = new Float32Array(L);
   const exLen = Pi + 1, ex = new Float32Array(exLen);
-  let lp = 0; const coef = Math.min(1, I.bright * (soft ? 0.55 : 1) * (muted ? 0.5 : 1));
+  let lp = 0; const coef = Math.min(1, I.bright * (soft ? 0.55 : 1) * (muted ? 0.5 : 1) * (pm ? 0.6 : 1));
   let i, n;
   for (i = 0; i < exLen; i++) { lp += coef * ((Math.random() * 2 - 1) - lp); ex[i] = lp; }
   const pk = Math.max(1, Math.round(P * I.pick));
@@ -98,21 +99,21 @@ export function synthSamples(freq, I, soft, muted, sr) {
   const rel = Math.floor(sr * 0.25); for (i = 0; i < rel; i++) out[N - 1 - i] *= i / rel;
   return out;
 }
-function synth(freq, I, soft, muted) {
-  const data = synthSamples(freq, I, soft, muted, actx.sampleRate);
+function synth(freq, I, soft, muted, pm) {
+  const data = synthSamples(freq, I, soft, muted, actx.sampleRate, pm);
   const buf = actx.createBuffer(1, data.length, actx.sampleRate);
   buf.getChannelData(0).set(data);
   return buf;
 }
-function noteBuffer(midi, soft, muted) {
+function noteBuffer(midi, soft, muted, pm) {
   const I = INSTR[state.instr] || INSTR.acoustic;
-  const key = state.instr + (muted ? 'x' : (soft ? 's' : 'n')) + midi;
-  if (!bufCache[key]) bufCache[key] = synth(440 * Math.pow(2, (midi - 69) / 12), I, soft, muted);
+  const key = state.instr + (muted ? 'x' : (pm ? 'p' : (soft ? 's' : 'n'))) + midi;
+  if (!bufCache[key]) bufCache[key] = synth(440 * Math.pow(2, (midi - 69) / 12), I, soft, muted, pm);
   return bufCache[key];
 }
 function playNote(midi, t, o) {
   const muted = !!o.muted, src = actx.createBufferSource();
-  src.buffer = noteBuffer(midi, !!o.soft, muted);
+  src.buffer = noteBuffer(midi, !!o.soft, muted, !!o.pm);
   const g = actx.createGain(), vel = (o.vel || 0.7) * (0.94 + Math.random() * 0.12);
   g.gain.setValueAtTime(vel, t); src.connect(g); g.connect(getChain(state.instr).input);
   if (o.mod === 'b') { src.playbackRate.setValueAtTime(1, t); src.playbackRate.linearRampToValueAtTime(Math.pow(2, 1 / 12), t + 0.16); }
@@ -150,12 +151,12 @@ function scheduleSlot(pos, t) {
     if (!p.num && p.mod !== 'x') continue;
     notes.push({ s, p });
   }
-  const spread = notes.length >= 3 ? 0.009 : 0.004;
+  const spread = notes.length >= 3 ? 0.009 : 0.004, pm = !!(state.pm && state.pm[m + ':' + i]);
   notes.forEach((nt, idx) => {
     const s = nt.s, p = nt.p, ts = t + idx * spread;
     stopVoice(active[s], ts); active[s] = null;
     const muted = (p.mod === 'x'), midi = midis[s] + (p.num ? +p.num : 0), soft = (p.mod === 'h' || p.mod === 'p');
-    const o = { muted, soft, vel: muted ? 0.5 : (soft ? 0.5 : 0.72), mod: p.mod };
+    const o = { muted, soft, pm: pm && !muted, vel: muted ? 0.5 : (soft ? 0.5 : (pm ? 0.62 : 0.72)), mod: p.mod };
     if ((p.mod === '/' || p.mod === '\\') && p.num) {
       const nx = nextNoteOnString(state.measures, m, s, i, SL);
       if (nx) { o.slideRatio = Math.pow(2, (nx.fret - (+p.num)) / 12); o.slideFrom = ts + Math.min(dur * 0.5, 0.08); o.slideTo = t + nx.dist * dur; }
