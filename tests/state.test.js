@@ -40,8 +40,13 @@ describe('마이그레이션 (v2 → v3)', () => {
     expect(doc.currentId).toBe(s.id);
     expect(doc.settings).toEqual({
       zoom: 'l', theme: 'dark', autoAdv: false, metro: true, loop: 'measure', padMode: 'fret', fretShift: 12,
-      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false
+      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false,
+      trainer: { on: false, start: 60, step: 5, max: 120 }, drums: 'off', swing: 0, landscapeFit: true
     });
+  });
+  it('트레이너 설정 검증', () => {
+    const d = sanitizeDoc({ settings: { trainer: { on: true, start: 70, step: 100, max: 300 } } }, 1);
+    expect(d.settings.trainer).toEqual({ on: true, start: 70, step: 5, max: 120 });
   });
   it('v3 키가 없으면 v2 키를, 그것도 없으면 v1 키를 읽는다', () => {
     const d2 = readDoc(memStorage({ 'gtab-editor-v2': JSON.stringify(v2Blob()) }), 1);
@@ -74,6 +79,17 @@ describe('마이그레이션 (v2 → v3)', () => {
   it('마디 수가 4의 배수가 아니면 채운다', () => {
     const d = sanitizeDoc({ songs: { a: { measures: [emptyMeasure(), emptyMeasure(), emptyMeasure()] } } }, 5);
     expect(d.songs.a.measures.length).toBe(4);
+  });
+  it('박자표: 저장된 meter를 쓰고, 칸 수가 어긋나면 맞춘다', () => {
+    const d = sanitizeDoc({ songs: { a: { meter: '3/4', measures: [emptyMeasure(12)] }, b: { meter: '6/8', measures: [emptyMeasure(16)] }, c: { meter: 'zzz' } } }, 5);
+    expect(d.songs.a.meter).toBe('3/4');
+    expect(d.songs.a.measures[0][0].length).toBe(12);
+    expect(d.songs.b.measures[0][0].length).toBe(12);
+    expect(d.songs.c.meter).toBe('4/4');
+    expect(d.songs.c.measures[0][0].length).toBe(16);
+    // v2에는 meter가 없으므로 4/4
+    const mig = migrateLegacy(v2Blob(), 1);
+    expect(mig.songs[mig.order[0]].meter).toBe('4/4');
   });
 });
 

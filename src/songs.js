@@ -11,6 +11,7 @@ export function refreshSongUI() {
   $('title').value = state.title;
   $('bpm').value = state.bpm;
   $('tuning').value = state.tuning;
+  $('meter').value = state.meter;
   render();
   setSel(ed.sel, false);
   if (state.padMode === 'fret') buildFretboard();

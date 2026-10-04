@@ -1,10 +1,11 @@
 // 시트/대화상자/토스트/테마·크기 등 UI 공통.
-import { PER_LINE, SLOTS } from './constants.js';
+import { PER_LINE } from './constants.js';
 import { state } from './state.js';
+import { slotsOf } from './tab.js';
 
 export function $(id) { return document.getElementById(id); }
 
-export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'dlg'];
+export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'trainerModal', 'dlg'];
 
 export function openMenu(title, items) {
   $('menuTitle').textContent = title;
@@ -72,17 +73,34 @@ export function applyTheme() {
   const r = document.documentElement;
   if (state.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', state.theme);
 }
+/** 가로 모드 자동 맞춤이 적용되는 상황인가(폰·태블릿을 눕혔을 때) */
+export function landscapeFitActive() {
+  return !!state.landscapeFit && typeof window.matchMedia === 'function' && window.matchMedia('(orientation: landscape)').matches && window.innerWidth < 1100;
+}
 export function applyZoom() {
   const r = document.documentElement;
   r.setAttribute('data-zoom', state.zoom);
-  if (state.zoom !== 'fit') {
+  if (state.zoom !== 'fit' && !landscapeFitActive()) {
     r.style.removeProperty('--slot'); r.style.removeProperty('--row'); r.style.removeProperty('--fs');
     return;
   }
   const wrapW = $('sheetWrap').clientWidth || window.innerWidth;
-  let slot = Math.floor((wrapW - 36 - 26) / (PER_LINE * SLOTS));
+  let slot = Math.floor((wrapW - 36 - 26) / (PER_LINE * slotsOf(state)));
   slot = Math.max(14, Math.min(40, slot));
   const row = Math.max(20, Math.min(30, slot + 2));
   const fs = slot < 18 ? 10 : (slot < 28 ? 11 : 13);
   r.style.setProperty('--slot', slot + 'px'); r.style.setProperty('--row', row + 'px'); r.style.setProperty('--fs', fs + 'px');
+}
+
+/** 파일 저장(자체 호스팅에서는 <a download>가 동작한다) */
+export function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; a.rel = 'noopener';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+/** 파일 이름에 쓸 수 있게 제목을 다듬는다 */
+export function safeName(title, fallback) {
+  const t = (title || '').trim().replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t || fallback;
 }

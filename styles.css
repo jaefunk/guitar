@@ -104,8 +104,33 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
   background:var(--bg);padding:0 1px;font:700 var(--fs)/1 var(--mono);color:var(--ink);white-space:nowrap;
 }
 .cell .v .mod{color:var(--mod);font-weight:500}
+.cell .v .rest{color:var(--muted);font-weight:700;font-size:1.3em;line-height:.6}
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
+
+/* 반복 기호 */
+.srow .measure.rs{box-shadow:inset 3px 0 0 var(--bar)}
+.srow .measure.re{box-shadow:inset -3px 0 0 var(--bar)}
+.srow .measure.rs.re{box-shadow:inset 3px 0 0 var(--bar),inset -3px 0 0 var(--bar)}
+.srow .measure.rs.dot::before{content:'';position:absolute;left:6px;top:50%;width:4px;height:4px;margin-top:-2px;border-radius:50%;background:var(--bar);z-index:1}
+.srow .measure.re.dot::after{content:'';position:absolute;right:5px;top:50%;width:4px;height:4px;margin-top:-2px;border-radius:50%;background:var(--bar);z-index:1;left:auto;bottom:auto}
+.srow .measure.re.dot{--x:1}
+.ruler .measure.volta{border-top:1.5px solid var(--ink);border-left:1.5px solid var(--ink);border-radius:0}
+.ruler .measure .vlab{position:absolute;left:26px;top:0;font:700 10px/1 var(--mono);color:var(--ink);padding:1px 2px}
+.ruler .measure .times{position:absolute;right:4px;top:0;font:700 10px/1 var(--mono);color:var(--ink)}
+
+/* 다중 선택 범위 */
+.ruler .measure.range{background:var(--sel)}
+.srow .measure.range{background:var(--col)}
+.mk.pm{border-top:2px dashed var(--mod);border-radius:0}
+.mk.pm-start::after{content:'P.M.';position:absolute;left:1px;top:1px;font:700 8px/1 var(--mono);color:var(--mod)}
+.range-bar{display:flex;align-items:center;gap:8px;padding:6px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;max-width:760px;margin-left:auto;margin-right:auto}
+.range-label{flex:0 0 auto;font:600 12px/1.3 var(--sans);color:var(--accent);max-width:38%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.range-acts{flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.range-acts::-webkit-scrollbar{display:none}
+.range-acts button{flex:0 0 auto;height:32px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);font:600 12px/1 var(--sans)}
+.range-acts button.danger{color:var(--danger)}
+.range-acts button:active{background:var(--sel)}
 
 /* ---------- 입력 패드 ---------- */
 .pad{
@@ -135,6 +160,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .pad-info .pos{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pad-info .pos.hint{color:var(--muted);font-weight:500}
 .pad-info .pos.pend{color:var(--accent)}
+.chip{flex:0 0 auto;height:24px;padding:0 9px;border:1px solid var(--accent);border-radius:12px;background:var(--sel);color:var(--accent);font:700 12px/1 var(--mono)}
+.chip:active{background:var(--accent);color:var(--accent-ink)}
 .info-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .toggle{display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer;font:600 12px/1 var(--sans);color:var(--muted)}
 .toggle input{accent-color:var(--accent);margin:0}
@@ -142,7 +169,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .mini:active{background:var(--key)}
 .pad-row{display:grid;gap:6px;margin-bottom:6px}
 .pad-row.digits{grid-template-columns:repeat(10,1fr)}
-.pad-row.mods{grid-template-columns:repeat(8,1fr)}
+.pad-row.mods{grid-template-columns:repeat(9,1fr)}
 .pad-row.nav{grid-template-columns:repeat(6,1fr);margin-bottom:0}
 .key{
   appearance:none;-webkit-appearance:none;border:1px solid var(--border);background:var(--key);color:var(--key-ink);
@@ -190,6 +217,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .card .row{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .field{height:42px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);font:600 15px var(--sans);padding:0 10px;outline:none}
 .field:focus{border-color:var(--accent)}
+.field.num{width:84px;text-align:center;font:700 15px var(--mono)}
 .menu{display:flex;flex-direction:column}
 .menu-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 4px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--ink);text-align:left}
 .menu-item:last-child{border-bottom:0}
@@ -214,7 +242,8 @@ input[type=range]{accent-color:var(--accent);width:46%;margin:0}
 .chords{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .chord{border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);padding:9px 4px;display:flex;flex-direction:column;align-items:center;gap:3px}
 .chord b{font:700 15px/1 var(--mono)}
-.chord small{font:500 10px/1 var(--mono);color:var(--muted)}
+.chord .diagram{display:block;color:var(--ink);line-height:0}
+.chord .diagram svg{display:block}
 .chord:active{background:var(--sel)}
 .img-out{text-align:center}
 .img-out img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:4px}
@@ -248,3 +277,13 @@ input[type=range]{accent-color:var(--accent);width:46%;margin:0}
 .song .d{font:500 12px/1.3 var(--sans);color:var(--muted)}
 .song-more{flex:0 0 44px;border:0;background:transparent;color:var(--muted);font:700 18px/1 var(--mono)}
 .song-more:active{background:var(--key)}
+
+/* ---------- 샘플 악기 ---------- */
+.samples{display:flex;flex-direction:column}
+.srow-s{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.srow-s:last-child{border-bottom:0}
+.srow-s .n{flex:0 0 28px;font:700 13px/1 var(--mono);color:var(--muted)}
+.srow-s .st{flex:1;min-width:0;font:500 12px/1.3 var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow-s .st.on{color:var(--ink);font-weight:600}
+.srow-s label.btn{position:relative;overflow:hidden}
+.srow-s label.btn input{position:absolute;inset:0;opacity:0;cursor:pointer}

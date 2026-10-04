@@ -1,17 +1,21 @@
 // 진입점: 이벤트 바인딩과 초기화.
-import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
+import { TUNINGS, CHORDS, MODS, INSTR, METERS } from './constants.js';
 import { state, ed, load, save } from './state.js';
-import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
+import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom, downloadBlob, safeName } from './ui.js';
 import { render, setSel } from './render.js';
 import {
-  inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
-  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz
+  inputDigit, inputMod, del, move, doUndo, doRedo, addLine, delLine, insertMeasure, deleteMeasure,
+  copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
+  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
-import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
+import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb, decodeSample } from './audio.js';
+import * as samples from './samples.js';
 import { toText, parseText, renderImage } from './io.js';
+import { toMidi } from './midi.js';
+import { chordDiagramSVG } from './chords.js';
 import { bindSongs } from './songs.js';
-import { padMeasures } from './tab.js';
+import { padMeasures, slotsOf, beatOf } from './tab.js';
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
 function openExport() { $('exportText').value = toText(state); $('modal').hidden = false; }
@@ -28,31 +32,75 @@ function copyText() {
   else fallback();
 }
 function doImport() {
-  const ms = parseText($('importText').value);
-  if (!ms) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
-  // pushUndo와 같은 순서: 스냅샷 → 변경 → 저장
-  ed.undoStack.push(JSON.stringify({ measures: state.measures, marks: state.marks }));
-  state.measures = ms; state.marks = {}; padMeasures(state.measures);
+  const r = parseText($('importText').value);
+  if (!r) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
+  pushUndo();
+  state.measures = r.measures; state.marks = r.marks; state.pm = r.pm || {}; state.rep = r.rep || {}; state.meter = r.meter;
+  if (r.bpm && r.bpm >= 40 && r.bpm <= 240) { state.bpm = r.bpm; $('bpm').value = r.bpm; }
+  if (r.title && !state.title) { state.title = r.title; $('title').value = r.title; }
+  $('meter').value = state.meter;
+  padMeasures(state.measures, slotsOf(state));
   ed.sel = { m: 0, s: 0, i: 0 };
   save(); render(); $('importModal').hidden = true;
-  toast(ms.length + '마디 불러옴');
+  toast(r.measures.length + '마디 불러옴');
 }
+let lastCanvas = null;
 function openImage() {
   let cv;
   try { cv = renderImage(state); } catch (e) { toast('이미지를 만들지 못했어요'); return; }
   const out = $('imgOut'); out.innerHTML = '';
   const img = document.createElement('img'); img.alt = '타브 악보 이미지';
   try { img.src = cv.toDataURL('image/png'); } catch (e) { toast('이미지를 만들지 못했어요'); return; }
+  lastCanvas = cv;
   out.appendChild(img); $('imgModal').hidden = false;
+}
+function downloadImage() {
+  if (!lastCanvas) return;
+  const name = safeName(state.title, 'tab') + '.png';
+  if (lastCanvas.toBlob) lastCanvas.toBlob((b) => { if (b) { downloadBlob(name, b); toast('PNG 저장'); } else toast('이미지를 만들지 못했어요'); }, 'image/png');
+}
+function downloadMidi() {
+  let bytes;
+  try { bytes = toMidi(state, { instr: state.instr }); } catch (e) { toast('MIDI를 만들지 못했어요'); return; }
+  downloadBlob(safeName(state.title, 'tab') + '.mid', new Blob([bytes], { type: 'audio/midi' }));
+  toast('MIDI ' + bytes.noteCount + '음 저장');
+}
+function downloadText() {
+  downloadBlob(safeName(state.title, 'tab') + '.txt', new Blob([toText(state)], { type: 'text/plain;charset=utf-8' }));
+  toast('텍스트 저장');
+}
+
+/** 시작 시 샘플 디코드: AudioContext가 없으면 OfflineAudioContext로 디코드한다(제스처 불필요) */
+function decodeSampleSilently(data) {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OAC) return Promise.reject(new Error('no audio'));
+  const oc = new OAC(1, 1, 44100);
+  return new Promise((res, rej) => { oc.decodeAudioData(data, res, rej); });
 }
 
 /* ---------- 이벤트 ---------- */
 function bind() {
-  $('sheet').addEventListener('click', (e) => {
+  // 마디 번호 길게 누르기 → 범위 선택 시작
+  let pressT = null, pressed = false;
+  const sheetEl = $('sheet');
+  sheetEl.addEventListener('pointerdown', (e) => {
+    const rm = e.target.closest('.ruler .measure'); if (!rm) return;
+    pressed = false;
+    pressT = setTimeout(() => { pressed = true; buzz(); if (!ed.range) setRange(+rm.dataset.m); else setRange(+rm.dataset.m); toast('범위 선택: 다른 마디 번호를 탭해 넓히세요'); }, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => sheetEl.addEventListener(ev, () => { clearTimeout(pressT); }));
+  sheetEl.addEventListener('contextmenu', (e) => { if (e.target.closest('.ruler .measure')) e.preventDefault(); });
+  sheetEl.addEventListener('click', (e) => {
+    if (pressed) { pressed = false; return; }
     const mk = e.target.closest('.mk');
     if (mk) { const mm = +mk.dataset.m, ii = +mk.dataset.i; setSel({ m: mm, s: ed.sel ? ed.sel.s : 0, i: ii }, false); editMark(mm, ii); return; }
     const rm = e.target.closest('.ruler .measure');
-    if (rm) { setSel({ m: +rm.dataset.m, s: ed.sel ? ed.sel.s : 0, i: 0 }, true); if (state.collapsed) setCollapsed(false); return; }
+    if (rm) {
+      const m = +rm.dataset.m;
+      if (e.shiftKey && ed.sel && !ed.range) { setRange(ed.sel.m); setRange(m); return; }
+      if (ed.range) { setRange(m); return; }
+      setSel({ m, s: ed.sel ? ed.sel.s : 0, i: 0 }, true); if (state.collapsed) setCollapsed(false); return;
+    }
     const c = e.target.closest('.cell'); if (!c) return;
     setSel({ m: +c.dataset.m, s: +c.dataset.s, i: +c.dataset.i }, false);
     if (state.collapsed) setCollapsed(false);
@@ -66,7 +114,13 @@ function bind() {
     if (b.dataset.digit !== undefined) { buzz(); inputDigit(b.dataset.digit); }
     else if (b.dataset.mod !== undefined) { buzz(); inputMod(b.dataset.mod); }
     else if (b.id === 'del') { buzz(); del(false); }
-    else if (b.dataset.move) { if (!ed.sel) { setSel({ m: 0, s: 0, i: 0 }, true); return; } const mv = b.dataset.move.split(','); move(+mv[0], +mv[1]); }
+    else if (b.dataset.move) {
+      if (!ed.sel) { setSel({ m: 0, s: 0, i: 0 }, true); return; }
+      const mv = b.dataset.move.split(',');
+      const di = +mv[0];
+      // ±4는 "한 박"을 뜻한다(박자표에 따라 칸 수가 다름)
+      move(Math.abs(di) === 4 ? Math.sign(di) * beatOf(state) : di, +mv[1]);
+    }
     else if (b.classList.contains('fb-cell')) { buzz(); fretTap(+b.dataset.s, +b.dataset.f); }
   });
   $('playBtn').addEventListener('click', togglePlay);
@@ -78,6 +132,20 @@ function bind() {
   const syncMetro = () => { $('metroBtn').classList.toggle('on', state.metro); $('metroBtn').setAttribute('aria-pressed', String(state.metro)); };
   $('metroBtn').addEventListener('click', () => { state.metro = !state.metro; save(); syncMetro(); toast(state.metro ? '메트로놈 켬' : '메트로놈 끔'); });
   $('loop').addEventListener('change', function () { state.loop = this.value; save(); if (pb.playing) startPlay(); });
+  // 속도 트레이너
+  const syncTrainer = () => {
+    const t = state.trainer;
+    $('trainerBtn').classList.toggle('on', t.on); $('trainerBtn').setAttribute('aria-pressed', String(t.on));
+    $('trOn').checked = t.on; $('trStart').value = t.start; $('trStep').value = t.step; $('trMax').value = t.max;
+  };
+  $('trainerBtn').addEventListener('click', () => { syncTrainer(); $('trainerModal').hidden = false; });
+  $('closeTrainer').addEventListener('click', () => { $('trainerModal').hidden = true; });
+  $('trOn').addEventListener('change', function () { state.trainer.on = this.checked; save(); syncTrainer(); toast(this.checked ? '속도 트레이너 켬' : '속도 트레이너 끔'); });
+  const clampNum = (el, lo, hi, def) => { const v = Math.round(+el.value); const c = isNaN(v) ? def : Math.max(lo, Math.min(hi, v)); el.value = c; return c; };
+  $('trStart').addEventListener('change', function () { state.trainer.start = clampNum(this, 40, 240, 60); if (state.trainer.max < state.trainer.start) { state.trainer.max = state.trainer.start; } save(); syncTrainer(); });
+  $('trStep').addEventListener('change', function () { state.trainer.step = clampNum(this, 1, 60, 5); save(); });
+  $('trMax').addEventListener('change', function () { state.trainer.max = clampNum(this, 40, 240, 120); if (state.trainer.max < state.trainer.start) { state.trainer.start = state.trainer.max; } save(); syncTrainer(); });
+  syncTrainer();
   $('modeKeys').addEventListener('click', () => { setPadMode('keys'); });
   $('modeFret').addEventListener('click', () => { setPadMode('fret'); });
   $('collapseBtn').addEventListener('click', () => { setCollapsed(!state.collapsed); });
@@ -93,12 +161,13 @@ function bind() {
     }
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     const k = e.key, mod = e.ctrlKey || e.metaKey;
-    if (mod && k.toLowerCase() === 'z') { e.preventDefault(); doUndo(); return; }
+    if (mod && k.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return; }
+    if (mod && k.toLowerCase() === 'y') { e.preventDefault(); doRedo(); return; }
     if (mod && k.toLowerCase() === 'c') { e.preventDefault(); copyMeasure(); return; }
     if (mod && k.toLowerCase() === 'v') { e.preventDefault(); pasteMeasure(); return; }
     if (mod || e.altKey) return;
     if (k === ' ') { e.preventDefault(); togglePlay(); return; }
-    if (k === 'Escape') { setSel(null, false); return; }
+    if (k === 'Escape') { if (ed.range) clearRange(); else setSel(null, false); return; }
     if (!ed.sel) { if (k.indexOf('Arrow') === 0) { e.preventDefault(); setSel({ m: 0, s: 0, i: 0 }, true); } return; }
     const sel = ed.sel;
     if (/^[0-9]$/.test(k)) { e.preventDefault(); inputDigit(k); }
@@ -106,13 +175,13 @@ function bind() {
     else if (k === 'Backspace') { e.preventDefault(); del(false); }
     else if (k === 'Delete') { e.preventDefault(); del(true); }
     else if (k === 'Enter') { e.preventDefault(); editMark(sel.m, sel.i); }
-    else if (k === 'ArrowLeft') { e.preventDefault(); move(e.shiftKey ? -4 : -1, 0); }
-    else if (k === 'ArrowRight') { e.preventDefault(); move(e.shiftKey ? 4 : 1, 0); }
-    else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -4 : 4, 0); }
+    else if (k === 'ArrowLeft') { e.preventDefault(); move(e.shiftKey ? -beatOf(state) : -1, 0); }
+    else if (k === 'ArrowRight') { e.preventDefault(); move(e.shiftKey ? beatOf(state) : 1, 0); }
+    else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -beatOf(state) : beatOf(state), 0); }
     else if (k === 'ArrowUp') { e.preventDefault(); move(0, -1); }
     else if (k === 'ArrowDown') { e.preventDefault(); move(0, 1); }
     else if (k === 'Home') { e.preventDefault(); move(-sel.i, 0); }
-    else if (k === 'End') { e.preventDefault(); move(SLOTS - 1 - sel.i, 0); }
+    else if (k === 'End') { e.preventDefault(); move(slotsOf(state) - 1 - sel.i, 0); }
   });
 
   $('addLine').addEventListener('click', addLine);
@@ -124,28 +193,50 @@ function bind() {
       { k: '⎘', label: '마디 복사', desc: 'Ctrl+C', action: copyMeasure, disabled: !has },
       { k: '⎗', label: '붙여넣기', desc: ed.clip ? '복사한 마디로 덮어써요' : '복사한 마디가 없어요', action: pasteMeasure, disabled: !has || !ed.clip },
       { k: '○', label: '마디 비우기', desc: '음만 지우고 마디는 남겨요', action: clearMeasure, disabled: !has },
+      { k: '♯', label: '조옮김', desc: '모든 프렛에 ±n', action: transposeRange, disabled: !has },
+      { k: 'PM', label: '팜뮤트 켜기/끄기', desc: '이 마디 전체', action: togglePmRange, disabled: !has },
+      { k: '▭', label: '여러 마디 선택', desc: '마디 번호를 길게 눌러도 돼요', action: () => { setRange(ed.sel.m); }, disabled: !has },
+      { k: '𝄇', label: '반복 기호…', desc: '||:  :||  1·2번 괄호', action: () => { openMenu('마디 ' + (ed.sel.m + 1) + ' 반복 기호', repeatMenuItems(ed.sel.m)); }, disabled: !has },
       { k: '×', label: '마디 삭제', desc: '뒤 마디를 당겨요', action: deleteMeasure, danger: true, disabled: !has },
       { k: '×', label: '마지막 줄 삭제', desc: '4마디를 지워요', action: delLine, danger: true }
     ]);
   });
+  $('rangeBar').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'copy') copyMeasure();
+    else if (act === 'paste') pasteMeasure();
+    else if (act === 'delete') deleteRange();
+    else if (act === 'transpose') transposeRange();
+    else if (act === 'left') shiftRange(-1);
+    else if (act === 'right') shiftRange(1);
+    else if (act === 'pm') togglePmRange();
+    else if (act === 'close') clearRange();
+  });
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [
       { k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
-      { k: '▣', label: '이미지로 저장', desc: 'PNG, 길게 눌러 저장', action: openImage },
+      { k: '▣', label: '이미지로 저장', desc: 'PNG 미리보기와 다운로드', action: openImage },
+      { k: '♪', label: 'MIDI 파일 (.mid)', desc: 'DAW·악보 프로그램에서 열기. 반복 기호를 펼쳐요', action: downloadMidi },
+      { k: '↧', label: '텍스트 파일 (.txt)', desc: '텍스트 타브를 파일로 저장', action: downloadText },
       { k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
     ]);
   });
   $('settingsBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
   $('closeSettings').addEventListener('click', () => { $('settingsModal').hidden = true; });
   $('undo').addEventListener('click', doUndo);
+  $('redo').addEventListener('click', doRedo);
+  $('landscapeFit').addEventListener('change', function () { state.landscapeFit = this.checked; save(); applyZoom(); });
   $('clearAll').addEventListener('click', clearAll);
   $('chordBtn').addEventListener('click', () => { if (!needSel()) return; $('chordModal').hidden = false; });
   $('markBtn').addEventListener('click', () => { if (!needSel()) return; editMark(ed.sel.m, ed.sel.i); });
+  $('chordHint').addEventListener('click', function () { if (!ed.sel) return; setMark(ed.sel.m, ed.sel.i, this.dataset.name); toast(this.dataset.name + ' 메모로 넣음'); });
   $('helpBtn').addEventListener('click', () => { $('helpModal').hidden = false; });
   $('closeModal').addEventListener('click', () => { $('modal').hidden = true; });
   $('closeImport').addEventListener('click', () => { $('importModal').hidden = true; });
   $('doImport').addEventListener('click', doImport);
   $('closeImg').addEventListener('click', () => { $('imgModal').hidden = true; });
+  $('dlImg').addEventListener('click', downloadImage);
   $('closeChord').addEventListener('click', () => { $('chordModal').hidden = true; });
   $('closeHelp').addEventListener('click', () => { $('helpModal').hidden = true; });
   const closeCoach = () => { $('coachModal').hidden = true; state.seen = true; save(); };
@@ -166,16 +257,54 @@ function bind() {
   $('zoom').addEventListener('change', function () { state.zoom = this.value; save(); applyZoom(); });
   $('theme').addEventListener('change', function () { state.theme = this.value; save(); applyTheme(); });
   $('tuning').addEventListener('change', function () { state.tuning = this.value; save(); render(); if (state.padMode === 'fret') buildFretboard(); });
+  $('meter').addEventListener('change', function () { const sel = this; setMeter(sel.value).then((ok) => { if (!ok) sel.value = state.meter; }); });
   const syncAuto = () => { $('autoAdv').checked = state.autoAdv; $('autoAdv2').checked = state.autoAdv; };
   $('autoAdv').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('autoAdv2').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('haptic').addEventListener('change', function () { state.haptic = this.checked; save(); });
-  $('instr').addEventListener('change', function () { state.instr = this.value; save(); toast(INSTR[state.instr].name); });
+  $('instr').addEventListener('change', function () {
+    state.instr = this.value; save();
+    if (state.instr === 'sample') toast(samples.loadedCount() ? '샘플 악기 (' + samples.loadedCount() + '줄)' : '샘플이 없어요. 설정 → 샘플 악기에서 올리세요');
+    else toast(INSTR[state.instr].name);
+  });
+  // 샘플 악기 설정
+  const renderSampleRows = () => {
+    const box = $('sampleRows'); box.innerHTML = '';
+    const names = TUNINGS[state.tuning].names;
+    for (let si = 0; si < 6; si++) {
+      const row = document.createElement('div'); row.className = 'srow-s'; row.dataset.s = si;
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = names[si];
+      const st = document.createElement('span'); st.className = 'st' + (samples.slots[si] ? ' on' : '');
+      st.textContent = samples.slots[si] ? samples.slots[si].name + ' · ' + samples.slots[si].buffer.duration.toFixed(1) + '초' : '없음';
+      const lab = document.createElement('label'); lab.className = 'btn'; lab.textContent = '올리기';
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.dataset.s = si; inp.setAttribute('aria-label', names[si] + '줄 샘플 파일');
+      lab.appendChild(inp);
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'btn danger'; del.textContent = '지움'; del.dataset.del = si; del.hidden = !samples.slots[si];
+      row.appendChild(n); row.appendChild(st); row.appendChild(lab); row.appendChild(del);
+      box.appendChild(row);
+    }
+    const o = $('instr').querySelector('option[value="sample"]');
+    if (o) o.textContent = '샘플 (내 소리' + (samples.loadedCount() ? ' ' + samples.loadedCount() + '줄' : '') + ')';
+  };
+  $('sampleRows').addEventListener('change', (e) => {
+    const inp = e.target; if (inp.type !== 'file' || !inp.files || !inp.files[0]) return;
+    const si = +inp.dataset.s, midi = TUNINGS[state.tuning].midi[si];
+    samples.putSample(si, inp.files[0], midi, decodeSample).then(() => { renderSampleRows(); toast(TUNINGS[state.tuning].names[si] + '줄 샘플 저장'); }, () => { toast('오디오 파일을 읽지 못했어요'); });
+  });
+  $('sampleRows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-del]'); if (!b) return;
+    samples.removeSample(+b.dataset.del).then(renderSampleRows);
+  });
+  $('clearSamples').addEventListener('click', () => { samples.clearSamples().then(() => { renderSampleRows(); toast('샘플 모두 지움'); }); });
+  $('settingsBtn').addEventListener('click', renderSampleRows);
+  samples.loadAll(decodeSampleSilently).then(renderSampleRows);
   $('volume').addEventListener('input', function () { setVolume(this.value / 100); save(); });
   $('reverb').addEventListener('input', function () { setReverb(this.value / 100); save(); });
   $('countIn').addEventListener('change', function () { state.countIn = this.checked; save(); });
+  $('drums').addEventListener('change', function () { state.drums = this.value; save(); });
+  $('swing').addEventListener('input', function () { state.swing = this.value / 100; save(); });
   $('preview').addEventListener('change', function () { state.preview = this.checked; save(); });
-  window.addEventListener('resize', () => { updatePadH(); if (state.zoom === 'fit') applyZoom(); });
+  window.addEventListener('resize', () => { updatePadH(); applyZoom(); });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
   document.addEventListener('visibilitychange', () => { if (document.hidden && pb.playing) stopPlay(); });
   bindSongs();
@@ -187,20 +316,25 @@ function boot() {
   load();
   const t = $('tuning');
   Object.keys(TUNINGS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = TUNINGS[k].name; t.appendChild(o); });
+  const mt = $('meter');
+  Object.keys(METERS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = k; mt.appendChild(o); });
   const g = $('chordGrid');
   CHORDS.forEach((ch) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'chord'; b.dataset.name = ch[0]; b.dataset.fing = ch[1];
+    b.title = ch[0] + ' (' + ch[1] + ')';
     const n = document.createElement('b'); n.textContent = ch[0];
-    const f = document.createElement('small'); f.textContent = ch[1];
-    b.appendChild(n); b.appendChild(f); g.appendChild(b);
+    const d = document.createElement('span'); d.className = 'diagram'; d.innerHTML = chordDiagramSVG(ch[1]);
+    b.appendChild(n); b.appendChild(d); g.appendChild(b);
   });
   const s = $('instr');
   Object.keys(INSTR).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = INSTR[k].name; s.appendChild(o); });
+  const so = document.createElement('option'); so.value = 'sample'; so.textContent = '샘플 (내 소리)'; s.appendChild(so);
   const { syncAuto, syncMetro } = bind();
-  $('title').value = state.title; $('tuning').value = state.tuning; $('zoom').value = state.zoom; $('theme').value = state.theme;
+  $('title').value = state.title; $('tuning').value = state.tuning; $('meter').value = state.meter; $('zoom').value = state.zoom; $('theme').value = state.theme;
   $('bpm').value = state.bpm; $('loop').value = state.loop; $('haptic').checked = state.haptic; s.value = state.instr;
   $('volume').value = Math.round(state.volume * 100); $('reverb').value = Math.round(state.reverb * 100);
   $('countIn').checked = state.countIn; $('preview').checked = state.preview;
+  $('drums').value = state.drums; $('swing').value = Math.round(state.swing * 100); $('landscapeFit').checked = state.landscapeFit;
   syncAuto(); syncMetro(); applyTheme(); applyZoom();
   ed.sel = { m: 0, s: 0, i: 0 };
   render();
@@ -211,3 +345,8 @@ function boot() {
 }
 
 boot();
+
+// PWA: 빌드된 앱에서만 서비스 워커 등록(개발 서버에서는 캐시가 방해된다)
+if (import.meta.env && import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+}

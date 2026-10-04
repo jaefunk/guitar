@@ -7,6 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./styles.css">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#2457d6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1512" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="타브">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 </head>
 <body>
 
@@ -32,6 +40,19 @@
 </main>
 
 <div class="pad" id="pad">
+  <div class="range-bar" id="rangeBar" hidden>
+    <span class="range-label" id="rangeLabel"></span>
+    <div class="range-acts">
+      <button type="button" data-act="copy" title="복사 (Ctrl+C)">복사</button>
+      <button type="button" data-act="paste" title="선택한 마디부터 붙여넣기">붙여넣기</button>
+      <button type="button" data-act="transpose" title="모든 프렛에 ±n">조옮김</button>
+      <button type="button" data-act="left" title="한 칸 왼쪽으로">⇠ 밀기</button>
+      <button type="button" data-act="right" title="한 칸 오른쪽으로">밀기 ⇢</button>
+      <button type="button" data-act="pm" title="팜뮤트 켜기/끄기">P.M.</button>
+      <button type="button" data-act="delete" class="danger" title="범위 삭제">삭제</button>
+      <button type="button" data-act="close" title="범위 해제 (Esc)">해제</button>
+    </div>
+  </div>
   <div class="pad-inner">
     <div class="transport-wrap">
       <div class="transport">
@@ -40,6 +61,7 @@
         <label class="tfield">BPM <input type="number" id="bpm" min="40" max="240" step="1" inputmode="numeric"></label>
         <select class="tsel" id="instr" aria-label="악기"></select>
         <button class="tbtn icon" id="metroBtn" type="button" title="메트로놈" aria-label="메트로놈" aria-pressed="false">♩</button>
+        <button class="tbtn icon" id="trainerBtn" type="button" title="속도 트레이너" aria-label="속도 트레이너" aria-pressed="false">⏱</button>
         <select class="tsel" id="loop" aria-label="반복">
           <option value="none">반복 없음</option>
           <option value="measure">이 마디 반복</option>
@@ -56,9 +78,11 @@
     <div id="padBody">
       <div class="pad-info">
         <span class="pos hint" id="selInfo"></span>
+        <button class="chip" id="chordHint" type="button" hidden></button>
         <div class="info-right">
           <label class="toggle" title="프렛을 넣으면 오른쪽 칸으로 이동"><input type="checkbox" id="autoAdv"> 자동 이동</label>
           <button class="mini" id="undo" type="button" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↶</button>
+          <button class="mini" id="redo" type="button" title="다시 실행 (Ctrl+Shift+Z / Ctrl+Y)" aria-label="다시 실행">↷</button>
         </div>
       </div>
       <div id="keysBlock">
@@ -71,6 +95,7 @@
           <button class="key m" data-mod="\" type="button" title="슬라이드 다운">\</button>
           <button class="key m" data-mod="~" type="button" title="비브라토">~</button>
           <button class="key m" data-mod="x" type="button" title="뮤트">x</button>
+          <button class="key m" data-mod="." type="button" title="끊기 (울리던 음을 멈춤)" aria-label="끊기">·</button>
           <button class="key del" id="del" type="button" title="지우기 (Backspace)">지움</button>
         </div>
       </div>
@@ -108,8 +133,10 @@
     <div class="grip"></div>
     <h2>설정</h2>
     <div class="setting"><div><div class="l">튜닝</div><div class="d">줄 이름과 재생 음높이가 바뀌어요</div></div><select id="tuning" aria-label="튜닝"></select></div>
+    <div class="setting"><div><div class="l">박자표</div><div class="d">이 곡의 한 마디 길이. 6/8은 점4분음표가 한 박이에요</div></div><select id="meter" aria-label="박자표"></select></div>
     <div class="setting"><div><div class="l">악보 크기</div><div class="d">칸 너비. "화면에 맞춤"은 넓은 화면에서 한 줄이 다 보여요</div></div>
       <select id="zoom" aria-label="크기"><option value="s">작게</option><option value="m">보통</option><option value="l">크게</option><option value="fit">화면에 맞춤</option></select></div>
+    <div class="setting"><div><div class="l">가로 모드에서 한 줄 맞춤</div><div class="d">폰을 눕히면 4마디가 화면 폭에 맞게 줄어들어요</div></div><label class="switch"><input type="checkbox" id="landscapeFit"><i></i></label></div>
     <div class="setting"><div><div class="l">테마</div></div>
       <select id="theme" aria-label="테마"><option value="system">기기 설정 따름</option><option value="light">밝게</option><option value="dark">어둡게</option></select></div>
     <div class="setting"><div><div class="l">입력 후 자동 이동</div><div class="d">프렛을 넣으면 오른쪽 칸으로 넘어가요</div></div><label class="switch"><input type="checkbox" id="autoAdv2"><i></i></label></div>
@@ -117,8 +144,15 @@
     <h2 style="margin-top:6px">소리</h2>
     <div class="setting"><div><div class="l">음량</div></div><input type="range" id="volume" min="0" max="100" step="1" aria-label="음량"></div>
     <div class="setting"><div><div class="l">리버브</div><div class="d">공간감. 0이면 바짝 마른 소리</div></div><input type="range" id="reverb" min="0" max="100" step="1" aria-label="리버브"></div>
+    <div class="setting"><div><div class="l">드럼 백킹</div><div class="d">재생할 때 합성 드럼이 같이 나와요</div></div>
+      <select id="drums" aria-label="드럼"><option value="off">끔</option><option value="rock">록 (8비트)</option><option value="pop">팝</option><option value="ballad">발라드 (하프타임)</option></select></div>
+    <div class="setting"><div><div class="l">스윙</div><div class="d">홀수 16분음표를 늦춰 셔플 느낌. 67%가 셋잇단</div></div><input type="range" id="swing" min="0" max="70" step="1" aria-label="스윙"></div>
     <div class="setting"><div><div class="l">재생 전 카운트 인</div><div class="d">한 마디(4박) 클릭 후 시작</div></div><label class="switch"><input type="checkbox" id="countIn"><i></i></label></div>
     <div class="setting"><div><div class="l">입력할 때 미리듣기</div><div class="d">프렛을 넣으면 그 음이 바로 들려요</div></div><label class="switch"><input type="checkbox" id="preview"><i></i></label></div>
+    <h2 style="margin-top:6px">샘플 악기</h2>
+    <p>줄마다 개방현을 친 녹음(wav, mp3, m4a 등)을 올리면 "샘플" 악기로 연주해요. 없는 줄은 가장 가까운 줄의 샘플을 당겨 써요. 지금 튜닝 기준으로 저장돼요.</p>
+    <div class="samples" id="sampleRows"></div>
+    <div class="row"><button class="btn danger" id="clearSamples" type="button">샘플 모두 지우기</button></div>
     <div class="row" style="justify-content:space-between;margin-top:6px">
       <button class="btn danger" id="clearAll" type="button">전체 지우기</button>
       <button class="btn primary" id="closeSettings" type="button">닫기</button>
@@ -159,9 +193,9 @@
   <div class="card" role="dialog" aria-label="이미지">
     <div class="grip"></div>
     <h2>이미지로 저장</h2>
-    <p>이미지를 길게 누르거나(폰) 마우스 오른쪽 버튼(PC)으로 저장하세요.</p>
+    <p>다운로드 버튼으로 PNG를 저장하거나, 이미지를 길게 눌러(폰) 사진에 저장하세요.</p>
     <div class="img-out" id="imgOut"></div>
-    <div class="row"><button class="btn" id="closeImg" type="button">닫기</button></div>
+    <div class="row"><button class="btn" id="closeImg" type="button">닫기</button><button class="btn primary" id="dlImg" type="button">PNG 다운로드</button></div>
   </div>
 </div>
 
@@ -185,18 +219,23 @@
       <li>악보의 칸을 탭하면 세로 한 칸(16분음표)이 선택돼요. 숫자판으로 프렛을 넣고, 1이나 2를 누르면 두 자리(10~24)를 잠시 기다려요.</li>
       <li><b>프렛보드</b>로 바꾸면 지판을 직접 눌러 입력해요. 여러 줄을 눌러 코드를 만들기 좋고, 같은 자리를 다시 누르면 지워져요.</li>
       <li>h p b / \ ~ 는 직전에 넣은 음에 붙어요. 재생하면 b는 반음 벤딩, ~는 비브라토, / \ 는 다음 음으로 미끄러져요.</li>
-      <li>▶는 선택한 마디부터 재생해요. 반복을 "이 마디"로 두면 한 마디만 계속 돌아 연습하기 좋아요.</li>
+      <li>x는 뮤트, · 는 끊기예요. · 를 넣으면 그 줄에서 울리던 음이 그 칸에서 멈춰요(쉼표).</li>
+      <li>▶는 선택한 마디부터 재생해요. 반복을 "이 마디"로 두면 한 마디만 계속 돌아 연습하기 좋아요. ⏱ 속도 트레이너를 켜면 반복마다 조금씩 빨라져요.</li>
+      <li>마디 메뉴 → 반복 기호에서 ||: :|| 와 1·2번 괄호를 넣으면 재생할 때 그 순서대로 연주해요. (마디·줄 반복 중엔 기호를 무시해요)</li>
       <li>마디 번호를 탭하면 그 마디 첫 칸으로 이동해요. 마디 위 빈 줄(+)을 탭하면 코드 이름, 가사, 구간 이름을 적어요.</li>
+      <li>한 칸에 음을 두 개 이상 쌓으면 아래 상태줄에 코드 이름(예: Am7, G/B)이 떠요. 탭하면 메모로 들어가요.</li>
+      <li>마디 번호를 <b>길게 누르면</b> 여러 마디를 선택해요. 복사·삭제·조옮김·한 칸 밀기·팜뮤트(P.M.)를 한 번에 할 수 있어요.</li>
       <li>아래 ▼를 누르면 입력판을 접어 악보를 넓게 볼 수 있어요. 칸을 탭하면 다시 펼쳐져요.</li>
       <li>소리는 설정에서 악기(어쿠스틱·나일론·일렉 클린·드라이브), 음량, 리버브를 바꿀 수 있어요. 여러 줄을 같이 치면 스트럼처럼 살짝 시간차가 나요.</li>
-      <li>입력 내용은 이 기기 브라우저에만 저장돼요. 다른 기기로 옮기려면 내보내기 → 텍스트를 복사해 불러오세요.</li>
+      <li>브라우저 메뉴의 "홈 화면에 추가"로 설치하면 앱처럼 열리고 오프라인에서도 돼요.</li>
+      <li>입력 내용은 이 기기 브라우저에만 저장돼요. 다른 기기로 옮기려면 내보내기 → 텍스트를 복사해 불러오세요. MIDI 파일로 내보내면 DAW나 악보 프로그램에서 열 수 있어요.</li>
     </ul>
     <h2>키보드</h2>
     <ul class="help">
-      <li><kbd>0</kbd>~<kbd>9</kbd> 프렛, <kbd>h</kbd> <kbd>p</kbd> <kbd>b</kbd> <kbd>/</kbd> <kbd>\</kbd> <kbd>~</kbd> <kbd>x</kbd> 기법, <kbd>Backspace</kbd> 지우기</li>
+      <li><kbd>0</kbd>~<kbd>9</kbd> 프렛, <kbd>h</kbd> <kbd>p</kbd> <kbd>b</kbd> <kbd>/</kbd> <kbd>\</kbd> <kbd>~</kbd> <kbd>x</kbd> 기법, <kbd>.</kbd> 끊기, <kbd>Backspace</kbd> 지우기</li>
       <li>방향키 이동, <kbd>Shift</kbd>+좌우 또는 <kbd>Tab</kbd> 한 박 이동, <kbd>Home</kbd> <kbd>End</kbd> 마디 처음/끝</li>
       <li><kbd>Space</kbd> 재생/정지, <kbd>Enter</kbd> 메모, <kbd>Esc</kbd> 선택 해제</li>
-      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 실행 취소, <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> 마디 복사·붙여넣기</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 실행 취소, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 다시 실행, <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> 마디 복사·붙여넣기</li>
     </ul>
     <div class="row"><button class="btn primary" id="closeHelp" type="button">닫기</button></div>
   </div>
@@ -233,6 +272,20 @@
 
 <div class="toast" id="toast" role="status"></div>
 
+
+<!-- 속도 트레이너 -->
+<div class="modal" id="trainerModal" hidden>
+  <div class="card" role="dialog" aria-label="속도 트레이너">
+    <div class="grip"></div>
+    <h2>속도 트레이너</h2>
+    <p>느리게 시작해서 반복 한 바퀴마다 조금씩 빨라져요. 반복이 "없음"이면 곡 전체를 돌아요.</p>
+    <div class="setting"><div><div class="l">켜기</div><div class="d">▶를 누르면 아래 설정대로 재생해요</div></div><label class="switch"><input type="checkbox" id="trOn"><i></i></label></div>
+    <div class="setting"><div><div class="l">시작 BPM</div></div><input class="field num" type="number" id="trStart" min="40" max="240" inputmode="numeric"></div>
+    <div class="setting"><div><div class="l">한 바퀴마다 올리기</div><div class="d">BPM</div></div><input class="field num" type="number" id="trStep" min="1" max="60" inputmode="numeric"></div>
+    <div class="setting"><div><div class="l">최대 BPM</div></div><input class="field num" type="number" id="trMax" min="40" max="240" inputmode="numeric"></div>
+    <div class="row"><button class="btn primary" id="closeTrainer" type="button">닫기</button></div>
+  </div>
+</div>
 
 <!-- 곡 목록 -->
 <div class="modal" id="songsModal" hidden>
