@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="ko" data-zoom="m">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>기타 타브 에디터</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#f5f6f3; --surface:#fbfbf9; --ink:#1b2230; --muted:#6c7684; --line:#9aa3b1; --bar:#2a3342;
+  --accent:#2457d6; --accent-ink:#ffffff; --sel:rgba(36,87,214,.14); --col:rgba(36,87,214,.07); --play:rgba(36,87,214,.26);
+  --key:#e9ebe6; --key-ink:#1b2230; --border:#d3d7d0; --pad:#fbfbf9; --mod:#8a5a00; --danger:#b4261e; --shadow:rgba(20,30,50,.14);
+  --slot:24px; --row:24px; --fs:11px; --labelW:36px; --padH:240px;
+  --mono:'Red Hat Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1c1512; --surface:#241c18; --ink:#ede6da; --muted:#a0938a; --line:#7a6a5c; --bar:#d8cfc2;
+    --accent:#e0b35a; --accent-ink:#1c1512; --sel:rgba(224,179,90,.22); --col:rgba(224,179,90,.08); --play:rgba(224,179,90,.32);
+    --key:#2e2521; --key-ink:#ede6da; --border:#45382f; --pad:#241c18; --mod:#f0c97a; --danger:#f08a7e; --shadow:rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1c1512; --surface:#241c18; --ink:#ede6da; --muted:#a0938a; --line:#7a6a5c; --bar:#d8cfc2;
+  --accent:#e0b35a; --accent-ink:#1c1512; --sel:rgba(224,179,90,.22); --col:rgba(224,179,90,.08); --play:rgba(224,179,90,.32);
+  --key:#2e2521; --key-ink:#ede6da; --border:#45382f; --pad:#241c18; --mod:#f0c97a; --danger:#f08a7e; --shadow:rgba(0,0,0,.4);
+}
+:root[data-zoom="s"]{--slot:18px;--row:20px;--fs:10px}
+:root[data-zoom="l"]{--slot:32px;--row:30px;--fs:13px}
+@media (pointer:coarse){:root[data-zoom="m"]{--row:27px}}
+
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.4;
+  padding-bottom:calc(var(--padH) + 16px + env(safe-area-inset-bottom,0px));
+  -webkit-tap-highlight-color:transparent;
+}
+button,select,input{font-family:inherit}
+button{touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none !important}
+
+/* ---------- 상단 ---------- */
+.top{padding:12px 14px 6px;max-width:1000px}
+.title-row{display:flex;align-items:center;gap:8px}
+.title{
+  flex:1;min-width:0;font:700 18px/1.3 var(--mono),var(--sans);background:transparent;border:0;
+  border-bottom:1px solid var(--border);color:var(--ink);padding:4px 0 6px;outline:none;border-radius:0;
+}
+.title::placeholder{color:var(--muted);font-weight:500}
+.title:focus{border-bottom-color:var(--accent)}
+.icon-btn{flex:0 0 auto;width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:transparent;color:var(--muted);font:700 15px/1 var(--mono);display:flex;align-items:center;justify-content:center}
+.icon-btn:active{background:var(--key)}
+.toolbar{display:flex;gap:6px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:none}
+.toolbar::-webkit-scrollbar{display:none}
+.btn{
+  flex:0 0 auto;appearance:none;-webkit-appearance:none;border:1px solid var(--border);background:transparent;
+  color:var(--ink);border-radius:6px;padding:0 12px;height:34px;font:600 13px/1 var(--sans);white-space:nowrap;display:flex;align-items:center;gap:4px;
+}
+.btn:active{background:var(--key)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.danger{color:var(--danger)}
+.btn .caret{font-size:9px;color:var(--muted)}
+.btn.primary .caret{color:var(--accent-ink)}
+
+/* ---------- 악보 ---------- */
+.sheet-wrap{overflow-x:auto;padding:2px 0 8px;-webkit-overflow-scrolling:touch}
+.sheet{width:max-content;min-width:100%;padding:0 18px 0 0}
+.system{margin:6px 0 22px}
+.marks{display:flex;height:22px}
+.mk{flex:0 0 var(--slot);width:var(--slot);height:22px;position:relative;border:0;background:transparent;padding:0;border-radius:3px}
+.mk.col{background:var(--col)}
+.mk.col.empty::before{content:'+';position:absolute;left:0;right:0;top:3px;text-align:center;font:600 12px/1 var(--mono);color:var(--muted);opacity:.55}
+.mk .t{position:absolute;left:2px;bottom:3px;font:600 11px/1 var(--sans);color:var(--accent);white-space:nowrap;pointer-events:none}
+.ruler{display:flex;height:28px;align-items:flex-end}
+.spacer,.label{flex:0 0 var(--labelW);position:sticky;left:0;background:var(--bg);z-index:2}
+.spacer{height:100%}
+.ruler .measure{display:flex;position:relative;height:100%;cursor:pointer;border-radius:4px 4px 0 0}
+.ruler .measure:active{background:var(--col)}
+.mnum{position:absolute;left:3px;top:0;font:700 10px/1 var(--mono);color:var(--muted);padding:1px 3px;border-radius:3px}
+.ruler .measure.cur .mnum{background:var(--accent);color:var(--accent-ink)}
+.ruler .measure.loop .tick{color:var(--accent)}
+.ruler .measure.loop::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--accent);opacity:.7}
+.tick{width:var(--slot);height:16px;display:flex;align-items:flex-end;justify-content:center;font:500 11px/1 var(--mono);color:var(--muted);padding-bottom:3px}
+.tick.sub::after{content:'';width:1px;height:4px;background:var(--border)}
+.strings{display:flex;flex-direction:column}
+.srow{display:flex;height:var(--row)}
+.label{display:flex;align-items:center;justify-content:flex-end;padding-right:7px;font:700 11px/1 var(--mono);color:var(--muted)}
+.srow .measure{display:flex;position:relative}
+.srow .measure::after{content:'';position:absolute;right:-1px;top:0;bottom:0;width:2px;background:var(--bar)}
+.srow .measure.m0::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--bar)}
+.srow:first-child .measure::after,.srow:first-child .measure.m0::before{top:50%}
+.srow:last-child .measure::after,.srow:last-child .measure.m0::before{bottom:50%}
+.cell{
+  flex:0 0 var(--slot);width:var(--slot);height:var(--row);position:relative;border:0;padding:0;margin:0;
+  background:linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat;
+  color:inherit;outline:none;
+  scroll-margin:110px 24px calc(var(--padH) + 24px) 60px;
+}
+.cell.col{background:linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat,var(--col)}
+.cell.play{background:linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat,var(--play)}
+.cell.sel{box-shadow:inset 0 0 0 2px var(--accent);border-radius:3px}
+.cell:focus-visible{box-shadow:inset 0 0 0 2px var(--muted);border-radius:3px}
+.cell .v{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:var(--bg);padding:0 1px;font:700 var(--fs)/1 var(--mono);color:var(--ink);white-space:nowrap;
+}
+.cell .v .mod{color:var(--mod);font-weight:500}
+.cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+
+/* ---------- 입력 패드 ---------- */
+.pad{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--pad);border-top:1px solid var(--border);
+  padding:6px 10px calc(8px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 18px var(--shadow);
+}
+.pad-inner{max-width:760px;margin:0 auto}
+.transport-wrap{display:flex;align-items:center;gap:6px}
+.transport{flex:1;min-width:0;display:flex;gap:6px;align-items:center;overflow-x:auto;scrollbar-width:none;padding:2px 0}
+.transport::-webkit-scrollbar{display:none}
+.tbtn{flex:0 0 auto;height:36px;min-width:40px;padding:0 10px;border:1px solid var(--border);background:var(--key);color:var(--key-ink);border-radius:8px;font:700 15px/1 var(--mono)}
+.tbtn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);min-width:48px}
+.tbtn.on{box-shadow:inset 0 0 0 2px var(--accent);color:var(--accent)}
+.tbtn.icon{font-size:15px}
+.tfield{display:flex;align-items:center;gap:4px;font:700 11px/1 var(--mono);color:var(--muted);white-space:nowrap;flex:0 0 auto}
+.tfield input{width:54px;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);font:700 14px var(--mono);text-align:center;padding:0 4px;outline:none}
+.tfield input:focus{border-color:var(--accent)}
+.tsel{flex:0 0 auto;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);font:600 12px var(--sans);padding:0 6px}
+.seg{flex:0 0 auto;display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;height:36px}
+.seg button{border:0;background:transparent;color:var(--muted);font:600 12px/1 var(--sans);padding:0 10px}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.collapse{flex:0 0 auto;width:36px;height:36px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted);font:700 14px/1 var(--mono);display:flex;align-items:center;justify-content:center}
+.collapse span{display:inline-block;transition:transform .2s}
+.pad.collapsed .collapse span{transform:rotate(180deg)}
+.pad.collapsed #padBody{display:none}
+.pad-info{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:8px 0 8px;min-height:20px}
+.pad-info .pos{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pad-info .pos.hint{color:var(--muted);font-weight:500}
+.pad-info .pos.pend{color:var(--accent)}
+.info-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.toggle{display:flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer;font:600 12px/1 var(--sans);color:var(--muted)}
+.toggle input{accent-color:var(--accent);margin:0}
+.mini{width:30px;height:28px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);font:700 15px/1 var(--mono);display:flex;align-items:center;justify-content:center}
+.mini:active{background:var(--key)}
+.pad-row{display:grid;gap:6px;margin-bottom:6px}
+.pad-row.digits{grid-template-columns:repeat(10,1fr)}
+.pad-row.mods{grid-template-columns:repeat(8,1fr)}
+.pad-row.nav{grid-template-columns:repeat(6,1fr);margin-bottom:0}
+.key{
+  appearance:none;-webkit-appearance:none;border:1px solid var(--border);background:var(--key);color:var(--key-ink);
+  border-radius:8px;height:40px;font:700 17px/1 var(--mono);display:flex;align-items:center;justify-content:center;padding:0;
+}
+.key:active{background:var(--sel)}
+.key.m{color:var(--mod);font-weight:500}
+.key.nav{background:transparent;font-size:16px}
+.key.del{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--danger)}
+
+/* 프렛보드 */
+.fb{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
+.fb-row{display:flex;gap:2px;height:22px}
+.fb-row.head{height:16px}
+.fb-lab{flex:0 0 22px;font:700 10px/1 var(--mono);color:var(--muted);display:flex;align-items:center}
+.fb-cell{flex:1;min-width:0;border:1px solid var(--border);background:var(--key);border-radius:3px;font:700 10px/1 var(--mono);color:var(--muted);padding:0;display:flex;align-items:center;justify-content:center}
+.fb-cell.nut{border-right-width:3px;border-right-color:var(--bar)}
+.fb-cell.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.fb-cell:active{background:var(--sel)}
+.fb-head{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;font:700 9px/1 var(--mono);color:var(--muted);gap:2px}
+.fb-head i{width:4px;height:4px;border-radius:50%;background:var(--line);display:block}
+.fb-head i.none{background:transparent}
+.fb-tools{display:flex;gap:6px;margin-bottom:6px}
+.fb-tools .key{height:32px;font:600 12px/1 var(--sans);flex:1}
+
+/* ---------- 모달 / 시트 ---------- */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.card{
+  background:var(--surface);width:100%;max-width:760px;max-height:88%;border-radius:14px 14px 0 0;
+  padding:12px 14px calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px;overflow:auto;
+  animation:up .18s ease-out;
+}
+@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion: reduce){.card{animation:none}.collapse span{transition:none}}
+.grip{width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 2px}
+.card h2{margin:0;font:700 15px/1.3 var(--sans)}
+.card p{margin:0;font-size:12px;color:var(--muted)}
+.card textarea{
+  font:500 12px/1.45 var(--mono);background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:8px;
+  padding:10px;min-height:220px;white-space:pre;overflow:auto;resize:none;outline:none;
+}
+.card .row{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.field{height:42px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);font:600 15px var(--sans);padding:0 10px;outline:none}
+.field:focus{border-color:var(--accent)}
+.menu{display:flex;flex-direction:column}
+.menu-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 4px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--ink);text-align:left}
+.menu-item:last-child{border-bottom:0}
+.menu-item:active{background:var(--key)}
+.menu-item .k{flex:0 0 28px;font:700 14px/1 var(--mono);color:var(--muted);text-align:center}
+.menu-item .l{font:600 14px/1.3 var(--sans)}
+.menu-item .d{font:500 12px/1.3 var(--sans);color:var(--muted);margin-top:2px}
+.menu-item.danger .l{color:var(--danger)}
+.menu-item[disabled]{opacity:.4}
+.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.setting:last-of-type{border-bottom:0}
+.setting .l{font:600 14px/1.3 var(--sans)}
+.setting .d{font:500 12px/1.3 var(--sans);color:var(--muted);margin-top:2px}
+input[type=range]{accent-color:var(--accent);width:46%;margin:0}
+.setting select{height:36px;border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);font:600 13px var(--sans);padding:0 8px;max-width:50%}
+.switch{position:relative;width:44px;height:26px;flex:0 0 auto}
+.switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.switch i{position:absolute;inset:0;border-radius:13px;background:var(--border);transition:background .15s}
+.switch i::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch input:checked + i{background:var(--accent)}
+.switch input:checked + i::after{transform:translateX(18px)}
+.chords{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.chord{border:1px solid var(--border);border-radius:8px;background:var(--key);color:var(--key-ink);padding:9px 4px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.chord b{font:700 15px/1 var(--mono)}
+.chord small{font:500 10px/1 var(--mono);color:var(--muted)}
+.chord:active{background:var(--sel)}
+.img-out{text-align:center}
+.img-out img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:4px}
+.help{margin:0;padding-left:18px;font-size:13px;line-height:1.55}
+.help li{margin-bottom:4px}
+.help kbd{font:600 11px/1 var(--mono);border:1px solid var(--border);border-radius:3px;padding:1px 4px;background:var(--bg)}
+.steps{display:flex;flex-direction:column;gap:10px;margin:4px 0}
+.step{display:flex;gap:12px;align-items:flex-start}
+.step .n{flex:0 0 28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font:700 14px/28px var(--mono);text-align:center}
+.step .l{font:600 14px/1.35 var(--sans)}
+.step .d{font:500 12px/1.4 var(--sans);color:var(--muted);margin-top:2px}
+
+.toast{
+  position:fixed;left:50%;bottom:calc(var(--padH) + 14px + env(safe-area-inset-bottom,0px));z-index:30;
+  transform:translate(-50%,8px);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:999px;
+  font-size:13px;opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+@media (min-width:700px){.top{padding:18px 20px 8px}.sheet{padding-left:6px}.chords{grid-template-columns:repeat(6,1fr)}.modal{align-items:center}.card{border-radius:14px;max-height:80%}.grip{display:none}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="title-row">
+    <input id="title" class="title" type="text" placeholder="곡 제목" autocomplete="off">
+    <button class="icon-btn" id="helpBtn" type="button" aria-label="도움말" title="도움말">?</button>
+  </div>
+  <div class="toolbar">
+    <button class="btn primary" id="addLine" type="button">+ 줄 추가</button>
+    <button class="btn" id="measureMenu" type="button">마디 <span class="caret">▼</span></button>
+    <button class="btn" id="chordBtn" type="button">코드 넣기</button>
+    <button class="btn" id="markBtn" type="button">메모</button>
+    <button class="btn" id="exportMenu" type="button">내보내기 <span class="caret">▼</span></button>
+    <button class="btn" id="settingsBtn" type="button">설정</button>
+  </div>
+</header>
+
+<main>
+  <div class="sheet-wrap" id="sheetWrap"><div class="sheet" id="sheet"></div></div>
+</main>
+
+<div class="pad" id="pad">
+  <div class="pad-inner">
+    <div class="transport-wrap">
+      <div class="transport">
+        <button class="tbtn primary" id="playBtn" type="button" title="재생 / 정지 (Space)" aria-label="재생">▶</button>
+        <button class="tbtn icon" id="restartBtn" type="button" title="처음부터 재생" aria-label="처음부터">⏮</button>
+        <label class="tfield">BPM <input type="number" id="bpm" min="40" max="240" step="1" inputmode="numeric"></label>
+        <select class="tsel" id="instr" aria-label="악기"></select>
+        <button class="tbtn icon" id="metroBtn" type="button" title="메트로놈" aria-label="메트로놈" aria-pressed="false">♩</button>
+        <select class="tsel" id="loop" aria-label="반복">
+          <option value="none">반복 없음</option>
+          <option value="measure">이 마디 반복</option>
+          <option value="line">이 줄 반복</option>
+          <option value="all">전체 반복</option>
+        </select>
+        <div class="seg" role="group" aria-label="입력 방식">
+          <button type="button" id="modeKeys" class="on">숫자판</button>
+          <button type="button" id="modeFret">프렛보드</button>
+        </div>
+      </div>
+      <button class="collapse" id="collapseBtn" type="button" aria-label="입력판 접기/펼치기" title="접기/펼치기"><span>▼</span></button>
+    </div>
+    <div id="padBody">
+      <div class="pad-info">
+        <span class="pos hint" id="selInfo"></span>
+        <div class="info-right">
+          <label class="toggle" title="프렛을 넣으면 오른쪽 칸으로 이동"><input type="checkbox" id="autoAdv"> 자동 이동</label>
+          <button class="mini" id="undo" type="button" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↶</button>
+        </div>
+      </div>
+      <div id="keysBlock">
+        <div class="pad-row digits" id="digits"></div>
+        <div class="pad-row mods">
+          <button class="key m" data-mod="h" type="button" title="해머온">h</button>
+          <button class="key m" data-mod="p" type="button" title="풀오프">p</button>
+          <button class="key m" data-mod="b" type="button" title="벤딩">b</button>
+          <button class="key m" data-mod="/" type="button" title="슬라이드 업">/</button>
+          <button class="key m" data-mod="\" type="button" title="슬라이드 다운">\</button>
+          <button class="key m" data-mod="~" type="button" title="비브라토">~</button>
+          <button class="key m" data-mod="x" type="button" title="뮤트">x</button>
+          <button class="key del" id="del" type="button" title="지우기 (Backspace)">지움</button>
+        </div>
+      </div>
+      <div id="fretBlock" hidden>
+        <div class="fb" id="fretboard"></div>
+        <div class="fb-tools">
+          <button class="key" id="fbShift" type="button">12 ~ 24 프렛 보기</button>
+          <button class="key" id="fbClear" type="button">이 칸 전체 지움</button>
+        </div>
+      </div>
+      <div class="pad-row nav">
+        <button class="key nav" data-move="-4,0" type="button" title="한 박 앞으로">⇤</button>
+        <button class="key nav" data-move="-1,0" type="button" title="왼쪽">←</button>
+        <button class="key nav" data-move="1,0" type="button" title="오른쪽">→</button>
+        <button class="key nav" data-move="4,0" type="button" title="한 박 뒤로">⇥</button>
+        <button class="key nav" data-move="0,-1" type="button" title="위 줄">↑</button>
+        <button class="key nav" data-move="0,1" type="button" title="아래 줄">↓</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 메뉴 시트 -->
+<div class="modal" id="menuModal" hidden>
+  <div class="card" role="dialog" aria-labelledby="menuTitle">
+    <div class="grip"></div>
+    <h2 id="menuTitle"></h2>
+    <div class="menu" id="menuList"></div>
+  </div>
+</div>
+
+<!-- 설정 -->
+<div class="modal" id="settingsModal" hidden>
+  <div class="card" role="dialog" aria-label="설정">
+    <div class="grip"></div>
+    <h2>설정</h2>
+    <div class="setting"><div><div class="l">튜닝</div><div class="d">줄 이름과 재생 음높이가 바뀌어요</div></div><select id="tuning" aria-label="튜닝"></select></div>
+    <div class="setting"><div><div class="l">악보 크기</div><div class="d">칸 너비. "화면에 맞춤"은 넓은 화면에서 한 줄이 다 보여요</div></div>
+      <select id="zoom" aria-label="크기"><option value="s">작게</option><option value="m">보통</option><option value="l">크게</option><option value="fit">화면에 맞춤</option></select></div>
+    <div class="setting"><div><div class="l">테마</div></div>
+      <select id="theme" aria-label="테마"><option value="system">기기 설정 따름</option><option value="light">밝게</option><option value="dark">어둡게</option></select></div>
+    <div class="setting"><div><div class="l">입력 후 자동 이동</div><div class="d">프렛을 넣으면 오른쪽 칸으로 넘어가요</div></div><label class="switch"><input type="checkbox" id="autoAdv2"><i></i></label></div>
+    <div class="setting"><div><div class="l">키 진동</div><div class="d">숫자판을 누를 때 짧게 진동 (지원 기기만)</div></div><label class="switch"><input type="checkbox" id="haptic"><i></i></label></div>
+    <h2 style="margin-top:6px">소리</h2>
+    <div class="setting"><div><div class="l">음량</div></div><input type="range" id="volume" min="0" max="100" step="1" aria-label="음량"></div>
+    <div class="setting"><div><div class="l">리버브</div><div class="d">공간감. 0이면 바짝 마른 소리</div></div><input type="range" id="reverb" min="0" max="100" step="1" aria-label="리버브"></div>
+    <div class="setting"><div><div class="l">재생 전 카운트 인</div><div class="d">한 마디(4박) 클릭 후 시작</div></div><label class="switch"><input type="checkbox" id="countIn"><i></i></label></div>
+    <div class="setting"><div><div class="l">입력할 때 미리듣기</div><div class="d">프렛을 넣으면 그 음이 바로 들려요</div></div><label class="switch"><input type="checkbox" id="preview"><i></i></label></div>
+    <div class="row" style="justify-content:space-between;margin-top:6px">
+      <button class="btn danger" id="clearAll" type="button">전체 지우기</button>
+      <button class="btn primary" id="closeSettings" type="button">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 텍스트 내보내기 -->
+<div class="modal" id="modal" hidden>
+  <div class="card" role="dialog" aria-label="텍스트 타브">
+    <div class="grip"></div>
+    <h2>텍스트 타브</h2>
+    <p>한 칸이 16분음표 하나입니다. 메모장이나 메신저에 붙여 넣으면, 다른 기기에서 "텍스트 불러오기"로 그대로 복원돼요.</p>
+    <textarea id="exportText" readonly spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn" id="closeModal" type="button">닫기</button>
+      <button class="btn primary" id="copyBtn" type="button">복사</button>
+    </div>
+  </div>
+</div>
+
+<!-- 텍스트 불러오기 -->
+<div class="modal" id="importModal" hidden>
+  <div class="card" role="dialog" aria-label="텍스트 불러오기">
+    <div class="grip"></div>
+    <h2>텍스트 불러오기</h2>
+    <p>이 에디터에서 내보낸 텍스트 타브를 붙여 넣으세요. 현재 악보는 모두 바뀌지만 실행 취소할 수 있어요.</p>
+    <textarea id="importText" spellcheck="false" placeholder="e|------------|..."></textarea>
+    <div class="row">
+      <button class="btn" id="closeImport" type="button">닫기</button>
+      <button class="btn primary" id="doImport" type="button">불러오기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 이미지 -->
+<div class="modal" id="imgModal" hidden>
+  <div class="card" role="dialog" aria-label="이미지">
+    <div class="grip"></div>
+    <h2>이미지로 저장</h2>
+    <p>이미지를 길게 누르거나(폰) 마우스 오른쪽 버튼(PC)으로 저장하세요.</p>
+    <div class="img-out" id="imgOut"></div>
+    <div class="row"><button class="btn" id="closeImg" type="button">닫기</button></div>
+  </div>
+</div>
+
+<!-- 코드 선택 -->
+<div class="modal" id="chordModal" hidden>
+  <div class="card" role="dialog" aria-label="코드 넣기">
+    <div class="grip"></div>
+    <h2>코드 넣기</h2>
+    <p>선택한 칸에 6줄 운지를 한 번에 넣고, 코드 이름을 메모로 달아요. 뮤트(x) 줄은 비워 둡니다.</p>
+    <div class="chords" id="chordGrid"></div>
+    <div class="row"><button class="btn" id="closeChord" type="button">닫기</button></div>
+  </div>
+</div>
+
+<!-- 도움말 -->
+<div class="modal" id="helpModal" hidden>
+  <div class="card" role="dialog" aria-label="도움말">
+    <div class="grip"></div>
+    <h2>사용법</h2>
+    <ul class="help">
+      <li>악보의 칸을 탭하면 세로 한 칸(16분음표)이 선택돼요. 숫자판으로 프렛을 넣고, 1이나 2를 누르면 두 자리(10~24)를 잠시 기다려요.</li>
+      <li><b>프렛보드</b>로 바꾸면 지판을 직접 눌러 입력해요. 여러 줄을 눌러 코드를 만들기 좋고, 같은 자리를 다시 누르면 지워져요.</li>
+      <li>h p b / \ ~ 는 직전에 넣은 음에 붙어요. 재생하면 b는 반음 벤딩, ~는 비브라토, / \ 는 다음 음으로 미끄러져요.</li>
+      <li>▶는 선택한 마디부터 재생해요. 반복을 "이 마디"로 두면 한 마디만 계속 돌아 연습하기 좋아요.</li>
+      <li>마디 번호를 탭하면 그 마디 첫 칸으로 이동해요. 마디 위 빈 줄(+)을 탭하면 코드 이름, 가사, 구간 이름을 적어요.</li>
+      <li>아래 ▼를 누르면 입력판을 접어 악보를 넓게 볼 수 있어요. 칸을 탭하면 다시 펼쳐져요.</li>
+      <li>소리는 설정에서 악기(어쿠스틱·나일론·일렉 클린·드라이브), 음량, 리버브를 바꿀 수 있어요. 여러 줄을 같이 치면 스트럼처럼 살짝 시간차가 나요.</li>
+      <li>입력 내용은 이 기기 브라우저에만 저장돼요. 다른 기기로 옮기려면 내보내기 → 텍스트를 복사해 불러오세요.</li>
+    </ul>
+    <h2>키보드</h2>
+    <ul class="help">
+      <li><kbd>0</kbd>~<kbd>9</kbd> 프렛, <kbd>h</kbd> <kbd>p</kbd> <kbd>b</kbd> <kbd>/</kbd> <kbd>\</kbd> <kbd>~</kbd> <kbd>x</kbd> 기법, <kbd>Backspace</kbd> 지우기</li>
+      <li>방향키 이동, <kbd>Shift</kbd>+좌우 또는 <kbd>Tab</kbd> 한 박 이동, <kbd>Home</kbd> <kbd>End</kbd> 마디 처음/끝</li>
+      <li><kbd>Space</kbd> 재생/정지, <kbd>Enter</kbd> 메모, <kbd>Esc</kbd> 선택 해제</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 실행 취소, <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> 마디 복사·붙여넣기</li>
+    </ul>
+    <div class="row"><button class="btn primary" id="closeHelp" type="button">닫기</button></div>
+  </div>
+</div>
+
+<!-- 처음 안내 -->
+<div class="modal" id="coachModal" hidden>
+  <div class="card" role="dialog" aria-label="시작하기">
+    <div class="grip"></div>
+    <h2>기타 타브 에디터</h2>
+    <p>한 줄에 4마디, 한 마디는 16분음표 16칸이에요.</p>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div><div class="l">악보의 칸을 탭해요</div><div class="d">줄(e B G D A E)과 박자 위치가 아래에 표시돼요</div></div></div>
+      <div class="step"><div class="n">2</div><div><div class="l">숫자판으로 프렛을 눌러요</div><div class="d">코드를 쌓을 땐 "프렛보드"가 편해요</div></div></div>
+      <div class="step"><div class="n">3</div><div><div class="l">▶로 들어봐요</div><div class="d">BPM을 바꾸고, 한 마디만 반복해서 연습할 수도 있어요</div></div></div>
+    </div>
+    <div class="row"><button class="btn primary" id="closeCoach" type="button">시작하기</button></div>
+  </div>
+</div>
+
+<!-- 범용 대화상자 -->
+<div class="modal" id="dlg" hidden>
+  <div class="card" role="dialog" aria-labelledby="dlgTitle">
+    <div class="grip"></div>
+    <h2 id="dlgTitle"></h2>
+    <p id="dlgMsg"></p>
+    <input class="field" id="dlgInput" type="text" autocomplete="off">
+    <div class="row">
+      <button class="btn" id="dlgCancel" type="button">취소</button>
+      <button class="btn primary" id="dlgOk" type="button">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+'use strict';
+var STRINGS=6, SLOTS=16, PER_LINE=4, MAX_FRET=24, KEY='gtab-editor-v2', OLD_KEY='gtab-editor-v1';
+var TUNINGS={
+  standard:{name:'표준 (E A D G B e)',names:['e','B','G','D','A','E'],midi:[64,59,55,50,45,40]},
+  dropd:{name:'드롭 D',names:['e','B','G','D','A','D'],midi:[64,59,55,50,45,38]},
+  half:{name:'반음 내림',names:['eb','Bb','Gb','Db','Ab','Eb'],midi:[63,58,54,49,44,39]},
+  full:{name:'온음 내림',names:['d','A','F','C','G','D'],midi:[62,57,53,48,43,38]},
+  openg:{name:'오픈 G',names:['d','B','G','D','G','D'],midi:[62,59,55,50,43,38]},
+  dadgad:{name:'DADGAD',names:['d','A','G','D','A','D'],midi:[62,57,55,50,45,38]}
+};
+var CHORDS=[
+  ['C','x32010'],['G','320003'],['D','xx0232'],['A','x02220'],['E','022100'],['F','133211'],
+  ['Am','x02210'],['Em','022000'],['Dm','xx0231'],['Bm','x24432'],['F#m','244222'],['Gm','355333'],
+  ['A7','x02020'],['B7','x21202'],['C7','x32310'],['D7','xx0212'],['E7','020100'],['G7','320001'],
+  ['Am7','x02010'],['Em7','022030'],['Dm7','xx0211'],['Cmaj7','x32000'],['Fmaj7','xx3210'],['Gmaj7','320002'],
+  ['Cadd9','x32030'],['Dsus4','xx0233'],['Asus2','x02200'],['Esus4','022200'],['G/B','x20003'],['D/F#','2x0232']
+];
+var MODS=['h','p','b','/','\\','~','x'];
+
+var state={title:'',tuning:'standard',measures:[],marks:{},zoom:'m',theme:'system',autoAdv:true,bpm:90,metro:false,loop:'none',padMode:'keys',fretShift:0,haptic:true,collapsed:false,seen:false,instr:'acoustic',volume:0.8,reverb:0.25,countIn:false,preview:true};
+var sel=null, pending=false, undoStack=[], cellEls=[], markEls=[], rulerEls=[], clip=null;
+function $(id){return document.getElementById(id);}
+var sheet=$('sheet'), selInfo=$('selInfo'), titleEl=$('title');
+
+/* ---------- 상태 ---------- */
+function emptyMeasure(){var m=[];for(var s=0;s<STRINGS;s++){var r=[];for(var i=0;i<SLOTS;i++)r.push('');m.push(r);}return m;}
+function cloneMeasure(m){return m.map(function(r){return r.slice();});}
+function validMeasures(ms){
+  return Array.isArray(ms)&&ms.length>0&&ms.every(function(m){return Array.isArray(m)&&m.length===STRINGS&&m.every(function(r){return Array.isArray(r)&&r.length===SLOTS&&r.every(function(v){return typeof v==='string';});});});
+}
+function padMeasures(){while(state.measures.length%PER_LINE)state.measures.push(emptyMeasure());}
+function load(){
+  var raw=null;
+  try{raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);}catch(e){}
+  if(raw){
+    try{
+      var d=JSON.parse(raw);
+      if(d&&typeof d==='object'){
+        if(typeof d.title==='string')state.title=d.title;
+        if(TUNINGS[d.tuning])state.tuning=d.tuning;
+        if(['s','m','l','fit'].indexOf(d.zoom)>=0)state.zoom=d.zoom;
+        if(['system','light','dark'].indexOf(d.theme)>=0)state.theme=d.theme;
+        ['autoAdv','metro','haptic','collapsed','seen'].forEach(function(k){if(typeof d[k]==='boolean')state[k]=d[k];});
+        if(typeof d.bpm==='number'&&d.bpm>=40&&d.bpm<=240)state.bpm=d.bpm;
+        if(['none','measure','line','all'].indexOf(d.loop)>=0)state.loop=d.loop;
+        if(d.padMode==='fret'||d.padMode==='keys')state.padMode=d.padMode;
+        if(d.fretShift===12)state.fretShift=12;
+        if(d.instr&&['acoustic','nylon','clean','drive'].indexOf(d.instr)>=0)state.instr=d.instr;
+        if(typeof d.volume==='number'&&d.volume>=0&&d.volume<=1)state.volume=d.volume;
+        if(typeof d.reverb==='number'&&d.reverb>=0&&d.reverb<=1)state.reverb=d.reverb;
+        if(typeof d.countIn==='boolean')state.countIn=d.countIn;
+        if(typeof d.preview==='boolean')state.preview=d.preview;
+        if(validMeasures(d.measures))state.measures=d.measures;
+        if(d.marks&&typeof d.marks==='object'){Object.keys(d.marks).forEach(function(k){if(/^\d+:\d+$/.test(k)&&typeof d.marks[k]==='string'&&d.marks[k])state.marks[k]=d.marks[k];});}
+      }
+    }catch(e){}
+  }
+  if(!state.measures.length){for(var k=0;k<8;k++)state.measures.push(emptyMeasure());}
+  padMeasures();
+}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+
+/* ---------- 렌더 ---------- */
+function parse(v){var m=/^(\d{0,2})(.*)$/.exec(v||'');return{num:m[1],mod:m[2]};}
+function paintCell(c,v){
+  c.innerHTML='';if(!v)return;
+  var p=parse(v),span=document.createElement('span');span.className='v';
+  if(p.num){var a=document.createElement('span');a.textContent=p.num;span.appendChild(a);}
+  if(p.mod){var b=document.createElement('span');b.className='mod';b.textContent=p.mod;span.appendChild(b);}
+  c.appendChild(span);
+}
+function paintMark(m,i){
+  var el=markEls[m]&&markEls[m][i];if(!el)return;
+  el.innerHTML='';var t=state.marks[m+':'+i];
+  el.classList.toggle('empty',!t);
+  if(t){var s=document.createElement('span');s.className='t';s.textContent=t;el.appendChild(s);}
+}
+function render(){
+  sheet.innerHTML='';cellEls=[];markEls=[];rulerEls=[];
+  var names=TUNINGS[state.tuning].names, lines=state.measures.length/PER_LINE;
+  for(var L=0;L<lines;L++){
+    var sys=document.createElement('div');sys.className='system';
+    var marks=document.createElement('div');marks.className='marks';
+    var sp0=document.createElement('div');sp0.className='spacer';marks.appendChild(sp0);
+    for(var k0=0;k0<PER_LINE;k0++){
+      var m0=L*PER_LINE+k0;markEls[m0]=[];
+      var wrap=document.createElement('div');wrap.className='measure';wrap.style.display='flex';
+      for(var j=0;j<SLOTS;j++){
+        var mk=document.createElement('button');mk.type='button';mk.className='mk';mk.dataset.m=m0;mk.dataset.i=j;mk.tabIndex=-1;
+        mk.setAttribute('aria-label','마디 '+(m0+1)+' '+(j+1)+'번째 칸 메모');
+        markEls[m0][j]=mk;wrap.appendChild(mk);paintMark(m0,j);
+      }
+      marks.appendChild(wrap);
+    }
+    sys.appendChild(marks);
+    var ruler=document.createElement('div');ruler.className='ruler';
+    var sp=document.createElement('div');sp.className='spacer';ruler.appendChild(sp);
+    for(var k=0;k<PER_LINE;k++){
+      var m=L*PER_LINE+k, md=document.createElement('div');md.className='measure';md.dataset.m=m;md.title='마디 '+(m+1)+' 처음으로 이동';
+      var mn=document.createElement('span');mn.className='mnum';mn.textContent=m+1;md.appendChild(mn);
+      for(var i=0;i<SLOTS;i++){var t=document.createElement('div');t.className='tick'+(i%4?' sub':'');if(i%4===0)t.textContent=(i/4+1);md.appendChild(t);}
+      rulerEls[m]=md;ruler.appendChild(md);
+    }
+    sys.appendChild(ruler);
+    var strings=document.createElement('div');strings.className='strings';
+    for(var s=0;s<STRINGS;s++){
+      var row=document.createElement('div');row.className='srow';
+      var lab=document.createElement('div');lab.className='label';lab.textContent=names[s];row.appendChild(lab);
+      for(var k2=0;k2<PER_LINE;k2++){
+        var m2=L*PER_LINE+k2, md2=document.createElement('div');md2.className='measure'+(k2===0?' m0':'');
+        cellEls[m2]=cellEls[m2]||[];cellEls[m2][s]=cellEls[m2][s]||[];
+        for(var i2=0;i2<SLOTS;i2++){
+          var c=document.createElement('button');c.type='button';c.className='cell';
+          c.dataset.m=m2;c.dataset.s=s;c.dataset.i=i2;c.tabIndex=-1;
+          c.setAttribute('aria-label','마디 '+(m2+1)+' '+names[s]+'줄 '+(i2+1)+'번째 칸');
+          cellEls[m2][s][i2]=c;paintCell(c,state.measures[m2][s][i2]);md2.appendChild(c);
+        }
+        row.appendChild(md2);
+      }
+      strings.appendChild(row);
+    }
+    sys.appendChild(strings);sheet.appendChild(sys);
+  }
+  if(sel&&sel.m>=state.measures.length)sel=null;
+  applySel();updateInfo();updateFretboard();applyLoopMarks();
+}
+function eachCol(fn){if(!sel)return;for(var s=0;s<STRINGS;s++){var c=cellEls[sel.m]&&cellEls[sel.m][s]&&cellEls[sel.m][s][sel.i];if(c)fn(c,s);}}
+function clearSel(){
+  eachCol(function(c){c.classList.remove('col','sel','pending');});
+  if(sel){var mk=markEls[sel.m]&&markEls[sel.m][sel.i];if(mk)mk.classList.remove('col');var r=rulerEls[sel.m];if(r)r.classList.remove('cur');}
+}
+function applySel(){
+  eachCol(function(c,s){c.classList.add('col');if(s===sel.s)c.classList.add('sel');});
+  if(sel){var mk=markEls[sel.m]&&markEls[sel.m][sel.i];if(mk)mk.classList.add('col');var r=rulerEls[sel.m];if(r)r.classList.add('cur');}
+}
+function setPending(v){
+  pending=v;
+  if(sel){var c=cellEls[sel.m]&&cellEls[sel.m][sel.s]&&cellEls[sel.m][sel.s][sel.i];if(c)c.classList.toggle('pending',v);}
+  updateInfo();
+}
+function setSel(n,scroll){
+  clearSel();sel=n;pending=false;applySel();updateInfo();updateFretboard();
+  if(sel&&scroll){var c=cellEls[sel.m][sel.s][sel.i];if(c.scrollIntoView)c.scrollIntoView({block:'nearest',inline:'nearest'});}
+}
+function updateInfo(){
+  selInfo.classList.remove('hint','pend');
+  if(playing&&lastHL!==null){selInfo.textContent='재생 중: 마디 '+(Math.floor(lastHL/SLOTS)+1)+' / '+state.measures.length;return;}
+  if(!sel){selInfo.textContent='악보의 칸을 탭해서 선택하세요';selInfo.classList.add('hint');return;}
+  var names=TUNINGS[state.tuning].names;
+  if(pending){selInfo.textContent='두 자리 프렛? 다음 숫자를 누르세요 (아니면 → 로 이동)';selInfo.classList.add('pend');return;}
+  selInfo.textContent='마디 '+(sel.m+1)+'의 '+(Math.floor(sel.i/4)+1)+'박 '+(sel.i%4+1)+'번째, '+names[sel.s]+'줄';
+}
+
+/* ---------- 편집 ---------- */
+function snapshot(){return JSON.stringify({measures:state.measures,marks:state.marks});}
+function pushUndo(){undoStack.push(snapshot());if(undoStack.length>120)undoStack.shift();}
+function getVal(p){return state.measures[p.m][p.s][p.i];}
+function setVal(p,v){if(getVal(p)===v)return;pushUndo();state.measures[p.m][p.s][p.i]=v;paintCell(cellEls[p.m][p.s][p.i],v);save();updateFretboard();}
+function move(di,ds){
+  if(!sel)return;
+  var total=state.measures.length*SLOTS, g=sel.m*SLOTS+sel.i+di;
+  g=Math.max(0,Math.min(total-1,g));
+  var s=Math.max(0,Math.min(STRINGS-1,sel.s+ds));
+  setSel({m:Math.floor(g/SLOTS),s:s,i:g%SLOTS},true);
+}
+function prevPos(p){var g=p.m*SLOTS+p.i-1;if(g<0)return null;return{m:Math.floor(g/SLOTS),s:p.s,i:g%SLOTS};}
+function needSel(){if(!sel){toast('먼저 악보의 칸을 탭하세요');return false;}return true;}
+function buzz(){if(state.haptic&&navigator.vibrate){try{navigator.vibrate(8);}catch(e){}}}
+
+function inputDigit(d){
+  if(!needSel())return;
+  var p=parse(getVal(sel)), num;
+  if(pending&&p.num.length===1&&(p.num==='1'||p.num==='2')){var cand=p.num+d;if(+cand<=MAX_FRET)num=cand;}
+  if(num===undefined)num=d;
+  setVal(sel,num+p.mod);
+  preview([{s:sel.s,fret:+num}]);
+  var pend=(num.length===1&&(num==='1'||num==='2'));
+  if(state.autoAdv&&!pend)move(1,0);else setPending(pend);
+}
+function inputMod(ch){
+  if(!needSel())return;
+  var cur=getVal(sel), p=parse(cur);
+  if(ch==='x'){setVal(sel,'x');setPending(false);if(state.autoAdv)move(1,0);return;}
+  if(p.num){setVal(sel,p.num+ch);setPending(false);if(state.autoAdv)move(1,0);return;}
+  if(!cur){
+    var pv=prevPos(sel);
+    if(pv){var pp=parse(getVal(pv));if(pp.num){setVal(pv,pp.num+ch);return;}}
+  }
+  setVal(sel,ch);setPending(false);
+}
+function del(forward){
+  if(!needSel())return;
+  if(getVal(sel)){setVal(sel,'');setPending(false);return;}
+  if(!forward){var pv=prevPos(sel);if(pv){setSel(pv,true);setVal(sel,'');}}
+}
+function doUndo(){
+  if(!undoStack.length){toast('되돌릴 작업이 없어요');return;}
+  var d=JSON.parse(undoStack.pop());state.measures=d.measures;state.marks=d.marks||{};save();render();toast('되돌림');
+}
+function hasContent(ms){return ms.some(function(m){return m.some(function(r){return r.some(function(v){return v;});});});}
+function measureMarks(m){var o={};Object.keys(state.marks).forEach(function(k){var p=k.split(':');if(+p[0]===m)o[p[1]]=state.marks[k];});return o;}
+function shiftMarks(fromM,delta){
+  var n={};
+  Object.keys(state.marks).forEach(function(k){
+    var p=k.split(':'),m=+p[0];
+    if(m<fromM){n[k]=state.marks[k];return;}
+    if(delta<0&&m===fromM)return;
+    n[(m+delta)+':'+p[1]]=state.marks[k];
+  });
+  state.marks=n;
+}
+function addLine(){pushUndo();for(var k=0;k<PER_LINE;k++)state.measures.push(emptyMeasure());save();render();toast('마디 '+(state.measures.length-3)+'~'+state.measures.length+' 추가됨');}
+function delLine(){
+  if(state.measures.length<=PER_LINE){toast('마지막 한 줄은 남겨 둡니다');return;}
+  var last=state.measures.slice(-PER_LINE), from=state.measures.length-PER_LINE;
+  var go=hasContent(last)?ask({title:'마지막 줄 삭제',msg:'마지막 줄에 입력된 음이 있어요. 삭제할까요?',ok:'삭제'}):Promise.resolve(true);
+  go.then(function(ok){
+    if(!ok)return;
+    pushUndo();state.measures.splice(-PER_LINE,PER_LINE);shiftMarks(from,-PER_LINE);
+    if(sel&&sel.m>=state.measures.length)sel=null;
+    save();render();toast('마지막 줄 삭제됨');
+  });
+}
+function insertMeasure(after){
+  if(!needSel())return;
+  var at=sel.m+(after?1:0);
+  pushUndo();state.measures.splice(at,0,emptyMeasure());shiftMarks(at,1);padMeasures();
+  sel={m:at,s:sel.s,i:0};save();render();toast('마디 '+(at+1)+'에 빈 마디 삽입');
+}
+function deleteMeasure(){
+  if(!needSel())return;
+  var m=sel.m;
+  var go=hasContent([state.measures[m]])?ask({title:'마디 삭제',msg:'마디 '+(m+1)+'을 삭제하고 뒤 마디를 당길까요?',ok:'삭제'}):Promise.resolve(true);
+  go.then(function(ok){
+    if(!ok)return;
+    pushUndo();state.measures.splice(m,1);shiftMarks(m,-1);
+    if(!state.measures.length)state.measures.push(emptyMeasure());
+    padMeasures();if(sel.m>=state.measures.length)sel.m=state.measures.length-1;
+    save();render();toast('마디 '+(m+1)+' 삭제됨');
+  });
+}
+function copyMeasure(){if(!needSel())return;clip={m:cloneMeasure(state.measures[sel.m]),marks:measureMarks(sel.m)};toast('마디 '+(sel.m+1)+' 복사됨');}
+function pasteMeasure(){
+  if(!needSel())return;if(!clip){toast('복사한 마디가 없어요');return;}
+  pushUndo();state.measures[sel.m]=cloneMeasure(clip.m);
+  Object.keys(state.marks).forEach(function(k){if(+k.split(':')[0]===sel.m)delete state.marks[k];});
+  Object.keys(clip.marks).forEach(function(i){state.marks[sel.m+':'+i]=clip.marks[i];});
+  save();render();toast('마디 '+(sel.m+1)+'에 붙여넣음');
+}
+function clearMeasure(){
+  if(!needSel())return;
+  if(!hasContent([state.measures[sel.m]])){toast('이미 비어 있는 마디예요');return;}
+  pushUndo();state.measures[sel.m]=emptyMeasure();save();render();toast('마디 '+(sel.m+1)+' 비움');
+}
+function clearAll(){
+  var go=hasContent(state.measures)?ask({title:'전체 지우기',msg:'모든 음과 메모를 지우고 2줄(8마디)로 되돌릴까요?',ok:'지우기'}):Promise.resolve(true);
+  go.then(function(ok){
+    if(!ok)return;
+    pushUndo();state.measures=[];for(var k=0;k<8;k++)state.measures.push(emptyMeasure());state.marks={};
+    sel={m:0,s:0,i:0};save();render();$('settingsModal').hidden=true;toast('전체 지움');
+  });
+}
+function editMark(m,i){
+  var k=m+':'+i;
+  ask({title:'메모 (마디 '+(m+1)+', '+(Math.floor(i/4)+1)+'박)',msg:'코드 이름, 가사, 구간 이름 등',input:true,value:state.marks[k]||'',placeholder:'예: Am, Chorus',ok:'저장'})
+  .then(function(v){
+    if(v===null)return;v=v.trim();
+    if((state.marks[k]||'')===v)return;
+    pushUndo();if(v)state.marks[k]=v;else delete state.marks[k];
+    paintMark(m,i);save();
+  });
+}
+function insertChord(name,fing){
+  if(!needSel())return;
+  pushUndo();
+  for(var s=0;s<STRINGS;s++){
+    var ch=fing[STRINGS-1-s];
+    state.measures[sel.m][s][sel.i]=(ch==='x')?'':ch;
+    paintCell(cellEls[sel.m][s][sel.i],state.measures[sel.m][s][sel.i]);
+  }
+  state.marks[sel.m+':'+sel.i]=name;paintMark(sel.m,sel.i);
+  save();updateFretboard();
+  $('chordModal').hidden=true;
+  toast(name+' 넣음');
+  var pv=[];for(var s3=0;s3<STRINGS;s3++){var q=parse(state.measures[sel.m][s3][sel.i]);if(q.num)pv.push({s:s3,fret:+q.num});}
+  preview(pv);
+  if(state.autoAdv)move(4,0);
+}
+
+/* ---------- 프렛보드 입력 ---------- */
+var fbCells=[];
+function buildFretboard(){
+  var fb=$('fretboard');fb.innerHTML='';fbCells=[];
+  var names=TUNINGS[state.tuning].names, base=state.fretShift;
+  var head=document.createElement('div');head.className='fb-row head';
+  var hl=document.createElement('div');hl.className='fb-lab';head.appendChild(hl);
+  for(var f=0;f<=12;f++){
+    var fr=base+f, h=document.createElement('div');h.className='fb-head';
+    var dot=document.createElement('i');if([3,5,7,9,12,15,17,19,21,24].indexOf(fr)<0)dot.className='none';
+    var num=document.createElement('span');num.textContent=fr;
+    h.appendChild(num);h.appendChild(dot);head.appendChild(h);
+  }
+  fb.appendChild(head);
+  for(var s=0;s<STRINGS;s++){
+    var row=document.createElement('div');row.className='fb-row';
+    var lab=document.createElement('div');lab.className='fb-lab';lab.textContent=names[s];row.appendChild(lab);
+    fbCells[s]=[];
+    for(var f2=0;f2<=12;f2++){
+      var fr2=base+f2, b=document.createElement('button');b.type='button';b.className='fb-cell'+(fr2===0?' nut':'');
+      b.dataset.s=s;b.dataset.f=fr2;b.tabIndex=-1;b.setAttribute('aria-label',names[s]+'줄 '+fr2+'프렛');
+      fbCells[s][f2]=b;row.appendChild(b);
+    }
+    fb.appendChild(row);
+  }
+  $('fbShift').textContent=base?'0 ~ 12 프렛 보기':'12 ~ 24 프렛 보기';
+  updateFretboard();
+}
+function updateFretboard(){
+  if(!fbCells.length||state.padMode!=='fret')return;
+  for(var s=0;s<STRINGS;s++){
+    var num=sel?parse(getVal({m:sel.m,s:s,i:sel.i})).num:'';
+    for(var f=0;f<=12;f++){var b=fbCells[s][f];b.classList.toggle('on',num!==''&&+num===+b.dataset.f);}
+  }
+}
+function fretTap(s,f){
+  if(!sel){setSel({m:0,s:s,i:0},false);}
+  var p={m:sel.m,s:s,i:sel.i}, cur=parse(getVal(p));
+  if(cur.num!==''&&+cur.num===f){setVal(p,'');}
+  else{setVal(p,String(f)+cur.mod);preview([{s:s,fret:f}]);}
+  setSel({m:sel.m,s:s,i:sel.i},false);
+}
+function setPadMode(mode){
+  state.padMode=mode;save();
+  var fret=mode==='fret';
+  $('keysBlock').hidden=fret;$('fretBlock').hidden=!fret;
+  $('modeKeys').classList.toggle('on',!fret);$('modeFret').classList.toggle('on',fret);
+  if(fret)buildFretboard();
+  updatePadH();
+}
+function setCollapsed(v){
+  state.collapsed=v;save();
+  $('pad').classList.toggle('collapsed',v);
+  updatePadH();
+}
+
+/* ---------- 소리 엔진 (확장 Karplus-Strong + 악기 체인) ---------- */
+var INSTR={
+  acoustic:{name:'어쿠스틱 (스틸)',g:0.9965,S:0.45,bright:0.8,pick:0.16,len:3.0},
+  nylon:{name:'클래식 (나일론)',g:0.994,S:0.5,bright:0.35,pick:0.22,len:2.6},
+  clean:{name:'일렉 클린',g:0.998,S:0.3,bright:0.6,pick:0.12,len:3.5},
+  drive:{name:'일렉 드라이브',g:0.9985,S:0.22,bright:0.5,pick:0.12,len:4.0}
+};
+var AC=window.AudioContext||window.webkitAudioContext, actx=null, master=null, comp=null, revBus=null, chains={}, bufCache={};
+var active=[], playing=false, playTimer=null, hlTimers=[], playPos=0, nextTime=0, loopA=0, loopB=0, loopOn=false, lastHL=null, previewVoices=[];
+function ensureAudio(){
+  if(!AC)return false;
+  if(!actx){
+    try{actx=new AC();}catch(e){return false;}
+    comp=actx.createDynamicsCompressor();comp.threshold.value=-14;comp.knee.value=12;comp.ratio.value=3;comp.attack.value=0.004;comp.release.value=0.2;
+    master=actx.createGain();master.gain.value=state.volume;
+    master.connect(comp);comp.connect(actx.destination);
+    revBus=actx.createGain();revBus.gain.value=state.reverb*0.7;
+    var conv=actx.createConvolver();conv.buffer=makeIR(1.6);revBus.connect(conv);conv.connect(master);
+  }
+  if(actx.state==='suspended'){try{actx.resume();}catch(e){}}
+  return true;
+}
+function makeIR(sec){
+  var sr=actx.sampleRate,N=Math.floor(sr*sec),b=actx.createBuffer(2,N,sr);
+  for(var ch=0;ch<2;ch++){var d=b.getChannelData(ch),lp=0;for(var i=0;i<N;i++){lp+=0.35*((Math.random()*2-1)-lp);d[i]=lp*Math.exp(-4*i/N)*(1-i/N);}}
+  return b;
+}
+function driveCurve(k){var n=2048,c=new Float32Array(n),t=Math.tanh(k);for(var i=0;i<n;i++){var x=i*2/(n-1)-1;c[i]=Math.tanh(k*x)/t;}return c;}
+function bq(type,f,q,gain){var b=actx.createBiquadFilter();b.type=type;b.frequency.value=f;if(q!=null)b.Q.value=q;if(gain!=null)b.gain.value=gain;return b;}
+function getChain(kind){
+  if(chains[kind])return chains[kind];
+  var input=actx.createGain(), out=actx.createGain(), nodes;
+  if(kind==='nylon'){nodes=[bq('peaking',95,2.5,5),bq('peaking',190,3,3),bq('lowpass',3800,0.7)];out.gain.value=1;}
+  else if(kind==='clean'){nodes=[bq('peaking',2400,1.2,3),bq('lowpass',6500,0.8)];out.gain.value=0.9;}
+  else if(kind==='drive'){var pre=actx.createGain();pre.gain.value=3.5;var ws=actx.createWaveShaper();ws.curve=driveCurve(6);ws.oversample='2x';nodes=[bq('highpass',90,0.7),pre,ws,bq('lowpass',4200,0.9),bq('peaking',900,1,3)];out.gain.value=0.3;}
+  else{nodes=[bq('peaking',105,2.5,4),bq('peaking',215,3,2.5),bq('highshelf',5000,null,-3)];out.gain.value=0.9;}
+  var prev=input;nodes.forEach(function(n){prev.connect(n);prev=n;});prev.connect(out);
+  out.connect(master);out.connect(revBus);
+  chains[kind]={input:input};return chains[kind];
+}
+/* 분수 지연 + 손실 필터 + 피킹 위치 콤 필터를 넣은 Karplus-Strong */
+function synth(freq,I,soft,muted){
+  var sr=actx.sampleRate, len=muted?0.25:I.len, N=Math.floor(sr*len);
+  var buf=actx.createBuffer(1,N,sr), out=buf.getChannelData(0), i, n;
+  var S=muted?0.5:I.S, g=muted?0.55:I.g;
+  var P=sr/freq-S, Pi=Math.floor(P), frac=P-Pi;if(Pi<2){Pi=2;frac=0;}
+  var L=Pi+3, ring=new Float32Array(L);
+  var exLen=Pi+1, ex=new Float32Array(exLen), lp=0, coef=Math.min(1,I.bright*(soft?0.55:1)*(muted?0.5:1));
+  for(i=0;i<exLen;i++){lp+=coef*((Math.random()*2-1)-lp);ex[i]=lp;}
+  var pk=Math.max(1,Math.round(P*I.pick));for(i=exLen-1;i>=pk;i--)ex[i]-=ex[i-pk];
+  var prev=0, peak=0;
+  for(n=0;n<N;n++){
+    var i0=((n-Pi)%L+L)%L, i1=((n-Pi-1)%L+L)%L;
+    var interp=ring[i0]*(1-frac)+ring[i1]*frac;
+    var loss=(1-S)*interp+S*prev;prev=interp;
+    var y=(n<exLen?ex[n]:0)+g*loss;
+    ring[n%L]=y;out[n]=y;var a=Math.abs(y);if(a>peak)peak=a;
+  }
+  if(peak>0){var k=0.8/peak;for(n=0;n<N;n++)out[n]*=k;}
+  var att=Math.floor(sr*0.001);for(i=0;i<att;i++)out[i]*=i/att;
+  var rel=Math.floor(sr*0.25);for(i=0;i<rel;i++)out[N-1-i]*=i/rel;
+  return buf;
+}
+function noteBuffer(midi,soft,muted){
+  var I=INSTR[state.instr]||INSTR.acoustic, key=state.instr+(muted?'x':(soft?'s':'n'))+midi;
+  if(!bufCache[key])bufCache[key]=synth(440*Math.pow(2,(midi-69)/12),I,soft,muted);
+  return bufCache[key];
+}
+function playNote(midi,t,o){
+  var muted=!!o.muted, src=actx.createBufferSource();src.buffer=noteBuffer(midi,!!o.soft,muted);
+  var g=actx.createGain(), vel=(o.vel||0.7)*(0.94+Math.random()*0.12);
+  g.gain.setValueAtTime(vel,t);src.connect(g);g.connect(getChain(state.instr).input);
+  if(o.mod==='b'){src.playbackRate.setValueAtTime(1,t);src.playbackRate.linearRampToValueAtTime(Math.pow(2,1/12),t+0.16);}
+  else if(o.mod==='~'){var lfo=actx.createOscillator();lfo.frequency.value=5.5;var lg=actx.createGain();lg.gain.value=0.012;lfo.connect(lg);lg.connect(src.playbackRate);lfo.start(t);lfo.stop(t+src.buffer.duration);}
+  else if(o.slideRatio){src.playbackRate.setValueAtTime(1,o.slideFrom);src.playbackRate.linearRampToValueAtTime(o.slideRatio,o.slideTo);}
+  src.start(t);src.stop(t+src.buffer.duration);
+  return{g:g,src:src};
+}
+function stopVoice(v,t){if(!v)return;v.g.gain.setTargetAtTime(0,t,0.012);try{v.src.stop(t+0.15);}catch(e){}}
+function slotDur(){return 60/state.bpm/4;}
+function nextNoteOnString(m,s,i){
+  var total=state.measures.length*SLOTS, g=m*SLOTS+i;
+  for(var d=1;d<=32&&g+d<total;d++){
+    var gg=g+d, v=state.measures[Math.floor(gg/SLOTS)][s][gg%SLOTS];
+    if(v){var p=parse(v);if(p.num)return{fret:+p.num,dist:d};return null;}
+  }
+  return null;
+}
+function click(t,accent){
+  var o=actx.createOscillator();o.type='sine';
+  o.frequency.setValueAtTime(accent?2300:1700,t);o.frequency.exponentialRampToValueAtTime(accent?1500:1100,t+0.03);
+  var g=actx.createGain();g.gain.setValueAtTime(accent?0.55:0.35,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.07);
+  o.connect(g);g.connect(master);o.start(t);o.stop(t+0.08);
+}
+function scheduleSlot(pos,t){
+  var m=Math.floor(pos/SLOTS), i=pos%SLOTS, meas=state.measures[m];if(!meas)return;
+  var midis=TUNINGS[state.tuning].midi, dur=slotDur(), notes=[];
+  if(state.metro&&i%4===0)click(t,i===0);
+  for(var s=STRINGS-1;s>=0;s--){
+    var v=meas[s][i];if(!v)continue;
+    var p=parse(v);if(!p.num&&p.mod!=='x')continue;
+    notes.push({s:s,p:p});
+  }
+  var spread=notes.length>=3?0.009:0.004;
+  notes.forEach(function(nt,idx){
+    var s=nt.s, p=nt.p, ts=t+idx*spread;
+    stopVoice(active[s],ts);active[s]=null;
+    var muted=(p.mod==='x'), midi=midis[s]+(p.num?+p.num:0), soft=(p.mod==='h'||p.mod==='p');
+    var o={muted:muted,soft:soft,vel:muted?0.5:(soft?0.5:0.72),mod:p.mod};
+    if((p.mod==='/'||p.mod==='\\')&&p.num){var nx=nextNoteOnString(m,s,i);if(nx){o.slideRatio=Math.pow(2,(nx.fret-(+p.num))/12);o.slideFrom=ts+Math.min(dur*0.5,0.08);o.slideTo=t+nx.dist*dur;}}
+    active[s]=playNote(midi,ts,o);
+  });
+}
+function preview(notes){
+  if(!state.preview||!notes.length||playing)return;
+  if(!ensureAudio())return;
+  var t=actx.currentTime+0.02, midis=TUNINGS[state.tuning].midi;
+  previewVoices.forEach(function(v){stopVoice(v,t);});previewVoices=[];
+  notes.sort(function(a,b){return b.s-a.s;}).forEach(function(nt,idx){
+    var ts=t+idx*(notes.length>=3?0.012:0.005);
+    var v=playNote(midis[nt.s]+nt.fret,ts,{vel:0.6});
+    v.g.gain.setTargetAtTime(0,ts+1.1,0.08);try{v.src.stop(ts+1.6);}catch(e){}
+    previewVoices.push(v);
+  });
+}
+function scheduleHL(pos,t){
+  var ms=Math.max(0,(t-actx.currentTime)*1000);
+  hlTimers.push(setTimeout(function(){highlight(pos);},ms));
+  if(hlTimers.length>240)hlTimers.splice(0,120);
+}
+function highlight(pos){
+  clearHL();var m=Math.floor(pos/SLOTS), i=pos%SLOTS;if(!cellEls[m])return;
+  lastHL=pos;
+  for(var s=0;s<STRINGS;s++)cellEls[m][s][i].classList.add('play');
+  if(i===0)updateInfo();
+  if(i%4===0){var top=cellEls[m][0][i];if(top.scrollIntoView)top.scrollIntoView({block:'nearest',inline:'nearest'});}
+}
+function clearHL(){
+  if(lastHL===null)return;var m=Math.floor(lastHL/SLOTS), i=lastHL%SLOTS;
+  if(cellEls[m])for(var s=0;s<STRINGS;s++)cellEls[m][s][i].classList.remove('play');
+  lastHL=null;
+}
+function applyLoopMarks(){
+  rulerEls.forEach(function(r){if(r)r.classList.remove('loop');});
+  if(!playing||!loopOn)return;
+  for(var m=Math.floor(loopA/SLOTS);m<Math.ceil(loopB/SLOTS);m++)if(rulerEls[m])rulerEls[m].classList.add('loop');
+}
+function startPlay(fromPos){
+  if(!ensureAudio()){toast('이 브라우저는 소리 재생을 지원하지 않아요');return;}
+  stopPlay();
+  var total=state.measures.length*SLOTS;
+  loopOn=state.loop!=='none';
+  if(state.loop==='measure'&&sel){loopA=sel.m*SLOTS;loopB=loopA+SLOTS;}
+  else if(state.loop==='line'&&sel){var L=Math.floor(sel.m/PER_LINE);loopA=L*PER_LINE*SLOTS;loopB=Math.min(total,loopA+PER_LINE*SLOTS);}
+  else{loopA=0;loopB=total;}
+  playPos=(fromPos!==undefined)?fromPos:(loopOn?loopA:(sel?sel.m*SLOTS:0));
+  if(playPos<loopA||playPos>=loopB)playPos=loopA;
+  playing=true;$('playBtn').textContent='■';$('playBtn').setAttribute('aria-label','정지');
+  applyLoopMarks();
+  var t0=actx.currentTime+0.1;
+  if(state.countIn){
+    var beat=slotDur()*4;
+    for(var k=0;k<4;k++){
+      click(t0+k*beat,k===0);
+      (function(k){hlTimers.push(setTimeout(function(){selInfo.textContent='카운트 '+(4-k);selInfo.classList.add('pend');},Math.max(0,(t0+k*beat-actx.currentTime)*1000)));})(k);
+    }
+    nextTime=t0+4*beat;
+  }else nextTime=t0;
+  tick();
+}
+function tick(){
+  var dur=slotDur();
+  while(nextTime<actx.currentTime+0.25){
+    scheduleSlot(playPos,nextTime);scheduleHL(playPos,nextTime);
+    nextTime+=dur;playPos++;
+    if(playPos>=loopB){
+      if(loopOn){playPos=loopA;}
+      else{
+        var endAt=nextTime;
+        hlTimers.push(setTimeout(function(){stopPlay();},Math.max(0,(endAt-actx.currentTime)*1000)));
+        return;
+      }
+    }
+  }
+  playTimer=setTimeout(tick,70);
+}
+function stopPlay(){
+  clearTimeout(playTimer);playTimer=null;
+  hlTimers.forEach(clearTimeout);hlTimers=[];
+  if(actx){var t=actx.currentTime;active.forEach(function(a){stopVoice(a,t);});}
+  active=[];playing=false;clearHL();applyLoopMarks();
+  $('playBtn').textContent='▶';$('playBtn').setAttribute('aria-label','재생');updateInfo();
+}
+function togglePlay(){if(playing)stopPlay();else startPlay();}
+
+/* ---------- 내보내기 / 불러오기 ---------- */
+function toText(){
+  var w=2;
+  state.measures.forEach(function(m){m.forEach(function(r){r.forEach(function(v){if(v.length>w)w=v.length;});});});
+  var names=TUNINGS[state.tuning].names, labelW=Math.max.apply(null,names.map(function(n){return n.length;}));
+  var out=[];
+  if(state.title)out.push(state.title,'');
+  out.push('(BPM '+state.bpm+', 한 칸 = 16분음표)','');
+  var lines=state.measures.length/PER_LINE;
+  for(var L=0;L<lines;L++){
+    var mline='', any=false, pos=labelW+1;
+    for(var k0=0;k0<PER_LINE;k0++){
+      for(var j=0;j<SLOTS;j++){
+        var t=state.marks[(L*PER_LINE+k0)+':'+j];
+        if(t){any=true;while(mline.length<pos)mline+=' ';if(mline.length>pos)mline+=' ';mline+=t;}
+        pos+=w;
+      }
+      pos+=1;
+    }
+    if(any)out.push(mline);
+    var ruler=new Array(labelW+2).join(' ');
+    for(var k=0;k<PER_LINE;k++){for(var b=0;b<4;b++){var lab=String(b+1);while(lab.length<w*4)lab+=' ';ruler+=lab;}ruler+=' ';}
+    out.push(ruler.replace(/\s+$/,''));
+    for(var s=0;s<STRINGS;s++){
+      var row=names[s];while(row.length<labelW)row=' '+row;row+='|';
+      for(var k2=0;k2<PER_LINE;k2++){
+        var m=state.measures[L*PER_LINE+k2];
+        for(var i=0;i<SLOTS;i++){var v=m[s][i]||'';while(v.length<w)v+='-';row+=v;}
+        row+='|';
+      }
+      out.push(row);
+    }
+    out.push('');
+  }
+  return out.join('\n');
+}
+function parseText(txt){
+  var lines=txt.split(/\r?\n/), rows=[], groups=[];
+  lines.forEach(function(l){
+    var m=/^\s*([A-Ga-g][b#]?)\s*\|(.*)$/.exec(l);
+    if(m){rows.push(m[2]);if(rows.length===STRINGS){groups.push(rows);rows=[];}}
+    else rows=[];
+  });
+  if(!groups.length)return null;
+  var measures=[];
+  for(var gI=0;gI<groups.length;gI++){
+    var parts=groups[gI].map(function(r){return r.replace(/\|\s*$/,'').split('|');});
+    var n=parts[0].length;
+    if(!parts.every(function(p){return p.length===n;}))return null;
+    for(var k=0;k<n;k++){
+      var len=parts[0][k].length;
+      if(!len||len%SLOTS)return null;
+      var w=len/SLOTS, meas=[];
+      for(var s=0;s<STRINGS;s++){
+        var str=parts[s][k];if(str.length!==len)return null;
+        var r=[];
+        for(var i=0;i<SLOTS;i++){
+          var cell=str.substr(i*w,w).replace(/-+$/,'').replace(/^-+/,'').trim();
+          if(cell.length>3)return null;
+          r.push(cell);
+        }
+        meas.push(r);
+      }
+      measures.push(meas);
+    }
+  }
+  return measures;
+}
+function doImport(){
+  var ms=parseText($('importText').value);
+  if(!ms){toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요');return;}
+  pushUndo();state.measures=ms;state.marks={};padMeasures();
+  sel={m:0,s:0,i:0};save();render();$('importModal').hidden=true;
+  toast(ms.length+'마디 불러옴');
+}
+function openExport(){$('exportText').value=toText();$('modal').hidden=false;}
+function copyText(){
+  var ta=$('exportText'), txt=ta.value;
+  var fallback=function(){try{ta.focus();ta.select();ta.setSelectionRange(0,txt.length);var ok=document.execCommand&&document.execCommand('copy');toast(ok?'복사됨':'텍스트를 길게 눌러 복사하세요');}catch(e){toast('텍스트를 길게 눌러 복사하세요');}};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('복사됨');},fallback);}
+  else fallback();
+}
+function renderImage(){
+  var P={bg:'#ffffff',ink:'#1b2230',muted:'#6c7684',line:'#9aa3b1',bar:'#2a3342',mod:'#8a5a00',accent:'#2457d6'};
+  var scale=2, slot=22, row=22, labelW=34, left=14, top=14, markH=16, rulerH=18, gap=26;
+  var names=TUNINGS[state.tuning].names, lines=state.measures.length/PER_LINE;
+  var titleH=state.title?30:0;
+  var W=left+labelW+PER_LINE*SLOTS*slot+24, H=top+titleH+lines*(markH+rulerH+STRINGS*row+gap)+6;
+  var cv=document.createElement('canvas');cv.width=W*scale;cv.height=H*scale;
+  var c=cv.getContext('2d');c.scale(scale,scale);
+  c.fillStyle=P.bg;c.fillRect(0,0,W,H);
+  var monoB='700 11px "Red Hat Mono", Menlo, Consolas, monospace', monoR='500 11px "Red Hat Mono", Menlo, Consolas, monospace';
+  var y=top;
+  if(state.title){c.fillStyle=P.ink;c.font='700 16px "Red Hat Mono", Menlo, Consolas, monospace';c.textBaseline='top';c.fillText(state.title,left,y);y+=titleH;}
+  var x0=left+labelW;
+  for(var L=0;L<lines;L++){
+    var my=y, ry=my+markH, sy=ry+rulerH;
+    for(var k=0;k<PER_LINE;k++){
+      var m=L*PER_LINE+k, mx=x0+k*SLOTS*slot;
+      c.textBaseline='alphabetic';c.textAlign='left';
+      for(var j=0;j<SLOTS;j++){var t=state.marks[m+':'+j];if(t){c.fillStyle=P.accent;c.font='600 11px -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';c.fillText(t,mx+j*slot+1,my+12);}}
+      c.fillStyle=P.muted;c.font='700 9px "Red Hat Mono", Menlo, Consolas, monospace';c.fillText(String(m+1),mx+3,ry+8);
+      c.font='500 10px "Red Hat Mono", Menlo, Consolas, monospace';c.textAlign='center';
+      for(var bb=0;bb<4;bb++)c.fillText(String(bb+1),mx+bb*4*slot+slot/2,ry+rulerH-2);
+      c.textAlign='left';
+      for(var j2=0;j2<SLOTS;j2++){if(j2%4){c.fillStyle=P.line;c.fillRect(mx+j2*slot+slot/2,ry+rulerH-5,1,3);}}
+    }
+    var xEnd=x0+PER_LINE*SLOTS*slot;
+    for(var s=0;s<STRINGS;s++){
+      var ly=sy+s*row+row/2;
+      c.fillStyle=P.line;c.fillRect(x0,Math.round(ly),xEnd-x0,1);
+      c.fillStyle=P.muted;c.font=monoB;c.textAlign='right';c.textBaseline='middle';c.fillText(names[s],x0-7,ly);
+    }
+    var yTop=sy+row/2, yBot=sy+(STRINGS-1)*row+row/2;
+    c.fillStyle=P.bar;
+    for(var k2=0;k2<=PER_LINE;k2++)c.fillRect(x0+k2*SLOTS*slot-(k2===PER_LINE?2:0),yTop,2,yBot-yTop);
+    c.textBaseline='middle';
+    for(var k3=0;k3<PER_LINE;k3++){
+      var meas=state.measures[L*PER_LINE+k3];
+      for(var s2=0;s2<STRINGS;s2++){
+        for(var i=0;i<SLOTS;i++){
+          var v=meas[s2][i];if(!v)continue;
+          var p=parse(v), cx=x0+k3*SLOTS*slot+i*slot+slot/2, cy=sy+s2*row+row/2;
+          c.font=monoB;var wn=p.num?c.measureText(p.num).width:0;
+          c.font=monoR;var wm=p.mod?c.measureText(p.mod).width:0;
+          var tw=wn+wm;
+          c.fillStyle=P.bg;c.fillRect(cx-tw/2-1,cy-7,tw+2,14);
+          var tx=cx-tw/2;c.textAlign='left';
+          if(p.num){c.fillStyle=P.ink;c.font=monoB;c.fillText(p.num,tx,cy);tx+=wn;}
+          if(p.mod){c.fillStyle=P.mod;c.font=monoR;c.fillText(p.mod,tx,cy);}
+        }
+      }
+    }
+    y=sy+STRINGS*row+gap;
+  }
+  return cv;
+}
+function openImage(){
+  var cv;
+  try{cv=renderImage();}catch(e){toast('이미지를 만들지 못했어요');return;}
+  var out=$('imgOut');out.innerHTML='';
+  var img=document.createElement('img');img.alt='타브 악보 이미지';
+  try{img.src=cv.toDataURL('image/png');}catch(e){toast('이미지를 만들지 못했어요');return;}
+  out.appendChild(img);$('imgModal').hidden=false;
+}
+
+/* ---------- 메뉴 / 대화상자 / 토스트 ---------- */
+var MODALS=['menuModal','settingsModal','modal','importModal','imgModal','chordModal','helpModal','coachModal','dlg'];
+function openMenu(title,items){
+  $('menuTitle').textContent=title;
+  var list=$('menuList');list.innerHTML='';
+  items.forEach(function(it){
+    var b=document.createElement('button');b.type='button';b.className='menu-item'+(it.danger?' danger':'');
+    if(it.disabled)b.disabled=true;
+    var k=document.createElement('span');k.className='k';k.textContent=it.k||'';
+    var tx=document.createElement('span');var l=document.createElement('div');l.className='l';l.textContent=it.label;tx.appendChild(l);
+    if(it.desc){var d=document.createElement('div');d.className='d';d.textContent=it.desc;tx.appendChild(d);}
+    b.appendChild(k);b.appendChild(tx);
+    b.addEventListener('click',function(){$('menuModal').hidden=true;it.action();});
+    list.appendChild(b);
+  });
+  $('menuModal').hidden=false;
+}
+var dlgResolve=null;
+function ask(o){
+  return new Promise(function(res){
+    dlgResolve=res;
+    $('dlgTitle').textContent=o.title||'';
+    $('dlgMsg').textContent=o.msg||'';$('dlgMsg').hidden=!o.msg;
+    var inp=$('dlgInput');inp.hidden=!o.input;inp.value=o.value||'';inp.placeholder=o.placeholder||'';
+    $('dlgOk').textContent=o.ok||'확인';
+    $('dlg').hidden=false;
+    if(o.input)setTimeout(function(){inp.focus();inp.select();},40);
+  });
+}
+function closeDlg(val){$('dlg').hidden=true;var r=dlgResolve;dlgResolve=null;if(r)r(val);}
+var toastT;
+function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('show');},1700);}
+function anyModalOpen(){return MODALS.some(function(id){return !$(id).hidden;});}
+function closeModals(){MODALS.forEach(function(id){if(id==='dlg'){if(!$(id).hidden)closeDlg($('dlgInput').hidden?false:null);}else $(id).hidden=true;});}
+function updatePadH(){var h=$('pad').offsetHeight;if(h)document.documentElement.style.setProperty('--padH',h+'px');}
+function applyTheme(){var r=document.documentElement;if(state.theme==='system')r.removeAttribute('data-theme');else r.setAttribute('data-theme',state.theme);}
+function applyZoom(){
+  var r=document.documentElement;r.setAttribute('data-zoom',state.zoom);
+  if(state.zoom!=='fit'){r.style.removeProperty('--slot');r.style.removeProperty('--row');r.style.removeProperty('--fs');return;}
+  var wrapW=$('sheetWrap').clientWidth||window.innerWidth;
+  var slot=Math.floor((wrapW-36-26)/(PER_LINE*SLOTS));slot=Math.max(14,Math.min(40,slot));
+  var row=Math.max(20,Math.min(30,slot+2)), fs=slot<18?10:(slot<28?11:13);
+  r.style.setProperty('--slot',slot+'px');r.style.setProperty('--row',row+'px');r.style.setProperty('--fs',fs+'px');
+}
+
+/* ---------- 이벤트 ---------- */
+sheet.addEventListener('click',function(e){
+  var mk=e.target.closest('.mk');
+  if(mk){var mm=+mk.dataset.m, ii=+mk.dataset.i;setSel({m:mm,s:sel?sel.s:0,i:ii},false);editMark(mm,ii);return;}
+  var rm=e.target.closest('.ruler .measure');
+  if(rm){setSel({m:+rm.dataset.m,s:sel?sel.s:0,i:0},true);if(state.collapsed)setCollapsed(false);return;}
+  var c=e.target.closest('.cell');if(!c)return;
+  setSel({m:+c.dataset.m,s:+c.dataset.s,i:+c.dataset.i},false);
+  if(state.collapsed)setCollapsed(false);
+});
+(function(){var d=$('digits');['1','2','3','4','5','6','7','8','9','0'].forEach(function(n){var b=document.createElement('button');b.type='button';b.className='key';b.textContent=n;b.dataset.digit=n;d.appendChild(b);});})();
+$('pad').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  if(b.dataset.digit!==undefined){buzz();inputDigit(b.dataset.digit);}
+  else if(b.dataset.mod!==undefined){buzz();inputMod(b.dataset.mod);}
+  else if(b.id==='del'){buzz();del(false);}
+  else if(b.dataset.move){if(!sel){setSel({m:0,s:0,i:0},true);return;}var mv=b.dataset.move.split(',');move(+mv[0],+mv[1]);}
+  else if(b.classList.contains('fb-cell')){buzz();fretTap(+b.dataset.s,+b.dataset.f);}
+});
+$('playBtn').addEventListener('click',togglePlay);
+$('restartBtn').addEventListener('click',function(){startPlay(0);});
+$('bpm').addEventListener('change',function(){var v=Math.max(40,Math.min(240,Math.round(+this.value||90)));this.value=v;state.bpm=v;save();});
+function syncMetro(){$('metroBtn').classList.toggle('on',state.metro);$('metroBtn').setAttribute('aria-pressed',String(state.metro));}
+$('metroBtn').addEventListener('click',function(){state.metro=!state.metro;save();syncMetro();toast(state.metro?'메트로놈 켬':'메트로놈 끔');});
+$('loop').addEventListener('change',function(){state.loop=this.value;save();if(playing)startPlay();});
+$('modeKeys').addEventListener('click',function(){setPadMode('keys');});
+$('modeFret').addEventListener('click',function(){setPadMode('fret');});
+$('collapseBtn').addEventListener('click',function(){setCollapsed(!state.collapsed);});
+$('fbShift').addEventListener('click',function(){state.fretShift=state.fretShift?0:12;save();buildFretboard();});
+$('fbClear').addEventListener('click',function(){
+  if(!needSel())return;var any=false;
+  for(var s=0;s<STRINGS;s++)if(getVal({m:sel.m,s:s,i:sel.i}))any=true;
+  if(!any){toast('이미 비어 있어요');return;}
+  pushUndo();for(var s2=0;s2<STRINGS;s2++){state.measures[sel.m][s2][sel.i]='';paintCell(cellEls[sel.m][s2][sel.i],'');}
+  save();updateFretboard();
+});
+document.addEventListener('keydown',function(e){
+  var t=e.target, tag=t&&t.tagName;
+  if(anyModalOpen()){
+    if(e.key==='Escape'){e.preventDefault();closeModals();}
+    else if(e.key==='Enter'&&!$('dlg').hidden&&tag!=='TEXTAREA'){e.preventDefault();closeDlg($('dlgInput').hidden?true:$('dlgInput').value);}
+    return;
+  }
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  var k=e.key, mod=e.ctrlKey||e.metaKey;
+  if(mod&&k.toLowerCase()==='z'){e.preventDefault();doUndo();return;}
+  if(mod&&k.toLowerCase()==='c'){e.preventDefault();copyMeasure();return;}
+  if(mod&&k.toLowerCase()==='v'){e.preventDefault();pasteMeasure();return;}
+  if(mod||e.altKey)return;
+  if(k===' '){e.preventDefault();togglePlay();return;}
+  if(k==='Escape'){setSel(null,false);return;}
+  if(!sel){if(k.indexOf('Arrow')===0){e.preventDefault();setSel({m:0,s:0,i:0},true);}return;}
+  if(/^[0-9]$/.test(k)){e.preventDefault();inputDigit(k);}
+  else if(MODS.indexOf(k.toLowerCase())>=0){e.preventDefault();inputMod(k.toLowerCase());}
+  else if(k==='Backspace'){e.preventDefault();del(false);}
+  else if(k==='Delete'){e.preventDefault();del(true);}
+  else if(k==='Enter'){e.preventDefault();editMark(sel.m,sel.i);}
+  else if(k==='ArrowLeft'){e.preventDefault();move(e.shiftKey?-4:-1,0);}
+  else if(k==='ArrowRight'){e.preventDefault();move(e.shiftKey?4:1,0);}
+  else if(k==='Tab'){e.preventDefault();move(e.shiftKey?-4:4,0);}
+  else if(k==='ArrowUp'){e.preventDefault();move(0,-1);}
+  else if(k==='ArrowDown'){e.preventDefault();move(0,1);}
+  else if(k==='Home'){e.preventDefault();move(-sel.i,0);}
+  else if(k==='End'){e.preventDefault();move(SLOTS-1-sel.i,0);}
+});
+$('addLine').addEventListener('click',addLine);
+$('measureMenu').addEventListener('click',function(){
+  var has=!!sel, mName=sel?'마디 '+(sel.m+1):'마디';
+  openMenu(mName,[
+    {k:'+',label:'앞에 빈 마디 삽입',desc:'뒤 마디가 한 칸씩 밀려요',action:function(){insertMeasure(false);},disabled:!has},
+    {k:'+',label:'뒤에 빈 마디 삽입',action:function(){insertMeasure(true);},disabled:!has},
+    {k:'⎘',label:'마디 복사',desc:'Ctrl+C',action:copyMeasure,disabled:!has},
+    {k:'⎗',label:'붙여넣기',desc:clip?'복사한 마디로 덮어써요':'복사한 마디가 없어요',action:pasteMeasure,disabled:!has||!clip},
+    {k:'○',label:'마디 비우기',desc:'음만 지우고 마디는 남겨요',action:clearMeasure,disabled:!has},
+    {k:'×',label:'마디 삭제',desc:'뒤 마디를 당겨요',action:deleteMeasure,danger:true,disabled:!has},
+    {k:'×',label:'마지막 줄 삭제',desc:'4마디를 지워요',action:delLine,danger:true}
+  ]);
+});
+$('exportMenu').addEventListener('click',function(){
+  openMenu('내보내기',[
+    {k:'T',label:'텍스트 타브',desc:'복사해서 어디든 붙여 넣기',action:openExport},
+    {k:'▣',label:'이미지로 저장',desc:'PNG, 길게 눌러 저장',action:openImage},
+    {k:'↓',label:'텍스트 불러오기',desc:'내보낸 텍스트로 복원',action:function(){$('importText').value='';$('importModal').hidden=false;setTimeout(function(){$('importText').focus();},40);}}
+  ]);
+});
+$('settingsBtn').addEventListener('click',function(){$('settingsModal').hidden=false;});
+$('closeSettings').addEventListener('click',function(){$('settingsModal').hidden=true;});
+$('undo').addEventListener('click',doUndo);
+$('clearAll').addEventListener('click',clearAll);
+$('chordBtn').addEventListener('click',function(){if(!needSel())return;$('chordModal').hidden=false;});
+$('markBtn').addEventListener('click',function(){if(!needSel())return;editMark(sel.m,sel.i);});
+$('helpBtn').addEventListener('click',function(){$('helpModal').hidden=false;});
+$('closeModal').addEventListener('click',function(){$('modal').hidden=true;});
+$('closeImport').addEventListener('click',function(){$('importModal').hidden=true;});
+$('doImport').addEventListener('click',doImport);
+$('closeImg').addEventListener('click',function(){$('imgModal').hidden=true;});
+$('closeChord').addEventListener('click',function(){$('chordModal').hidden=true;});
+$('closeHelp').addEventListener('click',function(){$('helpModal').hidden=true;});
+$('closeCoach').addEventListener('click',function(){$('coachModal').hidden=true;state.seen=true;save();});
+$('copyBtn').addEventListener('click',copyText);
+$('dlgOk').addEventListener('click',function(){closeDlg($('dlgInput').hidden?true:$('dlgInput').value);});
+$('dlgCancel').addEventListener('click',function(){closeDlg($('dlgInput').hidden?false:null);});
+MODALS.forEach(function(id){
+  $(id).addEventListener('click',function(e){
+    if(e.target!==this)return;
+    if(id==='dlg')closeDlg($('dlgInput').hidden?false:null);
+    else if(id==='coachModal'){this.hidden=true;state.seen=true;save();}
+    else this.hidden=true;
+  });
+});
+$('chordGrid').addEventListener('click',function(e){var b=e.target.closest('.chord');if(!b)return;buzz();insertChord(b.dataset.name,b.dataset.fing);});
+titleEl.addEventListener('input',function(){state.title=titleEl.value;save();});
+$('zoom').addEventListener('change',function(){state.zoom=this.value;save();applyZoom();});
+$('theme').addEventListener('change',function(){state.theme=this.value;save();applyTheme();});
+$('tuning').addEventListener('change',function(){state.tuning=this.value;save();render();if(state.padMode==='fret')buildFretboard();});
+function syncAuto(){$('autoAdv').checked=state.autoAdv;$('autoAdv2').checked=state.autoAdv;}
+$('autoAdv').addEventListener('change',function(){state.autoAdv=this.checked;save();syncAuto();});
+$('autoAdv2').addEventListener('change',function(){state.autoAdv=this.checked;save();syncAuto();});
+$('haptic').addEventListener('change',function(){state.haptic=this.checked;save();});
+$('instr').addEventListener('change',function(){state.instr=this.value;save();toast(INSTR[state.instr].name);});
+$('volume').addEventListener('input',function(){state.volume=this.value/100;save();if(master)master.gain.setTargetAtTime(state.volume,actx.currentTime,0.02);});
+$('reverb').addEventListener('input',function(){state.reverb=this.value/100;save();if(revBus)revBus.gain.setTargetAtTime(state.reverb*0.7,actx.currentTime,0.02);});
+$('countIn').addEventListener('change',function(){state.countIn=this.checked;save();});
+$('preview').addEventListener('change',function(){state.preview=this.checked;save();});
+window.addEventListener('resize',function(){updatePadH();if(state.zoom==='fit')applyZoom();});
+if(window.ResizeObserver){new ResizeObserver(updatePadH).observe($('pad'));}
+document.addEventListener('visibilitychange',function(){if(document.hidden&&playing)stopPlay();});
+
+/* ---------- 시작 ---------- */
+load();
+(function(){var t=$('tuning');Object.keys(TUNINGS).forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=TUNINGS[k].name;t.appendChild(o);});})();
+(function(){var g=$('chordGrid');CHORDS.forEach(function(ch){var b=document.createElement('button');b.type='button';b.className='chord';b.dataset.name=ch[0];b.dataset.fing=ch[1];var n=document.createElement('b');n.textContent=ch[0];var f=document.createElement('small');f.textContent=ch[1];b.appendChild(n);b.appendChild(f);g.appendChild(b);});})();
+titleEl.value=state.title;$('tuning').value=state.tuning;$('zoom').value=state.zoom;$('theme').value=state.theme;
+$('bpm').value=state.bpm;$('loop').value=state.loop;$('haptic').checked=state.haptic;
+(function(){var s=$('instr');Object.keys(INSTR).forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=INSTR[k].name;s.appendChild(o);});s.value=state.instr;})();
+$('volume').value=Math.round(state.volume*100);$('reverb').value=Math.round(state.reverb*100);$('countIn').checked=state.countIn;$('preview').checked=state.preview;
+syncAuto();syncMetro();applyTheme();applyZoom();
+sel={m:0,s:0,i:0};
+render();
+setPadMode(state.padMode);
+setCollapsed(state.collapsed);
+updatePadH();
+if(!state.seen)$('coachModal').hidden=false;
+})();
+</script>
+</body>
+</html>
