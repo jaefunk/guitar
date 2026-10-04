@@ -188,6 +188,26 @@ await page.click('#playBtn');
 await page.waitForTimeout(600);
 check('재생 중 표시', await page.$eval('#playBtn', (el) => el.textContent) === '■');
 await page.click('#playBtn');
+// 속도 트레이너: 한 마디 반복 + 시작 200, +40 → 두 번째 바퀴부터 240
+await page.click('#trainerBtn');
+await page.waitForTimeout(250); // 시트 애니메이션
+await page.$eval('#trOn', (el) => el.click()); // 스위치 input은 투명해서 좌표 클릭이 불안정
+await page.fill('#trStart', '200'); await page.dispatchEvent('#trStart', 'change');
+await page.fill('#trStep', '40'); await page.dispatchEvent('#trStep', 'change');
+await page.fill('#trMax', '240'); await page.dispatchEvent('#trMax', 'change');
+await page.click('#closeTrainer');
+await page.selectOption('#loop', 'measure');
+await page.click('.cell[data-m="0"][data-s="0"][data-i="0"]');
+await page.click('#playBtn');
+await page.waitForTimeout(400);
+const info1 = await page.textContent('#selInfo');
+await page.waitForTimeout(1800); // 200 BPM에서 한 마디 = 1.2초
+const info2 = await page.textContent('#selInfo');
+check('트레이너 속도 상승 표시', /200 BPM/.test(info1) && /240 BPM/.test(info2), [info1, info2]);
+await page.click('#playBtn');
+await page.click('#trainerBtn'); await page.waitForTimeout(250); await page.$eval('#trOn', (el) => el.click()); await page.click('#closeTrainer');
+await page.selectOption('#loop', 'none');
+check('트레이너 끔', !(await page.$eval('#trainerBtn', (el) => el.classList.contains('on'))));
 await openMenuItem('exportMenu', '이미지로 저장');
 check('PNG 생성', await page.$eval('#imgOut img', (img) => img.src.startsWith('data:image/png') && img.naturalWidth > 100));
 await page.keyboard.press('Escape');

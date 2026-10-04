@@ -179,7 +179,8 @@ export function updateInfo() {
   const sel = ed.sel;
   selInfo.classList.remove('hint', 'pend');
   if (pb.playing && pb.lastHL !== null) {
-    selInfo.textContent = '재생 중: 마디 ' + (pb.lastHL.m + 1) + ' / ' + state.measures.length;
+    selInfo.textContent = '재생 중: 마디 ' + (pb.lastHL.m + 1) + ' / ' + state.measures.length + (pb.trainer ? ' · 트레이너 ' + pb.bpm + ' BPM' : '');
+    if (pb.trainer) selInfo.classList.add('pend');
     return;
   }
   if (!sel) { selInfo.textContent = '악보의 칸을 탭해서 선택하세요'; selInfo.classList.add('hint'); return; }

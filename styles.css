@@ -215,6 +215,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .card .row{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .field{height:42px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--ink);font:600 15px var(--sans);padding:0 10px;outline:none}
 .field:focus{border-color:var(--accent)}
+.field.num{width:84px;text-align:center;font:700 15px var(--mono)}
 .menu{display:flex;flex-direction:column}
 .menu-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 4px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--ink);text-align:left}
 .menu-item:last-child{border-bottom:0}

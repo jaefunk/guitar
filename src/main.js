@@ -104,6 +104,20 @@ function bind() {
   const syncMetro = () => { $('metroBtn').classList.toggle('on', state.metro); $('metroBtn').setAttribute('aria-pressed', String(state.metro)); };
   $('metroBtn').addEventListener('click', () => { state.metro = !state.metro; save(); syncMetro(); toast(state.metro ? '메트로놈 켬' : '메트로놈 끔'); });
   $('loop').addEventListener('change', function () { state.loop = this.value; save(); if (pb.playing) startPlay(); });
+  // 속도 트레이너
+  const syncTrainer = () => {
+    const t = state.trainer;
+    $('trainerBtn').classList.toggle('on', t.on); $('trainerBtn').setAttribute('aria-pressed', String(t.on));
+    $('trOn').checked = t.on; $('trStart').value = t.start; $('trStep').value = t.step; $('trMax').value = t.max;
+  };
+  $('trainerBtn').addEventListener('click', () => { syncTrainer(); $('trainerModal').hidden = false; });
+  $('closeTrainer').addEventListener('click', () => { $('trainerModal').hidden = true; });
+  $('trOn').addEventListener('change', function () { state.trainer.on = this.checked; save(); syncTrainer(); toast(this.checked ? '속도 트레이너 켬' : '속도 트레이너 끔'); });
+  const clampNum = (el, lo, hi, def) => { const v = Math.round(+el.value); const c = isNaN(v) ? def : Math.max(lo, Math.min(hi, v)); el.value = c; return c; };
+  $('trStart').addEventListener('change', function () { state.trainer.start = clampNum(this, 40, 240, 60); if (state.trainer.max < state.trainer.start) { state.trainer.max = state.trainer.start; } save(); syncTrainer(); });
+  $('trStep').addEventListener('change', function () { state.trainer.step = clampNum(this, 1, 60, 5); save(); });
+  $('trMax').addEventListener('change', function () { state.trainer.max = clampNum(this, 40, 240, 120); if (state.trainer.max < state.trainer.start) { state.trainer.start = state.trainer.max; } save(); syncTrainer(); });
+  syncTrainer();
   $('modeKeys').addEventListener('click', () => { setPadMode('keys'); });
   $('modeFret').addEventListener('click', () => { setPadMode('fret'); });
   $('collapseBtn').addEventListener('click', () => { setCollapsed(!state.collapsed); });

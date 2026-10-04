@@ -14,8 +14,8 @@ let active = [], playTimer = null, hlTimers = [], playPos = 0, nextTime = 0, loo
 let order = [], SL = 16;
 let previewVoices = [];
 
-/** 재생 상태(다른 모듈이 읽기만 함). lastHL = {m, i, pos} */
-export const pb = { playing: false, lastHL: null };
+/** 재생 상태(다른 모듈이 읽기만 함). lastHL = {m, i, pos}, bpm = 지금 실제 재생 속도, trainer = 트레이너 동작 중 */
+export const pb = { playing: false, lastHL: null, bpm: 90, trainer: false };
 
 export function ensureAudio() {
   if (!AC) return false;
@@ -130,7 +130,7 @@ function stopVoice(v, t) {
   v.g.gain.setTargetAtTime(0, t, 0.012);
   try { v.src.stop(t + 0.15); } catch (e) { /* 이미 멈춤 */ }
 }
-function slotDur() { return 60 / state.bpm / 4; }
+function slotDur() { return 60 / (pb.playing ? pb.bpm : state.bpm) / 4; }
 /** 재생 위치 → {m, i} */
 function posToMI(pos) { return { m: order[Math.floor(pos / SL)], i: pos % SL }; }
 function click(t, accent) {
@@ -208,9 +208,12 @@ export function playOrder() { return expandRepeats(state.measures.length, state.
 export function startPlay(fromPos) {
   if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return; }
   stopPlay();
-  const sel = ed.sel;
+  const sel = ed.sel, tr = state.trainer || {};
   SL = slotsOf(state);
-  loopOn = state.loop !== 'none';
+  // 트레이너가 켜져 있으면 반복이 필요하다. 반복 없음이면 전체 반복으로 돈다.
+  pb.trainer = !!tr.on;
+  loopOn = state.loop !== 'none' || pb.trainer;
+  pb.bpm = pb.trainer ? Math.min(tr.start, tr.max) : state.bpm;
   // 마디/줄 반복은 선택한 범위를 그대로 돌리므로 반복 기호를 펼치지 않는다
   if ((state.loop === 'measure' || state.loop === 'line') && sel) {
     order = playOrder.identity();
@@ -230,6 +233,7 @@ export function startPlay(fromPos) {
   pb.playing = true;
   $('playBtn').textContent = '■'; $('playBtn').setAttribute('aria-label', '정지');
   applyLoopMarks();
+  if (pb.trainer) toast('트레이너: ' + pb.bpm + ' BPM부터 한 바퀴마다 +' + tr.step + ', 최대 ' + tr.max);
   const t0 = actx.currentTime + 0.1;
   if (state.countIn) {
     const beat = slotDur() * beatOf(state), n = SL / beatOf(state);
@@ -248,8 +252,13 @@ function tick() {
     scheduleSlot(playPos, nextTime); scheduleHL(playPos, nextTime);
     nextTime += dur; playPos++;
     if (playPos >= loopB) {
-      if (loopOn) playPos = loopA;
-      else {
+      if (loopOn) {
+        playPos = loopA;
+        if (pb.trainer) {
+          const tr = state.trainer, nb = Math.min(tr.max, pb.bpm + tr.step);
+          if (nb !== pb.bpm) { pb.bpm = nb; hlTimers.push(setTimeout(updateInfo, Math.max(0, (nextTime - actx.currentTime) * 1000))); }
+        }
+      } else {
         const endAt = nextTime;
         hlTimers.push(setTimeout(() => { stopPlay(); }, Math.max(0, (endAt - actx.currentTime) * 1000)));
         return;
@@ -262,7 +271,7 @@ export function stopPlay() {
   clearTimeout(playTimer); playTimer = null;
   hlTimers.forEach(clearTimeout); hlTimers = [];
   if (actx) { const t = actx.currentTime; active.forEach((a) => { stopVoice(a, t); }); }
-  active = []; pb.playing = false; clearHL(); applyLoopMarks();
+  active = []; pb.playing = false; pb.trainer = false; clearHL(); applyLoopMarks();
   $('playBtn').textContent = '▶'; $('playBtn').setAttribute('aria-label', '재생');
   updateInfo();
 }

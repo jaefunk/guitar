@@ -5,7 +5,7 @@ import { slotsOf } from './tab.js';
 
 export function $(id) { return document.getElementById(id); }
 
-export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'dlg'];
+export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'trainerModal', 'dlg'];
 
 export function openMenu(title, items) {
   $('menuTitle').textContent = title;

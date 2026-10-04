@@ -40,8 +40,13 @@ describe('마이그레이션 (v2 → v3)', () => {
     expect(doc.currentId).toBe(s.id);
     expect(doc.settings).toEqual({
       zoom: 'l', theme: 'dark', autoAdv: false, metro: true, loop: 'measure', padMode: 'fret', fretShift: 12,
-      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false
+      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false,
+      trainer: { on: false, start: 60, step: 5, max: 120 }
     });
+  });
+  it('트레이너 설정 검증', () => {
+    const d = sanitizeDoc({ settings: { trainer: { on: true, start: 70, step: 100, max: 300 } } }, 1);
+    expect(d.settings.trainer).toEqual({ on: true, start: 70, step: 5, max: 120 });
   });
   it('v3 키가 없으면 v2 키를, 그것도 없으면 v1 키를 읽는다', () => {
     const d2 = readDoc(memStorage({ 'gtab-editor-v2': JSON.stringify(v2Blob()) }), 1);

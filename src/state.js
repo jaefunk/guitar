@@ -12,14 +12,16 @@ import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures
 export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
-  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview'
+  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer'
 ];
 
 export function defaultSettings() {
   return {
     zoom: 'm', theme: 'system', autoAdv: true, metro: false, loop: 'none', padMode: 'keys',
     fretShift: 0, haptic: true, collapsed: false, seen: false, instr: 'acoustic',
-    volume: 0.8, reverb: 0.25, countIn: false, preview: true
+    volume: 0.8, reverb: 0.25, countIn: false, preview: true,
+    // 속도 트레이너: 반복 한 바퀴마다 step만큼 빨라져 max까지
+    trainer: { on: false, start: 60, step: 5, max: 120 }
   };
 }
 
@@ -97,6 +99,13 @@ export function sanitizeSettings(d) {
   if (d.instr && INSTR[d.instr]) s.instr = d.instr;
   if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) s.volume = d.volume;
   if (typeof d.reverb === 'number' && d.reverb >= 0 && d.reverb <= 1) s.reverb = d.reverb;
+  if (d.trainer && typeof d.trainer === 'object') {
+    const t = d.trainer, o = s.trainer;
+    if (typeof t.on === 'boolean') o.on = t.on;
+    if (typeof t.start === 'number' && t.start >= 40 && t.start <= 240) o.start = Math.round(t.start);
+    if (typeof t.step === 'number' && t.step >= 1 && t.step <= 60) o.step = Math.round(t.step);
+    if (typeof t.max === 'number' && t.max >= 40 && t.max <= 240) o.max = Math.round(t.max);
+  }
   return s;
 }
 
