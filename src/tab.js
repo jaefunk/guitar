@@ -158,12 +158,15 @@ export function keysInRange(map, from, to) {
   return o;
 }
 
-/** 범위를 클립보드 꼴로 복사: {measures, marks, pm} (marks/pm는 상대 키) */
+/** 범위를 클립보드 꼴로 복사: {measures, marks, pm, rep} (키는 상대 마디 번호) */
 export function sliceRange(song, from, to) {
+  const rep = {};
+  Object.keys(song.rep || {}).forEach((k) => { if (+k >= from && +k <= to) rep[+k - from] = Object.assign({}, song.rep[k]); });
   return {
     measures: cloneMeasures(song.measures.slice(from, to + 1)),
     marks: keysInRange(song.marks, from, to),
-    pm: keysInRange(song.pm, from, to)
+    pm: keysInRange(song.pm, from, to),
+    rep
   };
 }
 
@@ -182,6 +185,10 @@ export function pasteRange(song, clip, at) {
     });
     song[f] = map;
   });
+  const rep = song.rep || {};
+  for (let k = 0; k < src.length; k++) delete rep[at + k];
+  Object.keys(clip.rep || {}).forEach((k) => { rep[at + +k] = Object.assign({}, clip.rep[k]); });
+  song.rep = rep;
   padMeasures(song.measures, slots);
 }
 
@@ -243,4 +250,57 @@ export function togglePm(pm, from, to, slots) {
   const o = Object.assign({}, pm || {}), on = !allPm(pm, from, to, slots);
   for (let m = from; m <= to; m++) for (let i = 0; i < slots; i++) { const k = m + ':' + i; if (on) o[k] = 1; else delete o[k]; }
   return o;
+}
+
+/* ---------- 반복 기호 ---------- */
+// song.rep = { [m]: { s: 1, e: times, v: volta } }  s=반복 시작 ||:, e=반복 끝 :|| (횟수), v=괄호 번호(1, 2…)
+
+/** 마디 번호 키 맵(rep)을 삽입/삭제에 맞춰 민다 */
+export function shiftRep(rep, fromM, delta) {
+  const n = {};
+  Object.keys(rep || {}).forEach((k) => {
+    const m = +k;
+    if (m < fromM) { n[k] = rep[k]; return; }
+    if (delta < 0 && m < fromM - delta) return;
+    n[m + delta] = rep[k];
+  });
+  return n;
+}
+
+/** rep 항목이 비었으면 지워서 정리한다(제자리) */
+export function cleanRep(rep) {
+  Object.keys(rep || {}).forEach((k) => {
+    const r = rep[k];
+    if (!r || (!r.s && !r.e && !r.v)) delete rep[k];
+  });
+  return rep;
+}
+
+/**
+ * 반복 기호를 펼쳐 실제 연주 순서(마디 번호 배열)를 만든다.
+ *  - ||: 가 없으면 곡 처음(또는 직전 반복 끝 다음)으로 돌아간다.
+ *  - :|| 의 횟수 e(기본 2)만큼 그 구간을 연주한다.
+ *  - 괄호 v가 붙은 마디는 v번째 연주 때만 연주한다.
+ */
+export function expandRepeats(total, rep) {
+  rep = rep || {};
+  const seq = [];
+  let m = 0, start = 0, pass = 1, guard = 0, done = false; // done: 반복을 다 돌았고 새 구간을 기다리는 중
+  while (m < total && guard++ < 10000) {
+    const f = rep[m] || {};
+    if (f.s && start !== m) { start = m; pass = 1; done = false; }
+    else if (done && !f.v) { start = m; pass = 1; done = false; } // 괄호가 아닌 마디에서 새 구간 시작
+    if (f.v && f.v !== pass) {
+      if (f.e && f.v < pass) done = true; // 지난 번 괄호의 :|| 를 지나쳤다 → 반복 끝
+      m++; continue;
+    }
+    seq.push(m);
+    if (f.e) {
+      const times = Math.max(2, f.e | 0);
+      if (pass < times) { pass++; done = false; m = start; continue; }
+      done = true;
+    }
+    m++;
+  }
+  return seq;
 }

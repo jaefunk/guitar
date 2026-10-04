@@ -1,7 +1,7 @@
 // 소리 엔진: 확장 Karplus-Strong을 오프라인 합성해 AudioBuffer로 캐시하고, 악기별 체인으로 내보낸다.
 import { STRINGS, PER_LINE, TUNINGS, INSTR } from './constants.js';
 import { state, ed } from './state.js';
-import { parse, nextNoteOnString, slotsOf, beatOf } from './tab.js';
+import { parse, nextNoteOnString, slotsOf, beatOf, expandRepeats } from './tab.js';
 import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
 
@@ -203,12 +203,8 @@ export function applyLoopMarks() {
   if (!pb.playing || !loopOn) return;
   for (let k = Math.floor(loopA / SL); k < Math.ceil(loopB / SL); k++) { const r = dom.rulers[order[k]]; if (r) r.classList.add('loop'); }
 }
-/** 반복 기호를 펼친 마디 순서. 지금은 그대로(반복 기호는 다음 단계). */
-export function playOrder() {
-  const o = [];
-  for (let m = 0; m < state.measures.length; m++) o.push(m);
-  return o;
-}
+/** 반복 기호를 펼친 마디 순서 */
+export function playOrder() { return expandRepeats(state.measures.length, state.rep); }
 export function startPlay(fromPos) {
   if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return; }
   stopPlay();

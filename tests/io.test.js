@@ -63,6 +63,23 @@ describe('텍스트 타브 왕복', () => {
     expect(rb.marks).toEqual({ '0:4': 'Am', '2:0': 'B' });
     expect(parseText(toText(song({ measures: base }))).pm).toEqual({});
   });
+  it('반복 기호 줄(REP) 왕복: 메모·PM과 함께', () => {
+    const base = withNotes([[0, 0, 0, '3'], [5, 0, 0, '5']]);
+    const rep = { 0: { s: 1 }, 1: { v: 1, e: 2 }, 2: { v: 2 }, 5: { s: 1, e: 3 } };
+    const s = song({ measures: base, rep, pm: { '1:0': 1 }, marks: { '0:0': 'Intro', '5:4': 'Solo' } });
+    const txt = toText(s);
+    expect(txt).toMatch(/^R \|:/m);
+    expect(txt).toContain('x3:|');
+    const r = parseText(txt);
+    expect(r.rep).toEqual(rep);
+    expect(r.pm).toEqual({ '1:0': 1 });
+    expect(r.marks).toEqual({ '0:0': 'Intro', '5:4': 'Solo' });
+    expect(r.measures).toEqual(base);
+    // 메모만 있는 줄과 REP만 있는 줄
+    const r2 = parseText(toText(song({ measures: base, rep: { 3: { e: 2 } } })));
+    expect(r2.rep).toEqual({ 3: { e: 2 } });
+    expect(r2.marks).toEqual({});
+  });
   it('옛 텍스트(헤더 없음)는 4/4로 읽고 메모는 없다', () => {
     const s = song({ measures: withNotes([[0, 1, 2, '5']]) });
     const txt = toText(s).split('\n').slice(2).join('\n');

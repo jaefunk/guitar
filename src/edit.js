@@ -4,14 +4,14 @@ import { state, ed, save, touch } from './state.js';
 import {
   parse, nextDigit, applyMod, prevPos, emptyMeasure, hasContent,
   shiftMarks, padMeasures, slotsOf, beatOf, resizeMeasures,
-  sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm
+  sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm, shiftRep, cleanRep
 } from './tab.js';
 import { paintCell, paintMark, setSel, setPending, cellAt, render, applyRange } from './render.js';
 import { $, toast, ask } from './ui.js';
 import { preview } from './audio.js';
 import { updateFretboard } from './fretboard.js';
 
-function snapshot() { return JSON.stringify({ measures: state.measures, marks: state.marks, pm: state.pm }); }
+function snapshot() { return JSON.stringify({ measures: state.measures, marks: state.marks, pm: state.pm, rep: state.rep }); }
 export function pushUndo() {
   ed.undoStack.push(snapshot());
   if (ed.undoStack.length > 120) ed.undoStack.shift();
@@ -89,7 +89,7 @@ export function clearColumn() {
 export function doUndo() {
   if (!ed.undoStack.length) { toast('되돌릴 작업이 없어요'); return; }
   const d = JSON.parse(ed.undoStack.pop());
-  state.measures = d.measures; state.marks = d.marks || {}; state.pm = d.pm || {};
+  state.measures = d.measures; state.marks = d.marks || {}; state.pm = d.pm || {}; state.rep = d.rep || {};
   touch(); save(); render(); toast('되돌림');
 }
 
@@ -110,7 +110,7 @@ export function delLine() {
     if (!ok) return;
     pushUndo();
     state.measures.splice(-PER_LINE, PER_LINE);
-    state.marks = shiftMarks(state.marks, from, -PER_LINE); state.pm = shiftMarks(state.pm, from, -PER_LINE);
+    state.marks = shiftMarks(state.marks, from, -PER_LINE); state.pm = shiftMarks(state.pm, from, -PER_LINE); state.rep = shiftRep(state.rep, from, -PER_LINE);
     if (ed.sel && ed.sel.m >= state.measures.length) ed.sel = null;
     save(); render(); toast('마지막 줄 삭제됨');
   });
@@ -120,7 +120,7 @@ export function insertMeasure(after) {
   const at = ed.sel.m + (after ? 1 : 0);
   pushUndo();
   state.measures.splice(at, 0, blank());
-  state.marks = shiftMarks(state.marks, at, 1); state.pm = shiftMarks(state.pm, at, 1);
+  state.marks = shiftMarks(state.marks, at, 1); state.pm = shiftMarks(state.pm, at, 1); state.rep = shiftRep(state.rep, at, 1);
   padMeasures(state.measures, slotsOf(state));
   ed.sel = { m: at, s: ed.sel.s, i: 0 };
   save(); render(); toast('마디 ' + (at + 1) + '에 빈 마디 삽입');
@@ -135,7 +135,7 @@ export function deleteMeasure() {
     if (!ok) return;
     pushUndo();
     state.measures.splice(m, 1);
-    state.marks = shiftMarks(state.marks, m, -1); state.pm = shiftMarks(state.pm, m, -1);
+    state.marks = shiftMarks(state.marks, m, -1); state.pm = shiftMarks(state.pm, m, -1); state.rep = shiftRep(state.rep, m, -1);
     if (!state.measures.length) state.measures.push(blank());
     padMeasures(state.measures, slotsOf(state));
     if (ed.sel.m >= state.measures.length) ed.sel.m = state.measures.length - 1;
@@ -173,7 +173,7 @@ export function clearAll() {
     pushUndo();
     state.measures = [];
     for (let k = 0; k < DEFAULT_MEASURES; k++) state.measures.push(blank());
-    state.marks = {}; state.pm = {}; ed.range = null;
+    state.marks = {}; state.pm = {}; state.rep = {}; ed.range = null;
     ed.sel = { m: 0, s: 0, i: 0 };
     save(); render(); $('settingsModal').hidden = true; toast('전체 지움');
   });
@@ -264,7 +264,7 @@ export function deleteRange() {
     if (!ok) return;
     pushUndo();
     state.measures.splice(r.from, n);
-    state.marks = shiftMarks(state.marks, r.from, -n); state.pm = shiftMarks(state.pm, r.from, -n);
+    state.marks = shiftMarks(state.marks, r.from, -n); state.pm = shiftMarks(state.pm, r.from, -n); state.rep = shiftRep(state.rep, r.from, -n);
     if (!state.measures.length) state.measures.push(blank());
     padMeasures(state.measures, slotsOf(state));
     ed.range = null;
@@ -299,4 +299,34 @@ export function togglePmRange() {
   pushUndo();
   state.pm = togglePm(state.pm, r.from, r.to, slots);
   save(); render(); toast(on ? '팜뮤트 켬 (P.M.)' : '팜뮤트 끔');
+}
+
+/* ---------- 반복 기호 ---------- */
+function repOf(m) { return state.rep[m] || {}; }
+/** 반복 시작/끝/괄호를 바꾼다. patch 예: {s:1} {s:0} {e:3} {e:0} {v:2} {v:0} */
+export function setRep(m, patch) {
+  pushUndo();
+  const r = Object.assign({}, repOf(m));
+  Object.keys(patch).forEach((k) => { if (patch[k]) r[k] = patch[k]; else delete r[k]; });
+  state.rep = Object.assign({}, state.rep, { [m]: r });
+  cleanRep(state.rep);
+  save(); render();
+}
+export function repeatMenuItems(m) {
+  const r = repOf(m);
+  return [
+    { k: '𝄆', label: r.s ? '반복 시작 표시 지우기' : '반복 시작 표시 (||:)', desc: '여기서부터 되돌아와요', action: () => { setRep(m, { s: r.s ? 0 : 1 }); toast(r.s ? '반복 시작 지움' : '마디 ' + (m + 1) + '에 반복 시작'); } },
+    { k: '𝄇', label: r.e ? '반복 끝 지우기 (×' + r.e + ')' : '반복 끝 표시 (:||, 2번)', desc: '시작 표시가 없으면 곡 처음으로 돌아가요', action: () => { setRep(m, { e: r.e ? 0 : 2 }); toast(r.e ? '반복 끝 지움' : '마디 ' + (m + 1) + '에 반복 끝'); } },
+    { k: '×n', label: '반복 횟수 바꾸기', desc: '반복 끝이 있는 마디에서', disabled: !r.e, action: () => {
+      ask({ title: '반복 횟수', msg: '이 구간을 몇 번 연주할까요? (2~99)', input: true, value: String(r.e || 2), ok: '적용' }).then((v) => {
+        if (v === null) return;
+        const n = Math.round(+v);
+        if (!(n >= 2 && n <= 99)) { toast('2~99 사이 숫자를 넣으세요'); return; }
+        setRep(m, { e: n }); toast('×' + n);
+      });
+    } },
+    { k: r.v ? r.v + '.' : '1.', label: r.v ? '괄호 지우기 (' + r.v + '번)' : '1번 괄호 (첫 번째 연주 때만)', action: () => { setRep(m, { v: r.v ? 0 : 1 }); } },
+    { k: '2.', label: '2번 괄호 (두 번째 연주 때만)', disabled: r.v === 2, action: () => { setRep(m, { v: 2 }); } },
+    { k: '3.', label: '3번 괄호', disabled: r.v === 3, action: () => { setRep(m, { v: 3 }); } }
+  ];
 }

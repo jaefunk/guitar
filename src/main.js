@@ -6,7 +6,7 @@ import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
   copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
-  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange
+  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
@@ -32,7 +32,7 @@ function doImport() {
   const r = parseText($('importText').value);
   if (!r) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
   pushUndo();
-  state.measures = r.measures; state.marks = r.marks; state.meter = r.meter;
+  state.measures = r.measures; state.marks = r.marks; state.pm = r.pm || {}; state.rep = r.rep || {}; state.meter = r.meter;
   if (r.bpm && r.bpm >= 40 && r.bpm <= 240) { state.bpm = r.bpm; $('bpm').value = r.bpm; }
   if (r.title && !state.title) { state.title = r.title; $('title').value = r.title; }
   $('meter').value = state.meter;
@@ -153,6 +153,7 @@ function bind() {
       { k: '♯', label: '조옮김', desc: '모든 프렛에 ±n', action: transposeRange, disabled: !has },
       { k: 'PM', label: '팜뮤트 켜기/끄기', desc: '이 마디 전체', action: togglePmRange, disabled: !has },
       { k: '▭', label: '여러 마디 선택', desc: '마디 번호를 길게 눌러도 돼요', action: () => { setRange(ed.sel.m); }, disabled: !has },
+      { k: '𝄇', label: '반복 기호…', desc: '||:  :||  1·2번 괄호', action: () => { openMenu('마디 ' + (ed.sel.m + 1) + ' 반복 기호', repeatMenuItems(ed.sel.m)); }, disabled: !has },
       { k: '×', label: '마디 삭제', desc: '뒤 마디를 당겨요', action: deleteMeasure, danger: true, disabled: !has },
       { k: '×', label: '마지막 줄 삭제', desc: '4마디를 지워요', action: delLine, danger: true }
     ]);

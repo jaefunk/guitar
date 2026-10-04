@@ -108,6 +108,17 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
 
+/* 반복 기호 */
+.srow .measure.rs{box-shadow:inset 3px 0 0 var(--bar)}
+.srow .measure.re{box-shadow:inset -3px 0 0 var(--bar)}
+.srow .measure.rs.re{box-shadow:inset 3px 0 0 var(--bar),inset -3px 0 0 var(--bar)}
+.srow .measure.rs.dot::before{content:'';position:absolute;left:6px;top:50%;width:4px;height:4px;margin-top:-2px;border-radius:50%;background:var(--bar);z-index:1}
+.srow .measure.re.dot::after{content:'';position:absolute;right:5px;top:50%;width:4px;height:4px;margin-top:-2px;border-radius:50%;background:var(--bar);z-index:1;left:auto;bottom:auto}
+.srow .measure.re.dot{--x:1}
+.ruler .measure.volta{border-top:1.5px solid var(--ink);border-left:1.5px solid var(--ink);border-radius:0}
+.ruler .measure .vlab{position:absolute;left:26px;top:0;font:700 10px/1 var(--mono);color:var(--ink);padding:1px 2px}
+.ruler .measure .times{position:absolute;right:4px;top:0;font:700 10px/1 var(--mono);color:var(--ink)}
+
 /* 다중 선택 범위 */
 .ruler .measure.range{background:var(--sel)}
 .srow .measure.range{background:var(--col)}

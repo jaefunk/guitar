@@ -9,7 +9,7 @@ import {
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures, slotsOf } from './tab.js';
 
-export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm'];
+export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
   'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview'
@@ -32,12 +32,12 @@ export function defaultSong(now, meter) {
   const ms = [];
   for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure(METERS[meter].slots));
   const t = now || Date.now();
-  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, pm: {}, createdAt: t, updatedAt: t };
+  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, pm: {}, rep: {}, createdAt: t, updatedAt: t };
 }
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
 export const state = Object.assign({}, defaultSettings(), {
-  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}, pm: {}
+  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}, pm: {}, rep: {}
 });
 
 /** 편집 세션 상태(저장 안 함) */
@@ -66,6 +66,17 @@ export function sanitizeSong(d, now) {
   }
   if (d.pm && typeof d.pm === 'object') {
     Object.keys(d.pm).forEach((k) => { if (/^\d+:\d+$/.test(k) && d.pm[k]) s.pm[k] = 1; });
+  }
+  if (d.rep && typeof d.rep === 'object') {
+    Object.keys(d.rep).forEach((k) => {
+      const r = d.rep[k];
+      if (!/^\d+$/.test(k) || !r || typeof r !== 'object' || +k >= s.measures.length) return;
+      const o = {};
+      if (r.s) o.s = 1;
+      if (typeof r.e === 'number' && r.e >= 2 && r.e <= 99) o.e = Math.round(r.e);
+      if (typeof r.v === 'number' && r.v >= 1 && r.v <= 9) o.v = Math.round(r.v);
+      if (o.s || o.e || o.v) s.rep[k] = o;
+    });
   }
   if (typeof d.createdAt === 'number') s.createdAt = d.createdAt;
   if (typeof d.updatedAt === 'number') s.updatedAt = d.updatedAt;

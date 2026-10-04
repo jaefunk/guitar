@@ -152,8 +152,26 @@ console.log('4b. 다중 마디 선택 · 팜뮤트 · 조옮김');
   await page.click('.cell[data-m="5"][data-s="0"][data-i="0"]');
   await openMenuItem('measureMenu', '붙여넣기');
   check('두 마디 붙여넣기', await cellText(5, 1, 1) === '14h');
-  await page.click('#undo'); await page.click('#undo'); await page.click('#undo'); await page.click('#undo');
-  check('되돌리기 4번 후 원상복구', await cellText(1, 1, 0) === '12h' && await cellText(5, 1, 1) === '');
+  // 팜뮤트 켬, 조옮김, 밀기, 팜뮤트 켬, 팜뮤트 끔, 붙여넣기 = 6번
+  for (let u = 0; u < 6; u++) await page.click('#undo');
+  check('되돌리기 6번 후 원상복구', await cellText(1, 1, 0) === '12h' && await cellText(5, 1, 1) === '' && await page.$$eval('.mk.pm', (els) => els.length) === 0);
+}
+
+console.log('4c. 반복 기호');
+{
+  await page.click('.cell[data-m="1"][data-s="0"][data-i="0"]');
+  await openMenuItem('measureMenu', '반복 기호');
+  await page.click('#menuList .menu-item:has-text("반복 끝 표시")');
+  check('반복 끝 표시', await page.$$eval('.srow .measure.re', (els) => els.length) === 6);
+  await openMenuItem('measureMenu', '반복 기호');
+  await page.click('#menuList .menu-item:has-text("1번 괄호")');
+  check('1번 괄호', await page.$eval('.ruler .measure[data-m="1"] .vlab', (el) => el.textContent) === '1.');
+  await openMenuItem('exportMenu', '텍스트 타브');
+  const t4 = await page.inputValue('#exportText');
+  check('텍스트에 반복 기호 줄', /^R /m.test(t4) && t4.indexOf('1.') > 0 && t4.indexOf(':|') > 0);
+  await page.click('#closeModal');
+  await page.click('#undo'); await page.click('#undo');
+  check('반복 기호 되돌림', await page.$$eval('.srow .measure.re', (els) => els.length) === 0);
 }
 
 console.log('5. 새로고침 후 복원');

@@ -74,6 +74,9 @@ export function render() {
       const m = L * PER_LINE + k;
       const md = document.createElement('div'); md.className = 'measure'; md.dataset.m = m; md.title = '마디 ' + (m + 1) + ' 처음으로 이동';
       const mn = document.createElement('span'); mn.className = 'mnum'; mn.textContent = m + 1; md.appendChild(mn);
+      const rp = state.rep && state.rep[m];
+      if (rp && rp.v) { md.classList.add('volta'); const vl = document.createElement('span'); vl.className = 'vlab'; vl.textContent = rp.v + '.'; md.appendChild(vl); }
+      if (rp && rp.e && rp.e > 2) { const tl = document.createElement('span'); tl.className = 'times'; tl.textContent = '×' + rp.e; md.appendChild(tl); }
       for (let i = 0; i < SLOTS; i++) {
         const t = document.createElement('div'); t.className = 'tick' + (i % BEAT ? ' sub' : '');
         if (i % BEAT === 0) t.textContent = (i / BEAT + 1);
@@ -90,6 +93,10 @@ export function render() {
       for (let k2 = 0; k2 < PER_LINE; k2++) {
         const m2 = L * PER_LINE + k2;
         const md2 = document.createElement('div'); md2.className = 'measure' + (k2 === 0 ? ' m0' : '');
+        const rp2 = state.rep && state.rep[m2];
+        if (rp2 && rp2.s) md2.classList.add('rs');
+        if (rp2 && rp2.e) md2.classList.add('re');
+        if (s === 2 || s === 3) md2.classList.add('dot');
         dom.mdivs[m2] = dom.mdivs[m2] || []; dom.mdivs[m2][s] = md2;
         dom.cells[m2] = dom.cells[m2] || [];
         dom.cells[m2][s] = dom.cells[m2][s] || [];

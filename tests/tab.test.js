@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures, sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm } from '../src/tab.js';
+import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures, sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm, expandRepeats, shiftRep, cleanRep } from '../src/tab.js';
 import { SLOTS, PER_LINE } from '../src/constants.js';
 
 describe('parse', () => {
@@ -186,5 +186,42 @@ describe('마디 범위 연산', () => {
     expect(allPm(off, 1, 1, 4)).toBe(true);
     const on = togglePm(off, 0, 1, 4); // 일부만 켜져 있으면 전부 켠다
     expect(Object.keys(on).length).toBe(8);
+  });
+});
+
+describe('반복 기호 펼치기', () => {
+  it('기호가 없으면 그대로', () => {
+    expect(expandRepeats(4, {})).toEqual([0, 1, 2, 3]);
+    expect(expandRepeats(4, null)).toEqual([0, 1, 2, 3]);
+  });
+  it(':|| 만 있으면 곡 처음으로', () => {
+    expect(expandRepeats(4, { 1: { e: 2 } })).toEqual([0, 1, 0, 1, 2, 3]);
+  });
+  it('||: 와 횟수', () => {
+    expect(expandRepeats(4, { 1: { s: 1 }, 2: { e: 3 } })).toEqual([0, 1, 2, 1, 2, 1, 2, 3]);
+  });
+  it('1·2번 괄호', () => {
+    expect(expandRepeats(4, { 1: { v: 1, e: 2 }, 2: { v: 2 } })).toEqual([0, 1, 0, 2, 3]);
+    expect(expandRepeats(5, { 0: { s: 1 }, 1: { v: 1, e: 2 }, 2: { v: 2 }, 3: { e: 2 } })).toEqual([0, 1, 0, 2, 3, 3, 4]);
+  });
+  it('세 번 반복과 1·2·3번 괄호', () => {
+    expect(expandRepeats(5, { 1: { v: 1, e: 3 }, 2: { v: 2, e: 3 }, 3: { v: 3 } })).toEqual([0, 1, 0, 2, 0, 3, 4]);
+  });
+  it('연속된 두 반복 구간은 서로 독립', () => {
+    expect(expandRepeats(4, { 1: { e: 2 }, 3: { e: 2 } })).toEqual([0, 1, 0, 1, 2, 3, 2, 3]);
+  });
+  it('shiftRep / cleanRep', () => {
+    const rep = { 1: { s: 1 }, 3: { e: 2 }, 5: { v: 1 } };
+    expect(shiftRep(rep, 2, 1)).toEqual({ 1: { s: 1 }, 4: { e: 2 }, 6: { v: 1 } });
+    expect(shiftRep(rep, 3, -1)).toEqual({ 1: { s: 1 }, 4: { v: 1 } });
+    expect(shiftRep(rep, 0, -4)).toEqual({ 1: { v: 1 } });
+    expect(cleanRep({ 0: {}, 1: { s: 0 }, 2: { e: 2 } })).toEqual({ 2: { e: 2 } });
+  });
+  it('sliceRange/pasteRange가 반복 기호를 함께 옮긴다', () => {
+    const song = { meter: '4/4', measures: [emptyMeasure(), emptyMeasure(), emptyMeasure(), emptyMeasure()], marks: {}, pm: {}, rep: { 1: { s: 1 }, 2: { e: 2 } } };
+    const c = sliceRange(song, 1, 2);
+    expect(c.rep).toEqual({ 0: { s: 1 }, 1: { e: 2 } });
+    pasteRange(song, c, 2);
+    expect(song.rep).toEqual({ 1: { s: 1 }, 2: { s: 1 }, 3: { e: 2 } });
   });
 });
