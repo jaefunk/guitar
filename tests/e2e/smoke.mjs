@@ -254,6 +254,36 @@ await page.keyboard.press('Escape');
   check('MIDI 다운로드: MThd 헤더', buf.slice(0, 4).toString() === 'MThd' && buf.length > 30 && (dl.suggestedFilename().endsWith('.mid') || dl.suggestedFilename() === 'download'), [dl.suggestedFilename(), buf.length]);
 }
 
+console.log('7. 샘플 악기');
+{
+  // 440Hz 0.4초짜리 WAV를 만들어 e줄 샘플로 올린다
+  const sr = 22050, n = Math.floor(sr * 0.4), wav = Buffer.alloc(44 + n * 2);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + n * 2, 4); wav.write('WAVE', 8); wav.write('fmt ', 12); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sr, 24); wav.writeUInt32LE(sr * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write('data', 36); wav.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) wav.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / sr) * 12000 * (1 - i / n)), 44 + i * 2);
+  await page.click('#settingsBtn');
+  await page.setInputFiles('.srow-s[data-s="0"] input[type=file]', { name: 'e-open.wav', mimeType: 'audio/wav', buffer: wav });
+  await page.waitForFunction(() => document.querySelector('.srow-s[data-s="0"] .st').classList.contains('on'));
+  check('샘플 저장·디코드', /e-open\.wav · 0\.4초/.test(await page.textContent('.srow-s[data-s="0"] .st')));
+  await page.click('#closeSettings');
+  await page.selectOption('#instr', 'sample');
+  await page.click('.cell[data-m="0"][data-s="0"][data-i="0"]');
+  await page.click('#playBtn'); await page.waitForTimeout(500);
+  check('샘플 악기로 재생', await page.$eval('#playBtn', (el) => el.textContent) === '■');
+  await page.click('#playBtn');
+  await page.reload(); await page.waitForSelector('.cell');
+  await page.waitForTimeout(400);
+  await page.click('#settingsBtn');
+  check('새로고침 후 샘플 유지(IndexedDB)', await page.$eval('.srow-s[data-s="0"] .st', (el) => el.classList.contains('on')));
+  check('악기 선택 유지', await page.$eval('#instr', (el) => el.value) === 'sample' && /1줄/.test(await page.$eval('#instr option[value=sample]', (el) => el.textContent)));
+  await page.click('#clearSamples');
+  await page.waitForTimeout(200);
+  check('샘플 지움', !(await page.$eval('.srow-s[data-s="0"] .st', (el) => el.classList.contains('on'))));
+  await page.click('#closeSettings');
+  await page.selectOption('#instr', 'acoustic');
+}
+
 check('콘솔/페이지 오류 없음', errors.length === 0, errors);
 if (process.env.SHOT) { await page.click('#songsBtn'); await page.screenshot({ path: process.env.SHOT + '/songs.png' }); await page.click('#closeSongs'); await page.screenshot({ path: process.env.SHOT + '/editor.png' }); }
 await browser.close();

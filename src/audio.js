@@ -4,6 +4,7 @@ import { state, ed } from './state.js';
 import { parse, nextNoteOnString, slotsOf, beatOf, expandRepeats } from './tab.js';
 import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
+import * as samples from './samples.js';
 
 const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
 let actx = null, master = null, comp = null, revBus = null, drumBus = null, noiseBuf = null;
@@ -112,17 +113,30 @@ function noteBuffer(midi, soft, muted, pm) {
   if (!bufCache[key]) bufCache[key] = synth(440 * Math.pow(2, (midi - 69) / 12), I, soft, muted, pm);
   return bufCache[key];
 }
+/** 샘플 악기: 줄 번호 o.s 기준으로 샘플을 고른다. 없으면 null(합성으로 대체) */
+function samplePick(midi, o) {
+  if (state.instr !== 'sample' || samples.loadedCount() === 0) return null;
+  return samples.pick(o.s !== undefined ? o.s : 0, midi);
+}
 function playNote(midi, t, o) {
   const muted = !!o.muted, src = actx.createBufferSource();
-  src.buffer = noteBuffer(midi, !!o.soft, muted, !!o.pm);
+  const sp = samplePick(midi, o);
+  let rate = 1;
+  if (sp) { src.buffer = sp.buffer; rate = sp.rate; } else src.buffer = noteBuffer(midi, !!o.soft, muted, !!o.pm);
   const g = actx.createGain(), vel = (o.vel || 0.7) * (0.94 + Math.random() * 0.12);
-  g.gain.setValueAtTime(vel, t); src.connect(g); g.connect(getChain(state.instr).input);
-  if (o.mod === 'b') { src.playbackRate.setValueAtTime(1, t); src.playbackRate.linearRampToValueAtTime(Math.pow(2, 1 / 12), t + 0.16); }
+  g.gain.setValueAtTime(vel, t); src.connect(g); g.connect(getChain(sp ? 'sample' : state.instr).input);
+  if (sp) {
+    // 샘플은 뮤트/팜뮤트를 길이로 흉내 낸다
+    if (muted) g.gain.setTargetAtTime(0, t + 0.06, 0.03);
+    else if (o.pm) g.gain.setTargetAtTime(0, t + 0.25, 0.08);
+    src.playbackRate.value = rate;
+  }
+  if (o.mod === 'b') { src.playbackRate.setValueAtTime(rate, t); src.playbackRate.linearRampToValueAtTime(rate * Math.pow(2, 1 / 12), t + 0.16); }
   else if (o.mod === '~') {
     const lfo = actx.createOscillator(); lfo.frequency.value = 5.5;
-    const lg = actx.createGain(); lg.gain.value = 0.012;
+    const lg = actx.createGain(); lg.gain.value = 0.012 * rate;
     lfo.connect(lg); lg.connect(src.playbackRate); lfo.start(t); lfo.stop(t + src.buffer.duration);
-  } else if (o.slideRatio) { src.playbackRate.setValueAtTime(1, o.slideFrom); src.playbackRate.linearRampToValueAtTime(o.slideRatio, o.slideTo); }
+  } else if (o.slideRatio) { src.playbackRate.setValueAtTime(rate, o.slideFrom); src.playbackRate.linearRampToValueAtTime(rate * o.slideRatio, o.slideTo); }
   src.start(t); src.stop(t + src.buffer.duration);
   return { g, src };
 }
@@ -217,7 +231,7 @@ function scheduleSlot(pos, t) {
     const s = nt.s, p = nt.p, ts = t + idx * spread;
     stopVoice(active[s], ts); active[s] = null;
     const muted = (p.mod === 'x'), midi = midis[s] + (p.num ? +p.num : 0), soft = (p.mod === 'h' || p.mod === 'p');
-    const o = { muted, soft, pm: pm && !muted, vel: muted ? 0.5 : (soft ? 0.5 : (pm ? 0.62 : 0.72)), mod: p.mod };
+    const o = { s, muted, soft, pm: pm && !muted, vel: muted ? 0.5 : (soft ? 0.5 : (pm ? 0.62 : 0.72)), mod: p.mod };
     if ((p.mod === '/' || p.mod === '\\') && p.num) {
       const nx = nextNoteOnString(state.measures, m, s, i, SL);
       if (nx) { o.slideRatio = Math.pow(2, (nx.fret - (+p.num)) / 12); o.slideFrom = ts + Math.min(dur * 0.5, 0.08); o.slideTo = t + nx.dist * dur; }
@@ -233,7 +247,7 @@ export function preview(notes) {
   previewVoices.forEach((v) => { stopVoice(v, t); }); previewVoices = [];
   notes.sort((a, b) => b.s - a.s).forEach((nt, idx) => {
     const ts = t + idx * (notes.length >= 3 ? 0.012 : 0.005);
-    const v = playNote(midis[nt.s] + nt.fret, ts, { vel: 0.6 });
+    const v = playNote(midis[nt.s] + nt.fret, ts, { s: nt.s, vel: 0.6 });
     v.g.gain.setTargetAtTime(0, ts + 1.1, 0.08);
     try { v.src.stop(ts + 1.6); } catch (e) { /* 무시 */ }
     previewVoices.push(v);
@@ -338,5 +352,10 @@ export function stopPlay() {
   updateInfo();
 }
 export function togglePlay() { if (pb.playing) stopPlay(); else startPlay(); }
+/** 샘플 디코드(AudioContext 필요). 사용자 제스처 안에서 부를 것 */
+export function decodeSample(data) {
+  if (!ensureAudio()) return Promise.reject(new Error('no audio'));
+  return new Promise((res, rej) => { actx.decodeAudioData(data, res, rej); });
+}
 export function setVolume(v) { state.volume = v; if (master) master.gain.setTargetAtTime(v, actx.currentTime, 0.02); }
 export function setReverb(v) { state.reverb = v; if (revBus) revBus.gain.setTargetAtTime(v * 0.7, actx.currentTime, 0.02); }

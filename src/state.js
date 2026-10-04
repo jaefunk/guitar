@@ -98,7 +98,7 @@ export function sanitizeSettings(d) {
   if (LOOPS.indexOf(d.loop) >= 0) s.loop = d.loop;
   if (d.padMode === 'fret' || d.padMode === 'keys') s.padMode = d.padMode;
   if (d.fretShift === 12) s.fretShift = 12;
-  if (d.instr && INSTR[d.instr]) s.instr = d.instr;
+  if (d.instr && (INSTR[d.instr] || d.instr === 'sample')) s.instr = d.instr;
   if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) s.volume = d.volume;
   if (typeof d.reverb === 'number' && d.reverb >= 0 && d.reverb <= 1) s.reverb = d.reverb;
   if (['off', 'rock', 'pop', 'ballad'].indexOf(d.drums) >= 0) s.drums = d.drums;

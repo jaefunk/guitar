@@ -139,6 +139,10 @@
     <div class="setting"><div><div class="l">스윙</div><div class="d">홀수 16분음표를 늦춰 셔플 느낌. 67%가 셋잇단</div></div><input type="range" id="swing" min="0" max="70" step="1" aria-label="스윙"></div>
     <div class="setting"><div><div class="l">재생 전 카운트 인</div><div class="d">한 마디(4박) 클릭 후 시작</div></div><label class="switch"><input type="checkbox" id="countIn"><i></i></label></div>
     <div class="setting"><div><div class="l">입력할 때 미리듣기</div><div class="d">프렛을 넣으면 그 음이 바로 들려요</div></div><label class="switch"><input type="checkbox" id="preview"><i></i></label></div>
+    <h2 style="margin-top:6px">샘플 악기</h2>
+    <p>줄마다 개방현을 친 녹음(wav, mp3, m4a 등)을 올리면 "샘플" 악기로 연주해요. 없는 줄은 가장 가까운 줄의 샘플을 당겨 써요. 지금 튜닝 기준으로 저장돼요.</p>
+    <div class="samples" id="sampleRows"></div>
+    <div class="row"><button class="btn danger" id="clearSamples" type="button">샘플 모두 지우기</button></div>
     <div class="row" style="justify-content:space-between;margin-top:6px">
       <button class="btn danger" id="clearAll" type="button">전체 지우기</button>
       <button class="btn primary" id="closeSettings" type="button">닫기</button>

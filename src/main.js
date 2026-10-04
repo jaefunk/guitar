@@ -9,7 +9,8 @@ import {
   setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
-import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
+import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb, decodeSample } from './audio.js';
+import * as samples from './samples.js';
 import { toText, parseText, renderImage } from './io.js';
 import { toMidi } from './midi.js';
 import { chordDiagramSVG } from './chords.js';
@@ -67,6 +68,14 @@ function downloadMidi() {
 function downloadText() {
   downloadBlob(safeName(state.title, 'tab') + '.txt', new Blob([toText(state)], { type: 'text/plain;charset=utf-8' }));
   toast('텍스트 저장');
+}
+
+/** 시작 시 샘플 디코드: AudioContext가 없으면 OfflineAudioContext로 디코드한다(제스처 불필요) */
+function decodeSampleSilently(data) {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OAC) return Promise.reject(new Error('no audio'));
+  const oc = new OAC(1, 1, 44100);
+  return new Promise((res, rej) => { oc.decodeAudioData(data, res, rej); });
 }
 
 /* ---------- 이벤트 ---------- */
@@ -250,7 +259,42 @@ function bind() {
   $('autoAdv').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('autoAdv2').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('haptic').addEventListener('change', function () { state.haptic = this.checked; save(); });
-  $('instr').addEventListener('change', function () { state.instr = this.value; save(); toast(INSTR[state.instr].name); });
+  $('instr').addEventListener('change', function () {
+    state.instr = this.value; save();
+    if (state.instr === 'sample') toast(samples.loadedCount() ? '샘플 악기 (' + samples.loadedCount() + '줄)' : '샘플이 없어요. 설정 → 샘플 악기에서 올리세요');
+    else toast(INSTR[state.instr].name);
+  });
+  // 샘플 악기 설정
+  const renderSampleRows = () => {
+    const box = $('sampleRows'); box.innerHTML = '';
+    const names = TUNINGS[state.tuning].names;
+    for (let si = 0; si < 6; si++) {
+      const row = document.createElement('div'); row.className = 'srow-s'; row.dataset.s = si;
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = names[si];
+      const st = document.createElement('span'); st.className = 'st' + (samples.slots[si] ? ' on' : '');
+      st.textContent = samples.slots[si] ? samples.slots[si].name + ' · ' + samples.slots[si].buffer.duration.toFixed(1) + '초' : '없음';
+      const lab = document.createElement('label'); lab.className = 'btn'; lab.textContent = '올리기';
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.dataset.s = si; inp.setAttribute('aria-label', names[si] + '줄 샘플 파일');
+      lab.appendChild(inp);
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'btn danger'; del.textContent = '지움'; del.dataset.del = si; del.hidden = !samples.slots[si];
+      row.appendChild(n); row.appendChild(st); row.appendChild(lab); row.appendChild(del);
+      box.appendChild(row);
+    }
+    const o = $('instr').querySelector('option[value="sample"]');
+    if (o) o.textContent = '샘플 (내 소리' + (samples.loadedCount() ? ' ' + samples.loadedCount() + '줄' : '') + ')';
+  };
+  $('sampleRows').addEventListener('change', (e) => {
+    const inp = e.target; if (inp.type !== 'file' || !inp.files || !inp.files[0]) return;
+    const si = +inp.dataset.s, midi = TUNINGS[state.tuning].midi[si];
+    samples.putSample(si, inp.files[0], midi, decodeSample).then(() => { renderSampleRows(); toast(TUNINGS[state.tuning].names[si] + '줄 샘플 저장'); }, () => { toast('오디오 파일을 읽지 못했어요'); });
+  });
+  $('sampleRows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-del]'); if (!b) return;
+    samples.removeSample(+b.dataset.del).then(renderSampleRows);
+  });
+  $('clearSamples').addEventListener('click', () => { samples.clearSamples().then(() => { renderSampleRows(); toast('샘플 모두 지움'); }); });
+  $('settingsBtn').addEventListener('click', renderSampleRows);
+  samples.loadAll(decodeSampleSilently).then(renderSampleRows);
   $('volume').addEventListener('input', function () { setVolume(this.value / 100); save(); });
   $('reverb').addEventListener('input', function () { setReverb(this.value / 100); save(); });
   $('countIn').addEventListener('change', function () { state.countIn = this.checked; save(); });
@@ -281,6 +325,7 @@ function boot() {
   });
   const s = $('instr');
   Object.keys(INSTR).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = INSTR[k].name; s.appendChild(o); });
+  const so = document.createElement('option'); so.value = 'sample'; so.textContent = '샘플 (내 소리)'; s.appendChild(so);
   const { syncAuto, syncMetro } = bind();
   $('title').value = state.title; $('tuning').value = state.tuning; $('meter').value = state.meter; $('zoom').value = state.zoom; $('theme').value = state.theme;
   $('bpm').value = state.bpm; $('loop').value = state.loop; $('haptic').checked = state.haptic; s.value = state.instr;

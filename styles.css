@@ -277,3 +277,13 @@ input[type=range]{accent-color:var(--accent);width:46%;margin:0}
 .song .d{font:500 12px/1.3 var(--sans);color:var(--muted)}
 .song-more{flex:0 0 44px;border:0;background:transparent;color:var(--muted);font:700 18px/1 var(--mono)}
 .song-more:active{background:var(--key)}
+
+/* ---------- 샘플 악기 ---------- */
+.samples{display:flex;flex-direction:column}
+.srow-s{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.srow-s:last-child{border-bottom:0}
+.srow-s .n{flex:0 0 28px;font:700 13px/1 var(--mono);color:var(--muted)}
+.srow-s .st{flex:1;min-width:0;font:500 12px/1.3 var(--sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow-s .st.on{color:var(--ink);font-weight:600}
+.srow-s label.btn{position:relative;overflow:hidden}
+.srow-s label.btn input{position:absolute;inset:0;opacity:0;cursor:pointer}
