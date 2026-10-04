@@ -1,7 +1,7 @@
 {
   "name": "guitar-tab-editor",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "폰에서 쓰는 기타 타브 에디터 (4마디 x 16분음표 16칸)",
   "scripts": {
@@ -9,9 +9,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && node tests/e2e/run.mjs",
+    "test:all": "npm test && npm run test:e2e"
   },
   "devDependencies": {
+    "playwright": "^1.56.1",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
   }
