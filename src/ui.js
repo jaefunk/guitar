@@ -87,3 +87,16 @@ export function applyZoom() {
   const fs = slot < 18 ? 10 : (slot < 28 ? 11 : 13);
   r.style.setProperty('--slot', slot + 'px'); r.style.setProperty('--row', row + 'px'); r.style.setProperty('--fs', fs + 'px');
 }
+
+/** 파일 저장(자체 호스팅에서는 <a download>가 동작한다) */
+export function downloadBlob(name, blob) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; a.rel = 'noopener';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+/** 파일 이름에 쓸 수 있게 제목을 다듬는다 */
+export function safeName(title, fallback) {
+  const t = (title || '').trim().replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t || fallback;
+}

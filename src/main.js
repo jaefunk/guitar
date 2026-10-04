@@ -1,7 +1,7 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { TUNINGS, CHORDS, MODS, INSTR, METERS } from './constants.js';
 import { state, ed, load, save } from './state.js';
-import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
+import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom, downloadBlob, safeName } from './ui.js';
 import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
@@ -11,6 +11,7 @@ import {
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
 import { toText, parseText, renderImage } from './io.js';
+import { toMidi } from './midi.js';
 import { bindSongs } from './songs.js';
 import { padMeasures, slotsOf, beatOf } from './tab.js';
 
@@ -41,13 +42,30 @@ function doImport() {
   save(); render(); $('importModal').hidden = true;
   toast(r.measures.length + '마디 불러옴');
 }
+let lastCanvas = null;
 function openImage() {
   let cv;
   try { cv = renderImage(state); } catch (e) { toast('이미지를 만들지 못했어요'); return; }
   const out = $('imgOut'); out.innerHTML = '';
   const img = document.createElement('img'); img.alt = '타브 악보 이미지';
   try { img.src = cv.toDataURL('image/png'); } catch (e) { toast('이미지를 만들지 못했어요'); return; }
+  lastCanvas = cv;
   out.appendChild(img); $('imgModal').hidden = false;
+}
+function downloadImage() {
+  if (!lastCanvas) return;
+  const name = safeName(state.title, 'tab') + '.png';
+  if (lastCanvas.toBlob) lastCanvas.toBlob((b) => { if (b) { downloadBlob(name, b); toast('PNG 저장'); } else toast('이미지를 만들지 못했어요'); }, 'image/png');
+}
+function downloadMidi() {
+  let bytes;
+  try { bytes = toMidi(state, { instr: state.instr }); } catch (e) { toast('MIDI를 만들지 못했어요'); return; }
+  downloadBlob(safeName(state.title, 'tab') + '.mid', new Blob([bytes], { type: 'audio/midi' }));
+  toast('MIDI ' + bytes.noteCount + '음 저장');
+}
+function downloadText() {
+  downloadBlob(safeName(state.title, 'tab') + '.txt', new Blob([toText(state)], { type: 'text/plain;charset=utf-8' }));
+  toast('텍스트 저장');
 }
 
 /* ---------- 이벤트 ---------- */
@@ -187,7 +205,9 @@ function bind() {
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [
       { k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
-      { k: '▣', label: '이미지로 저장', desc: 'PNG, 길게 눌러 저장', action: openImage },
+      { k: '▣', label: '이미지로 저장', desc: 'PNG 미리보기와 다운로드', action: openImage },
+      { k: '♪', label: 'MIDI 파일 (.mid)', desc: 'DAW·악보 프로그램에서 열기. 반복 기호를 펼쳐요', action: downloadMidi },
+      { k: '↧', label: '텍스트 파일 (.txt)', desc: '텍스트 타브를 파일로 저장', action: downloadText },
       { k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
     ]);
   });
@@ -202,6 +222,7 @@ function bind() {
   $('closeImport').addEventListener('click', () => { $('importModal').hidden = true; });
   $('doImport').addEventListener('click', doImport);
   $('closeImg').addEventListener('click', () => { $('imgModal').hidden = true; });
+  $('dlImg').addEventListener('click', downloadImage);
   $('closeChord').addEventListener('click', () => { $('chordModal').hidden = true; });
   $('closeHelp').addEventListener('click', () => { $('helpModal').hidden = true; });
   const closeCoach = () => { $('coachModal').hidden = true; state.seen = true; save(); };

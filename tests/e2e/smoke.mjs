@@ -210,7 +210,19 @@ await page.selectOption('#loop', 'none');
 check('트레이너 끔', !(await page.$eval('#trainerBtn', (el) => el.classList.contains('on'))));
 await openMenuItem('exportMenu', '이미지로 저장');
 check('PNG 생성', await page.$eval('#imgOut img', (img) => img.src.startsWith('data:image/png') && img.naturalWidth > 100));
+{
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#dlImg')]);
+  const buf = (await import('node:fs')).readFileSync(await dl.path());
+  // 헤드리스 크로미움은 한글 파일명을 'download'로 보고하므로 내용(PNG 시그니처)으로 확인한다
+  check('PNG 다운로드', buf.slice(1, 4).toString() === 'PNG' && (/\.png$/.test(dl.suggestedFilename()) || dl.suggestedFilename() === 'download'), dl.suggestedFilename());
+}
 await page.keyboard.press('Escape');
+{
+  const [dl] = await Promise.all([page.waitForEvent('download'), openMenuItem('exportMenu', 'MIDI 파일')]);
+  const path = await dl.path();
+  const buf = (await import('node:fs')).readFileSync(path);
+  check('MIDI 다운로드: MThd 헤더', buf.slice(0, 4).toString() === 'MThd' && buf.length > 30 && (dl.suggestedFilename().endsWith('.mid') || dl.suggestedFilename() === 'download'), [dl.suggestedFilename(), buf.length]);
+}
 
 check('콘솔/페이지 오류 없음', errors.length === 0, errors);
 if (process.env.SHOT) { await page.click('#songsBtn'); await page.screenshot({ path: process.env.SHOT + '/songs.png' }); await page.click('#closeSongs'); await page.screenshot({ path: process.env.SHOT + '/editor.png' }); }
