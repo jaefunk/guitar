@@ -55,6 +55,13 @@ await page.click('#del');
 check('Backspace: 빈 칸이면 왼쪽을 지움', await cellText(1, 1, 1) === '');
 await page.click('#undo');
 check('실행 취소', await cellText(1, 1, 1) === '5');
+await page.click('#undo');
+check('실행 취소 2', await cellText(1, 1, 1) === '');
+await page.click('#redo');
+check('다시 실행', await cellText(1, 1, 1) === '5');
+await page.keyboard.press('Control+z');
+await page.keyboard.press('Control+Shift+z');
+check('키보드 다시 실행', await cellText(1, 1, 1) === '5');
 await page.click('.cell[data-m="1"][data-s="1"][data-i="3"]');
 await page.click('.key[data-mod="."]');
 check('끊기(·) 입력', await page.$eval('.cell[data-m="1"][data-s="1"][data-i="3"] .rest', (el) => el.textContent) === '·');
@@ -252,6 +259,26 @@ await page.keyboard.press('Escape');
   const path = await dl.path();
   const buf = (await import('node:fs')).readFileSync(path);
   check('MIDI 다운로드: MThd 헤더', buf.slice(0, 4).toString() === 'MThd' && buf.length > 30 && (dl.suggestedFilename().endsWith('.mid') || dl.suggestedFilename() === 'download'), [dl.suggestedFilename(), buf.length]);
+}
+
+console.log('6b. PWA · 가로 모드');
+{
+  const mf = await page.$eval('link[rel=manifest]', (el) => el.href);
+  const r = await page.evaluate(async (u) => { const res = await fetch(u); return { ok: res.ok, json: await res.json() }; }, mf);
+  check('manifest 제공', r.ok && r.json.icons.length === 4 && r.json.display === 'standalone');
+  const sw = await page.evaluate(async () => { const res = await fetch('./sw.js'); return res.ok && (await res.text()).indexOf('gtab-v1') >= 0; });
+  check('sw.js 제공', sw);
+  const icon = await page.evaluate(async () => { const res = await fetch('./icons/icon-192.png'); return res.ok && res.headers.get('content-type').indexOf('png') >= 0; });
+  check('아이콘 제공', icon);
+  const reg = await page.evaluate(() => navigator.serviceWorker.getRegistration().then((x) => !!x));
+  check('서비스 워커 등록', reg);
+  // 가로 모드: 뷰포트를 눕히면 fit 크기(--slot 인라인 값)가 적용된다
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(150);
+  check('가로 모드 한 줄 맞춤', (await page.$eval('html', (el) => el.style.getPropertyValue('--slot'))) !== '');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(150);
+  check('세로로 돌아오면 원래 크기', (await page.$eval('html', (el) => el.style.getPropertyValue('--slot'))) === '');
 }
 
 console.log('7. 샘플 악기');

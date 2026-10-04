@@ -7,6 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./styles.css">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#2457d6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1512" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="타브">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 </head>
 <body>
 
@@ -74,6 +82,7 @@
         <div class="info-right">
           <label class="toggle" title="프렛을 넣으면 오른쪽 칸으로 이동"><input type="checkbox" id="autoAdv"> 자동 이동</label>
           <button class="mini" id="undo" type="button" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↶</button>
+          <button class="mini" id="redo" type="button" title="다시 실행 (Ctrl+Shift+Z / Ctrl+Y)" aria-label="다시 실행">↷</button>
         </div>
       </div>
       <div id="keysBlock">
@@ -127,6 +136,7 @@
     <div class="setting"><div><div class="l">박자표</div><div class="d">이 곡의 한 마디 길이. 6/8은 점4분음표가 한 박이에요</div></div><select id="meter" aria-label="박자표"></select></div>
     <div class="setting"><div><div class="l">악보 크기</div><div class="d">칸 너비. "화면에 맞춤"은 넓은 화면에서 한 줄이 다 보여요</div></div>
       <select id="zoom" aria-label="크기"><option value="s">작게</option><option value="m">보통</option><option value="l">크게</option><option value="fit">화면에 맞춤</option></select></div>
+    <div class="setting"><div><div class="l">가로 모드에서 한 줄 맞춤</div><div class="d">폰을 눕히면 4마디가 화면 폭에 맞게 줄어들어요</div></div><label class="switch"><input type="checkbox" id="landscapeFit"><i></i></label></div>
     <div class="setting"><div><div class="l">테마</div></div>
       <select id="theme" aria-label="테마"><option value="system">기기 설정 따름</option><option value="light">밝게</option><option value="dark">어둡게</option></select></div>
     <div class="setting"><div><div class="l">입력 후 자동 이동</div><div class="d">프렛을 넣으면 오른쪽 칸으로 넘어가요</div></div><label class="switch"><input type="checkbox" id="autoAdv2"><i></i></label></div>
@@ -217,6 +227,7 @@
       <li>마디 번호를 <b>길게 누르면</b> 여러 마디를 선택해요. 복사·삭제·조옮김·한 칸 밀기·팜뮤트(P.M.)를 한 번에 할 수 있어요.</li>
       <li>아래 ▼를 누르면 입력판을 접어 악보를 넓게 볼 수 있어요. 칸을 탭하면 다시 펼쳐져요.</li>
       <li>소리는 설정에서 악기(어쿠스틱·나일론·일렉 클린·드라이브), 음량, 리버브를 바꿀 수 있어요. 여러 줄을 같이 치면 스트럼처럼 살짝 시간차가 나요.</li>
+      <li>브라우저 메뉴의 "홈 화면에 추가"로 설치하면 앱처럼 열리고 오프라인에서도 돼요.</li>
       <li>입력 내용은 이 기기 브라우저에만 저장돼요. 다른 기기로 옮기려면 내보내기 → 텍스트를 복사해 불러오세요. MIDI 파일로 내보내면 DAW나 악보 프로그램에서 열 수 있어요.</li>
     </ul>
     <h2>키보드</h2>
@@ -224,7 +235,7 @@
       <li><kbd>0</kbd>~<kbd>9</kbd> 프렛, <kbd>h</kbd> <kbd>p</kbd> <kbd>b</kbd> <kbd>/</kbd> <kbd>\</kbd> <kbd>~</kbd> <kbd>x</kbd> 기법, <kbd>.</kbd> 끊기, <kbd>Backspace</kbd> 지우기</li>
       <li>방향키 이동, <kbd>Shift</kbd>+좌우 또는 <kbd>Tab</kbd> 한 박 이동, <kbd>Home</kbd> <kbd>End</kbd> 마디 처음/끝</li>
       <li><kbd>Space</kbd> 재생/정지, <kbd>Enter</kbd> 메모, <kbd>Esc</kbd> 선택 해제</li>
-      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 실행 취소, <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> 마디 복사·붙여넣기</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 실행 취소, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> 다시 실행, <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> 마디 복사·붙여넣기</li>
     </ul>
     <div class="row"><button class="btn primary" id="closeHelp" type="button">닫기</button></div>
   </div>

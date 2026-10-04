@@ -15,7 +15,13 @@ function snapshot() { return JSON.stringify({ measures: state.measures, marks: s
 export function pushUndo() {
   ed.undoStack.push(snapshot());
   if (ed.undoStack.length > 120) ed.undoStack.shift();
+  ed.redoStack = []; // 새 변경이 생기면 다시 실행 기록은 버린다
   touch();
+}
+function restore(json) {
+  const d = JSON.parse(json);
+  state.measures = d.measures; state.marks = d.marks || {}; state.pm = d.pm || {}; state.rep = d.rep || {};
+  touch(); save(); render();
 }
 export function getVal(p) { return state.measures[p.m][p.s][p.i]; }
 export function setVal(p, v) {
@@ -88,9 +94,13 @@ export function clearColumn() {
 }
 export function doUndo() {
   if (!ed.undoStack.length) { toast('되돌릴 작업이 없어요'); return; }
-  const d = JSON.parse(ed.undoStack.pop());
-  state.measures = d.measures; state.marks = d.marks || {}; state.pm = d.pm || {}; state.rep = d.rep || {};
-  touch(); save(); render(); toast('되돌림');
+  ed.redoStack.push(snapshot());
+  restore(ed.undoStack.pop()); toast('되돌림');
+}
+export function doRedo() {
+  if (!ed.redoStack.length) { toast('다시 실행할 작업이 없어요'); return; }
+  ed.undoStack.push(snapshot());
+  restore(ed.redoStack.pop()); toast('다시 실행');
 }
 
 export function addLine() {

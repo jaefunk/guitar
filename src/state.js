@@ -12,7 +12,7 @@ import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures
 export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
-  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer', 'drums', 'swing'
+  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer', 'drums', 'swing', 'landscapeFit'
 ];
 
 export function defaultSettings() {
@@ -22,6 +22,7 @@ export function defaultSettings() {
     volume: 0.8, reverb: 0.25, countIn: false, preview: true,
     // 속도 트레이너: 반복 한 바퀴마다 step만큼 빨라져 max까지
     trainer: { on: false, start: 60, step: 5, max: 120 },
+    landscapeFit: true, // 가로 모드에서 한 줄(4마디)을 화면 폭에 맞춤
     drums: 'off',   // off | rock | pop | ballad
     swing: 0        // 0~0.7: 홀수 16분음표를 한 칸의 이 비율만큼 늦춘다 (0.67 ≈ 셋잇단 스윙)
   };
@@ -45,7 +46,7 @@ export const state = Object.assign({}, defaultSettings(), {
 });
 
 /** 편집 세션 상태(저장 안 함) */
-export const ed = { sel: null, pending: false, undoStack: [], clip: null };
+export const ed = { sel: null, pending: false, undoStack: [], redoStack: [], clip: null, range: null };
 
 /** 책장: 저장되는 전체 문서 */
 export const library = { songs: {}, order: [], currentId: null };
@@ -92,7 +93,7 @@ export function sanitizeSettings(d) {
   if (!d || typeof d !== 'object') return s;
   if (ZOOMS.indexOf(d.zoom) >= 0) s.zoom = d.zoom;
   if (THEMES.indexOf(d.theme) >= 0) s.theme = d.theme;
-  ['autoAdv', 'metro', 'haptic', 'collapsed', 'seen', 'countIn', 'preview'].forEach((k) => {
+  ['autoAdv', 'metro', 'haptic', 'collapsed', 'seen', 'countIn', 'preview', 'landscapeFit'].forEach((k) => {
     if (typeof d[k] === 'boolean') s[k] = d[k];
   });
   if (LOOPS.indexOf(d.loop) >= 0) s.loop = d.loop;
@@ -175,7 +176,7 @@ export function activate(id) {
   library.currentId = id;
   SONG_FIELDS.forEach((k) => { state[k] = song[k]; });
   padMeasures(state.measures, slotsOf(state));
-  ed.undoStack = [];
+  ed.undoStack = []; ed.redoStack = []; ed.range = null;
   ed.pending = false;
   ed.sel = { m: 0, s: 0, i: 0 };
 }

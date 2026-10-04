@@ -4,7 +4,7 @@ import { state, ed, load, save } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom, downloadBlob, safeName } from './ui.js';
 import { render, setSel } from './render.js';
 import {
-  inputDigit, inputMod, del, move, doUndo, addLine, delLine, insertMeasure, deleteMeasure,
+  inputDigit, inputMod, del, move, doUndo, doRedo, addLine, delLine, insertMeasure, deleteMeasure,
   copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
   setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
 } from './edit.js';
@@ -161,7 +161,8 @@ function bind() {
     }
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     const k = e.key, mod = e.ctrlKey || e.metaKey;
-    if (mod && k.toLowerCase() === 'z') { e.preventDefault(); doUndo(); return; }
+    if (mod && k.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); return; }
+    if (mod && k.toLowerCase() === 'y') { e.preventDefault(); doRedo(); return; }
     if (mod && k.toLowerCase() === 'c') { e.preventDefault(); copyMeasure(); return; }
     if (mod && k.toLowerCase() === 'v') { e.preventDefault(); pasteMeasure(); return; }
     if (mod || e.altKey) return;
@@ -224,6 +225,8 @@ function bind() {
   $('settingsBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
   $('closeSettings').addEventListener('click', () => { $('settingsModal').hidden = true; });
   $('undo').addEventListener('click', doUndo);
+  $('redo').addEventListener('click', doRedo);
+  $('landscapeFit').addEventListener('change', function () { state.landscapeFit = this.checked; save(); applyZoom(); });
   $('clearAll').addEventListener('click', clearAll);
   $('chordBtn').addEventListener('click', () => { if (!needSel()) return; $('chordModal').hidden = false; });
   $('markBtn').addEventListener('click', () => { if (!needSel()) return; editMark(ed.sel.m, ed.sel.i); });
@@ -301,7 +304,7 @@ function bind() {
   $('drums').addEventListener('change', function () { state.drums = this.value; save(); });
   $('swing').addEventListener('input', function () { state.swing = this.value / 100; save(); });
   $('preview').addEventListener('change', function () { state.preview = this.checked; save(); });
-  window.addEventListener('resize', () => { updatePadH(); if (state.zoom === 'fit') applyZoom(); });
+  window.addEventListener('resize', () => { updatePadH(); applyZoom(); });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
   document.addEventListener('visibilitychange', () => { if (document.hidden && pb.playing) stopPlay(); });
   bindSongs();
@@ -331,7 +334,7 @@ function boot() {
   $('bpm').value = state.bpm; $('loop').value = state.loop; $('haptic').checked = state.haptic; s.value = state.instr;
   $('volume').value = Math.round(state.volume * 100); $('reverb').value = Math.round(state.reverb * 100);
   $('countIn').checked = state.countIn; $('preview').checked = state.preview;
-  $('drums').value = state.drums; $('swing').value = Math.round(state.swing * 100);
+  $('drums').value = state.drums; $('swing').value = Math.round(state.swing * 100); $('landscapeFit').checked = state.landscapeFit;
   syncAuto(); syncMetro(); applyTheme(); applyZoom();
   ed.sel = { m: 0, s: 0, i: 0 };
   render();
@@ -342,3 +345,8 @@ function boot() {
 }
 
 boot();
+
+// PWA: 빌드된 앱에서만 서비스 워커 등록(개발 서버에서는 캐시가 방해된다)
+if (import.meta.env && import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+}

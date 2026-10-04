@@ -73,10 +73,14 @@ export function applyTheme() {
   const r = document.documentElement;
   if (state.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', state.theme);
 }
+/** 가로 모드 자동 맞춤이 적용되는 상황인가(폰·태블릿을 눕혔을 때) */
+export function landscapeFitActive() {
+  return !!state.landscapeFit && typeof window.matchMedia === 'function' && window.matchMedia('(orientation: landscape)').matches && window.innerWidth < 1100;
+}
 export function applyZoom() {
   const r = document.documentElement;
   r.setAttribute('data-zoom', state.zoom);
-  if (state.zoom !== 'fit') {
+  if (state.zoom !== 'fit' && !landscapeFitActive()) {
     r.style.removeProperty('--slot'); r.style.removeProperty('--row'); r.style.removeProperty('--fs');
     return;
   }
