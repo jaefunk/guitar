@@ -5,7 +5,7 @@ import { parseMusicXml } from '../src/musicxml.js';
 import { buildScoreIndex } from '../src/score-index.js';
 import { emptyMeasure } from '../src/tab.js';
 import { TUNINGS } from '../src/constants.js';
-import { musicXmlToV3Song, v3SongToMusicXml } from '../src/v3-musicxml.js';
+import { isLosslessV3GridMusicXml, musicXmlToV3Song, v3SongToMusicXml } from '../src/v3-musicxml.js';
 
 function songWith(measures, overrides = {}) {
   return {
@@ -104,6 +104,29 @@ describe('v3 grid to MusicXML 4.0', () => {
   it('rejects malformed legacy measure data instead of emitting invalid XML', () => {
     expect(() => v3SongToMusicXml(songWith([]))).toThrow(/v3|measure/i);
     expect(() => v3SongToMusicXml(songWith([[['not-a-measure']]]))).toThrow(/v3|measure/i);
+  });
+
+  it('recognizes current and pre-marker app-generated XML as lossless grid documents', () => {
+    const current = v3SongToMusicXml(songWith([emptyMeasure()]));
+    const preMarker = current.replace(/<identification>[\s\S]*?<\/identification>/, '');
+
+    expect(isLosslessV3GridMusicXml(current, 'P1')).toBe(true);
+    expect(isLosslessV3GridMusicXml(preMarker, 'P1')).toBe(true);
+  });
+
+  it('rejects rich, extra-part, comment, and unknown-node XML from legacy grid promotion', () => {
+    const current = v3SongToMusicXml(songWith([emptyMeasure()]));
+    const rich = current.replace('<measure number="1">', '<measure number="1"><print new-system="yes"/>');
+    const extraPart = current
+      .replace('</part-list>', '<score-part id="P2"><part-name>Extra</part-name></score-part></part-list>')
+      .replace('</score-partwise>', '<part id="P2"><measure number="1"/></part></score-partwise>');
+    const comment = current.replace('<part-list>', '<!--keep--><part-list>');
+    const unknown = current.replace('<part-list>', '<unknown-extension/><part-list>');
+
+    expect(isLosslessV3GridMusicXml(rich, 'P1')).toBe(false);
+    expect(isLosslessV3GridMusicXml(extraPart, 'P1')).toBe(false);
+    expect(isLosslessV3GridMusicXml(comment, 'P1')).toBe(false);
+    expect(isLosslessV3GridMusicXml(unknown, 'P1')).toBe(false);
   });
 
   it.each(Object.entries(TUNINGS))('round-trips the %s open-string tuning', (tuningId, tuning) => {

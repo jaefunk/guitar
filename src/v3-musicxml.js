@@ -147,13 +147,6 @@ function localChild(element, name) {
   return localChildren(element, name)[0] || null;
 }
 
-function hasLegacyGridMarker(doc) {
-  const identification = localChild(doc.documentElement, 'identification');
-  const miscellaneous = identification && localChild(identification, 'miscellaneous');
-  return !!miscellaneous && localChildren(miscellaneous, 'miscellaneous-field').some((field) =>
-    field.getAttribute('name') === GRID_MARKER_NAME && field.textContent?.trim() === GRID_MARKER_VALUE);
-}
-
 function canonicalNode(node) {
   if (node.nodeType === 1) {
     const name = `${node.namespaceURI || ''}|${node.localName}`;
@@ -282,16 +275,20 @@ export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
 
 /**
  * Conservative one-time upgrade check for v4 records written before editorMode existed.
- * A marker is only a prerequisite; the complete MusicXML tree must also equal a fresh
- * projection/regeneration so no unsupported content can be lost by quick-grid editing.
+ * The complete MusicXML tree must equal a fresh projection/regeneration, either in
+ * the current marker-bearing form or the older form before that marker was emitted.
  */
 export function isLosslessV3GridMusicXml(xml, selectedPartId = 'P1') {
   try {
     const doc = parseMusicXml(xml);
-    if (doc.doctype || !hasLegacyGridMarker(doc)) return false;
+    if (doc.doctype) return false;
     const projection = musicXmlToV3Song(xml, selectedPartId);
     const regenerated = parseMusicXml(v3SongToMusicXml(projection));
-    return canonicalNode(doc.documentElement) === canonicalNode(regenerated.documentElement);
+    const inputCanonical = canonicalNode(doc.documentElement);
+    if (inputCanonical === canonicalNode(regenerated.documentElement)) return true;
+
+    localChild(regenerated.documentElement, 'identification')?.remove();
+    return inputCanonical === canonicalNode(regenerated.documentElement);
   } catch (error) {
     return false;
   }
