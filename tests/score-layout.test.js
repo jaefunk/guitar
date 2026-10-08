@@ -268,6 +268,81 @@ describe('layoutScore geometry', () => {
     ]);
   });
 
+  it('groups explicit beam begin-to-end sequences independently', () => {
+    const explicit = (id, onset, state) => event(
+      id,
+      onset,
+      r(1, 2),
+      [{ string: 2, fret: 5, noteType: 'eighth', beams: [{ number: 1, state }] }],
+      { noteType: 'eighth', beams: [{ number: 1, state }] }
+    );
+    const layout = layoutScore({
+      partId: 'P1',
+      measures: [measure(1, [
+        explicit('a', r(0), 'begin'), explicit('b', r(1, 2), 'end'),
+        explicit('c', r(1), 'begin'), explicit('d', r(3, 2), 'end')
+      ])],
+      links: []
+    });
+
+    expect(layout.beams).toEqual([
+      expect.objectContaining({ kind: 'beam', level: 1, eventIds: ['a', 'b'] }),
+      expect.objectContaining({ kind: 'beam', level: 1, eventIds: ['c', 'd'] })
+    ]);
+  });
+
+  it('groups multiple explicit levels separately and emits directional hooks', () => {
+    const layout = layoutScore({
+      partId: 'P1',
+      measures: [measure(1, [
+        event('a', r(0), r(1, 4), [], {
+          noteType: '16th', beams: [{ number: 1, state: 'begin' }, { number: 2, state: 'begin' }]
+        }),
+        event('b', r(1, 4), r(1, 4), [], {
+          noteType: '16th', beams: [{ number: 1, state: 'continue' }, { number: 2, state: 'end' }]
+        }),
+        event('c', r(1, 2), r(1, 4), [], {
+          noteType: '16th', beams: [{ number: 1, state: 'end' }, { number: 2, state: 'forward hook' }]
+        }),
+        event('d', r(3, 4), r(1, 4), [], {
+          noteType: '16th', beams: [{ number: 2, state: 'backward hook' }]
+        })
+      ])],
+      links: []
+    });
+
+    expect(layout.beams).toEqual([
+      expect.objectContaining({ kind: 'beam', level: 1, eventIds: ['a', 'b', 'c'] }),
+      expect.objectContaining({ kind: 'beam', level: 2, eventIds: ['a', 'b'] }),
+      expect.objectContaining({ kind: 'hook', level: 2, direction: 'forward', eventIds: ['c'] }),
+      expect.objectContaining({ kind: 'hook', level: 2, direction: 'backward', eventIds: ['d'] })
+    ]);
+  });
+
+  it('handles unmatched explicit beam states deterministically', () => {
+    const index = {
+      partId: 'P1',
+      measures: [measure(1, [
+        event('orphan-end', r(0), r(1, 2), [], {
+          noteType: 'eighth', beams: [{ number: 1, state: 'end' }]
+        }),
+        event('open-begin', r(1, 2), r(1, 2), [], {
+          noteType: 'eighth', beams: [{ number: 1, state: 'begin' }]
+        })
+      ])],
+      links: []
+    };
+
+    const first = layoutScore(index);
+    const second = layoutScore(index);
+
+    expect(first.beams).toEqual([
+      expect.objectContaining({ eventIds: ['orphan-end'], malformed: 'unmatched-end' }),
+      expect.objectContaining({ eventIds: ['open-begin'], open: true })
+    ]);
+    expect(first).toEqual(second);
+  });
+
   it('is deterministic and does not mutate its input', () => {
     const index = {
       partId: 'P1',

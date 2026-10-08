@@ -258,28 +258,109 @@ function beamRecords(events, measures) {
     const measureEvents = events.filter((event) => event.measureIndex === measure.index);
     const maxLevel = Math.max(0, ...measureEvents.map((event) => event.beamLevel || 0));
     for (let level = 1; level <= maxLevel; level += 1) {
-      let group = [];
-      const flush = () => {
-        if (group.length >= 2) {
-          records.push({
-            measureIndex: measure.index,
-            systemIndex: measure.systemIndex,
-            level,
-            eventIds: group.map((event) => event.id),
-            x1: group[0].x,
-            x2: group.at(-1).x,
-            y: measure.staffBottom + 26 + level * 5
-          });
-        }
-        group = [];
-      };
-      for (const event of measureEvents) {
-        if ((event.beamLevel || 0) >= level) group.push(event);
-        else flush();
+      const hasExplicitLevel = measureEvents.some((event) => (
+        event.beams || []
+      ).some((beam) => beam.number === level));
+      if (hasExplicitLevel) {
+        records.push(...explicitBeamRecords(measureEvents, measure, level));
+      } else {
+        records.push(...fallbackBeamRecords(measureEvents, measure, level));
       }
-      flush();
     }
   }
+  return records;
+}
+
+function beamRecord(measure, level, group, extra = {}) {
+  return {
+    kind: 'beam',
+    measureIndex: measure.index,
+    systemIndex: measure.systemIndex,
+    level,
+    eventIds: group.map((event) => event.id),
+    x1: group[0].x,
+    x2: group.at(-1).x,
+    y: measure.staffBottom + 26 + level * 5,
+    ...extra
+  };
+}
+
+function fallbackBeamRecords(events, measure, level) {
+  const records = [];
+  let group = [];
+  const flush = () => {
+    if (group.length >= 2) records.push(beamRecord(measure, level, group));
+    group = [];
+  };
+  for (const event of events) {
+    const canFallback = event.kind === 'notes'
+      && !event.beams?.length
+      && (event.beamLevel || 0) >= level;
+    if (canFallback) group.push(event);
+    else flush();
+  }
+  flush();
+  return records;
+}
+
+function explicitBeamRecords(events, measure, level) {
+  const records = [];
+  let openGroup = null;
+  const flushOpen = () => {
+    if (!openGroup) return;
+    records.push(beamRecord(measure, level, openGroup.events, {
+      ...(openGroup.malformed ? { malformed: openGroup.malformed } : {}),
+      open: true
+    }));
+    openGroup = null;
+  };
+
+  for (const event of events) {
+    const beam = event.kind === 'notes'
+      ? (event.beams || []).find((candidate) => candidate.number === level)
+      : null;
+    if (!beam) {
+      flushOpen();
+      continue;
+    }
+
+    if (beam.state === 'begin') {
+      flushOpen();
+      openGroup = { events: [event] };
+      continue;
+    }
+    if (beam.state === 'continue') {
+      if (!openGroup) openGroup = { events: [], malformed: 'unmatched-continue' };
+      openGroup.events.push(event);
+      continue;
+    }
+    if (beam.state === 'end') {
+      if (!openGroup) {
+        records.push(beamRecord(measure, level, [event], { malformed: 'unmatched-end' }));
+      } else {
+        openGroup.events.push(event);
+        records.push(beamRecord(measure, level, openGroup.events, {
+          ...(openGroup.malformed ? { malformed: openGroup.malformed } : {})
+        }));
+        openGroup = null;
+      }
+      continue;
+    }
+    if (beam.state === 'forward hook' || beam.state === 'backward hook') {
+      flushOpen();
+      const direction = beam.state.split(' ')[0];
+      records.push({
+        ...beamRecord(measure, level, [event]),
+        kind: 'hook',
+        direction
+      });
+      continue;
+    }
+
+    flushOpen();
+    records.push(beamRecord(measure, level, [event], { malformed: 'unknown-state' }));
+  }
+  flushOpen();
   return records;
 }
 
