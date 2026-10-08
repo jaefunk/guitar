@@ -2,13 +2,8 @@ import { createServer } from 'node:http';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { startOwnedPreview } from './e2e/preview-server.mjs';
-
-const cleanups = [];
-afterEach(async () => {
-  await Promise.allSettled(cleanups.splice(0).reverse().map((cleanup) => cleanup()));
-});
 
 function listen(server, port) {
   return new Promise((resolve, reject) => {
@@ -23,21 +18,32 @@ function close(server) {
 
 describe('owned Vite preview', () => {
   it('uses its own dynamic port even while conventional port 4173 is occupied', async () => {
-    const occupied = createServer((_request, response) => response.end('wrong server'));
-    await listen(occupied, 4173);
-    cleanups.push(() => close(occupied));
+    const candidate = createServer((_request, response) => response.end('wrong server'));
+    let occupierOwner = null;
+    let root = null;
+    let owned = null;
+    try {
+      try {
+        await listen(candidate, 4173);
+        occupierOwner = candidate;
+      } catch (error) {
+        if (error?.code !== 'EADDRINUSE') throw error;
+      }
 
-    const root = await mkdtemp(join(tmpdir(), 'guitar-preview-test-'));
-    cleanups.push(() => rm(root, { recursive: true, force: true }));
-    await mkdir(join(root, 'dist'));
-    await writeFile(join(root, 'dist/index.html'), '<!doctype html><title>owned-preview-marker</title>');
+      root = await mkdtemp(join(tmpdir(), 'guitar-preview-test-'));
+      await mkdir(join(root, 'dist'));
+      await writeFile(join(root, 'dist/index.html'), '<!doctype html><title>owned-preview-marker</title>');
 
-    const owned = await startOwnedPreview({ root });
-    cleanups.push(() => owned.close());
-    const response = await fetch(owned.url);
+      owned = await startOwnedPreview({ root });
+      const response = await fetch(owned.url);
 
-    expect(new URL(owned.url).port).not.toBe('4173');
-    expect(await response.text()).toContain('owned-preview-marker');
+      expect(new URL(owned.url).port).not.toBe('4173');
+      expect(await response.text()).toContain('owned-preview-marker');
+    } finally {
+      await owned?.close();
+      if (root) await rm(root, { recursive: true, force: true });
+      if (occupierOwner) await close(occupierOwner);
+    }
   });
 
   it('fails fast when Vite preview startup rejects', async () => {

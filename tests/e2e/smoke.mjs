@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startOwnedPreview } from './preview-server.mjs';
+import { E2ELifecycle } from './resource-lifecycle.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const VIEWPORT = { width: 1440, height: 900 };
@@ -31,8 +32,12 @@ function collectErrors(page) {
   return errors;
 }
 
-async function runLegacySmoke(browser, appUrl) {
-  const context = await browser.newContext({ viewport: VIEWPORT });
+async function runLegacySmoke(browser, appUrl, lifecycle) {
+  const context = await lifecycle.acquire(
+    'context',
+    () => browser.newContext({ viewport: VIEWPORT }),
+    (value) => value.close()
+  );
   try {
     const page = await context.newPage();
     const errors = collectErrors(page);
@@ -121,7 +126,7 @@ async function runLegacySmoke(browser, appUrl) {
   await page.locator('#closeImg').click();
     check('빠른 격자 콘솔 오류 없음', errors.length === 0, errors);
   } finally {
-    await context.close();
+    await lifecycle.release('context');
   }
 }
 
@@ -136,8 +141,12 @@ async function importMusicXml(page, path) {
   await page.locator('#scoreWorkspace').waitFor({ state: 'visible' });
 }
 
-async function runProfessionalWorkflow(browser, outputDir, appUrl) {
-  const context = await browser.newContext({ viewport: VIEWPORT, acceptDownloads: true });
+async function runProfessionalWorkflow(browser, outputDir, appUrl, lifecycle) {
+  const context = await lifecycle.acquire(
+    'context',
+    () => browser.newContext({ viewport: VIEWPORT, acceptDownloads: true }),
+    (value) => value.close()
+  );
   try {
     const page = await context.newPage();
     const errors = collectErrors(page);
@@ -183,52 +192,56 @@ async function runProfessionalWorkflow(browser, outputDir, appUrl) {
   check('내장 1:03 명시 로드', builtInMeasureCount === 77, builtInMeasureCount);
     check('전문 TAB 콘솔 오류 없음', errors.length === 0, errors);
   } finally {
-    await context.close();
+    await lifecycle.release('context');
   }
 }
 
-let preview = null;
-let outputDir = null;
-let browser = null;
-let cleanupPromise = null;
-const cleanup = () => {
-  if (cleanupPromise) return cleanupPromise;
-  cleanupPromise = Promise.allSettled([
-    browser?.close(),
-    preview?.close(),
-    outputDir ? rm(outputDir, { recursive: true, force: true }) : null
-  ]);
-  return cleanupPromise;
-};
+const lifecycle = new E2ELifecycle();
 const signalHandlers = new Map([
-  ['SIGINT', () => { void cleanup().finally(() => process.exit(130)); }],
-  ['SIGTERM', () => { void cleanup().finally(() => process.exit(143)); }]
+  ['SIGINT', () => { void lifecycle.abort(new Error('E2E interrupted by SIGINT')).finally(() => process.exit(130)); }],
+  ['SIGTERM', () => { void lifecycle.abort(new Error('E2E interrupted by SIGTERM')).finally(() => process.exit(143)); }]
 ]);
 for (const [signal, handler] of signalHandlers) process.once(signal, handler);
 
 const run = async () => {
-  preview = await startOwnedPreview({ root: ROOT });
+  const preview = await lifecycle.acquire(
+    'preview',
+    () => startOwnedPreview({ root: ROOT }),
+    (value) => value.close()
+  );
   const markerResponse = await fetch(preview.url);
   const markerHtml = await markerResponse.text();
   if (!markerResponse.ok || !markerHtml.includes('<title>기타 타브 에디터</title>')) {
     throw new Error('Owned E2E preview did not serve the expected application build');
   }
-  outputDir = await mkdtemp(join(tmpdir(), 'guitar-e2e-'));
-  browser = await chromium.launch({ headless: true });
-  await runLegacySmoke(browser, preview.url);
-  await runProfessionalWorkflow(browser, outputDir, preview.url);
+  const outputDir = await lifecycle.acquire(
+    'outputDir',
+    () => mkdtemp(join(tmpdir(), 'guitar-e2e-')),
+    (value) => rm(value, { recursive: true, force: true })
+  );
+  const browser = await lifecycle.acquire(
+    'browser',
+    () => chromium.launch({ headless: true }),
+    (value) => value.close()
+  );
+  await runLegacySmoke(browser, preview.url, lifecycle);
+  await runProfessionalWorkflow(browser, outputDir, preview.url, lifecycle);
 };
 
 let timeoutId;
 try {
   const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error('E2E workflow timed out after 120 seconds')), 120_000);
+    timeoutId = setTimeout(async () => {
+      const error = new Error('E2E workflow timed out after 120 seconds');
+      await lifecycle.abort(error);
+      reject(error);
+    }, 120_000);
   });
   await Promise.race([run(), timeout]);
 } finally {
   clearTimeout(timeoutId);
   for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
-  await cleanup();
+  await lifecycle.cleanup();
 }
 console.log(failures ? `\n${failures}개 실패` : '\n모두 통과');
 process.exitCode = failures ? 1 : 0;
