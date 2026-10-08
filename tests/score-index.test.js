@@ -7,6 +7,7 @@ import { addRational, buildScoreIndex, rational } from '../src/score-index.js';
 
 const moduleUrl = import.meta.url;
 const fixture = readFileSync(new URL('./fixtures/basic-tab.musicxml', moduleUrl), 'utf8');
+const techniquesFixture = readFileSync(new URL('./fixtures/techniques.musicxml', moduleUrl), 'utf8');
 
 function scoreWithMeasures(measures) {
   return parseMusicXml(`<score-partwise version="4.0">
@@ -164,5 +165,96 @@ describe('ScoreIndex timing', () => {
     buildScoreIndex(doc, 'P1');
 
     expect(serializeMusicXml(doc)).toBe(before);
+  });
+});
+
+describe('ScoreIndex techniques and playback', () => {
+  it('indexes paired guitar techniques with stable event IDs', () => {
+    const first = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+    const second = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+
+    expect(first.links.map((link) => link.type)).toEqual([
+      'hammer-on',
+      'pull-off',
+      'slide',
+      'tie'
+    ]);
+    expect(first.links).toEqual(second.links);
+    expect(first.measures.flatMap((measure) => measure.events.map((event) => event.id)))
+      .toEqual(second.measures.flatMap((measure) => measure.events.map((event) => event.id)));
+    expect(first.links[0]).toEqual({
+      type: 'hammer-on',
+      number: '1',
+      startEventId: first.measures[0].events[0].id,
+      endEventId: first.measures[0].events[1].id
+    });
+  });
+
+  it('normalizes bends, dead notes, tuplets, and fermatas', () => {
+    const index = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+    const techniqueEvents = index.measures[2].events;
+
+    expect(techniqueEvents[0].notes[0].bend).toEqual({ n: 1, d: 2 });
+    expect(techniqueEvents[1].notes[0].dead).toBe(true);
+    expect(techniqueEvents[2].tuplet).toEqual({ actual: 3, normal: 2 });
+    expect(index.measures[5].events.at(-1).fermata).toBe(true);
+  });
+
+  it('expands repeats and first and second endings without cloning measures', () => {
+    const index = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+
+    expect(index.playbackMeasures).toEqual([0, 1, 2, 3, 0, 1, 2, 4, 5]);
+    expect(buildScoreIndex(scoreWithMeasures(`
+      <measure number="1"><note><rest/><duration>4</duration></note></measure>
+      <measure number="2"><note><rest/><duration>4</duration></note></measure>
+    `), 'P1').playbackMeasures).toEqual([0, 1]);
+  });
+
+  it('reports invalid strings, measure duration mismatches, and unclosed techniques', () => {
+    const doc = scoreWithMeasures(`<measure number="9">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch><duration>1</duration>
+        <notations><technical><string>7</string><fret>1</fret><hammer-on type="start" number="2"/></technical></notations>
+      </note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+    const byCode = Object.fromEntries(index.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic]));
+
+    expect(Object.keys(byCode)).toEqual(expect.arrayContaining([
+      'INVALID_STRING',
+      'MEASURE_DURATION',
+      'UNCLOSED_TECHNIQUE'
+    ]));
+    expect(byCode.INVALID_STRING).toMatchObject({
+      severity: 'error',
+      measureNumber: '9',
+      eventId: index.measures[0].events[0].id
+    });
+    expect(byCode.MEASURE_DURATION.severity).toBe('error');
+    expect(byCode.UNCLOSED_TECHNIQUE).toMatchObject({ severity: 'warning', measureNumber: '9' });
+    expect(byCode.INVALID_STRING.message).toEqual(expect.any(String));
+  });
+
+  it('reports malformed timing without crashing', () => {
+    const doc = scoreWithMeasures(`<measure number="bad-time">
+      <attributes>
+        <divisions>0</divisions>
+        <time><beats>4</beats><beat-type>0</beat-type></time>
+      </attributes>
+      <note><rest/><duration>not-a-number</duration></note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.measures).toHaveLength(1);
+    expect(index.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: 'error',
+        code: 'MEASURE_DURATION',
+        measureNumber: 'bad-time'
+      })
+    ]));
   });
 });
