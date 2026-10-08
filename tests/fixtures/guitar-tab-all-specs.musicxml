@@ -205,7 +205,7 @@
     <measure number="12">
       <direction placement="above"><direction-type><rehearsal>TECH-BENDS</rehearsal></direction-type><staff>2</staff></direction>
       <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>3</fret><bend><bend-alter>2</bend-alter></bend></technical></notations></note>
-      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>3</fret><bend><bend-alter>2</bend-alter><pre-bend/></bend><bend><bend-alter>2</bend-alter><release/></bend></technical></notations></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>3</fret><bend><bend-alter>-2</bend-alter><pre-bend/></bend><bend><bend-alter>-2</bend-alter><release/></bend></technical></notations></note>
       <note><pitch><step>A</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>5</fret><bend><bend-alter>-2</bend-alter><with-bar>bar</with-bar></bend></technical></notations></note>
       <note><rest/><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff></note>
     </measure>
