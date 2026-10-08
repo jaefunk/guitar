@@ -364,8 +364,11 @@ function rhythmValues(note, values, divisions) {
 function setNoteRhythm(doc, note, rhythm) {
   setTextChild(doc, note, 'duration', rhythm.duration);
   setTextChild(doc, note, 'type', rhythm.type);
-  children(note, 'dot').forEach((dot) => dot.remove());
-  for (let count = 0; count < rhythm.dots; count += 1) insertOrdered(note, element(doc, 'dot'));
+  const existingDots = children(note, 'dot');
+  existingDots.slice(rhythm.dots).forEach((dot) => dot.remove());
+  for (let count = existingDots.length; count < rhythm.dots; count += 1) {
+    insertOrdered(note, element(doc, 'dot'));
+  }
   if (rhythm.tuplet) {
     const modification = child(note, 'time-modification') || insertOrdered(note, element(doc, 'time-modification'));
     setTextChild(doc, modification, 'actual-notes', rhythm.tuplet.actual);
@@ -584,6 +587,70 @@ function noteTimeline(part) {
   return result;
 }
 
+function tieSignature(note) {
+  const voice = child(note, 'voice')?.textContent?.trim() || '1';
+  const midi = pitchMidi(child(note, 'pitch'));
+  const string = numericText(child(descendants(note, 'technical')[0], 'string'));
+  return `${voice}:${midi ?? 'unknown'}:${string ?? 'unknown'}`;
+}
+
+function logicalTieEndpoints(entry) {
+  const endpoints = [];
+  for (const action of ['start', 'stop']) {
+    const tied = descendants(entry.note, 'tied').filter((node) => node.getAttribute('type') === action);
+    const direct = children(entry.note, 'tie').filter((node) => node.getAttribute('type') === action);
+    if (tied.length) {
+      tied.forEach((node, index) => endpoints.push({
+        ...entry,
+        node,
+        nodes: index === 0 ? [node, ...direct] : [node],
+        type: 'tie',
+        action,
+        number: node.getAttribute('number') || '1',
+        directOnly: false
+      }));
+    } else if (direct.length) {
+      endpoints.push({
+        ...entry,
+        node: direct[0],
+        nodes: direct,
+        type: 'tie',
+        action,
+        number: '1',
+        directOnly: true
+      });
+    }
+  }
+  for (const node of [
+    ...descendants(entry.note, 'tied').filter((candidate) => !['start', 'stop'].includes(candidate.getAttribute('type'))),
+    ...children(entry.note, 'tie').filter((candidate) => !['start', 'stop'].includes(candidate.getAttribute('type')))
+  ]) {
+    endpoints.push({
+      ...entry,
+      node,
+      nodes: [node],
+      type: 'tie',
+      action: node.getAttribute('type'),
+      number: node.localName === 'tied' ? node.getAttribute('number') || '1' : '1',
+      directOnly: node.localName === 'tie'
+    });
+  }
+  return endpoints;
+}
+
+function logicalTechniqueEndpoints(entry, type) {
+  if (type === 'tie') return logicalTieEndpoints(entry);
+  return descendants(entry.note, type).map((node) => ({
+    ...entry,
+    node,
+    nodes: [node],
+    type,
+    action: node.getAttribute('type'),
+    number: node.getAttribute('number') || '1',
+    directOnly: false
+  }));
+}
+
 function techniqueInventory(part, requestedType = null) {
   const pairs = [];
   const malformedNumbers = new Set();
@@ -591,17 +658,17 @@ function techniqueInventory(part, requestedType = null) {
   const stacks = new Map();
   for (const entry of noteTimeline(part)) {
     for (const type of (requestedType ? [requestedType] : ['hammer-on', 'pull-off', 'slide', 'tie'])) {
-      for (const node of descendants(entry.note, type === 'tie' ? 'tied' : type)) {
-        const action = node.getAttribute('type');
-        const number = node.getAttribute('number') || '1';
-        const endpoint = { ...entry, node, type, action, number };
+      for (const endpoint of logicalTechniqueEndpoints(entry, type)) {
+        const { action, number } = endpoint;
         endpoints.push(endpoint);
         const numeric = Number(number);
         if (!Number.isInteger(numeric) || numeric < 1 || numeric > 16 || !['start', 'stop'].includes(action)) {
           malformedNumbers.add(number);
           continue;
         }
-        const key = `${type}:${number}`;
+        const key = endpoint.directOnly
+          ? `${type}:${number}:${tieSignature(entry.note)}`
+          : `${type}:${number}`;
         const stack = stacks.get(key) || [];
         if (action === 'start') {
           stack.push(endpoint);
@@ -627,8 +694,8 @@ function pairsTouchingNotes(part, notes) {
 
 function removePairs(pairs) {
   for (const pair of pairs) {
-    removeTechniqueNumber(pair.start.note, pair.type, 'start', pair.number);
-    removeTechniqueNumber(pair.end.note, pair.type, 'stop', pair.number);
+    pair.start.nodes.forEach((node) => node.remove());
+    pair.end.nodes.forEach((node) => node.remove());
   }
 }
 
@@ -695,8 +762,10 @@ export function setTechniquePairCommand(
   if (type === 'tie' && pitchMidi(child(start.note, 'pitch')) !== pitchMidi(child(end.note, 'pitch'))) {
     throw new Error('Tie endpoints must have equal sounding pitch');
   }
-  const existingNumber = exactPairNumber(start.note, end.note, type);
-  if (!enabled && !existingNumber) throw new Error('Technique pair not found');
+  const existingPair = techniqueInventory(directPart(doc, partId), type).pairs
+    .find((pair) => pair.start.note === start.note && pair.end.note === end.note);
+  const existingNumber = existingPair?.number || exactPairNumber(start.note, end.note, type);
+  if (!enabled && !existingPair && !existingNumber) throw new Error('Technique pair not found');
   const number = enabled ? nextTechniqueNumber(directPart(doc, partId), type, start.note, end.note) : existingNumber;
   return measureCommand(doc, partId, [start.measureIndex, end.measureIndex], () => {
     const startNote = selectedNote(doc, partId, startEventId, startNoteIndex).note;
@@ -704,6 +773,8 @@ export function setTechniquePairCommand(
     if (enabled) {
       addTechnique(doc, startNote, type, 'start', number);
       addTechnique(doc, endNote, type, 'stop', number);
+    } else if (existingPair) {
+      removePairs([existingPair]);
     } else {
       removeTechniqueNumber(startNote, type, 'start', number);
       removeTechniqueNumber(endNote, type, 'stop', number);

@@ -412,6 +412,32 @@ describe('MusicXML score commands', () => {
     expect(buildScoreIndex(doc, 'P1').links).toHaveLength(1);
   });
 
+  it('pairs direct-only ties safely across measures and removes both direct and tied forms once', () => {
+    const directOnly = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure><measure number="2"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+    const directIndex = buildScoreIndex(directOnly, 'P1');
+    const start = directIndex.measures[0].events[0].id;
+    const end = directIndex.measures[1].events[0].id;
+    const before = serializeMusicXml(directOnly);
+    expect(() => setFretCommand(directOnly, 'P1', start, 1)).toThrow(/tie|pitch/i);
+    expect(serializeMusicXml(directOnly)).toBe(before);
+
+    const history = createHistory();
+    const command = deleteEventCommand(directOnly, 'P1', end);
+    expect(command.measures).toEqual([0, 1]);
+    history.execute(command);
+    expect(directOnly.querySelectorAll('tie')).toHaveLength(0);
+    history.undo();
+    expect(directOnly.querySelectorAll('tie')).toHaveLength(2);
+
+    const bothForms = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><type>quarter</type><notations><tied type="start" number="7"/><technical><string>1</string><fret>0</fret></technical></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><type>quarter</type><notations><tied type="stop" number="7"/><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+    const bothEvents = buildScoreIndex(bothForms, 'P1').measures[0].events;
+    expect(() => setFretCommand(bothForms, 'P1', bothEvents[0].id, 0)).not.toThrow();
+    const restCommand = setFlagsCommand(bothForms, 'P1', bothEvents[0].id, { rest: true });
+    expect(restCommand.measures).toEqual([0]);
+    createHistory().execute(restCommand);
+    expect(bothForms.querySelectorAll('tie, tied')).toHaveLength(0);
+  });
+
   it('rejects fret/string edits that would break linked technique invariants', () => {
     const doc = parseMusicXml(techniqueScoreXml());
     const [first, second] = buildScoreIndex(doc, 'P1').measures[0].events;
@@ -475,6 +501,26 @@ describe('MusicXML score commands', () => {
     expect(updated.querySelector('normal-type').textContent).toBe('eighth');
     expect(updated.querySelector('normal-dot')).not.toBeNull();
     expect(updated.getElementsByTagNameNS('urn:test', 'payload')[0].textContent).toBe('keep');
+  });
+
+  it('reuses existing dot nodes and only adds or removes trailing dots', () => {
+    const doc = parseMusicXml(timelineScoreXml()
+      .replace('<duration>4</duration><type>quarter</type><notations>', '<duration>6</duration><type>quarter</type><dot ext:keep="yes" xmlns:ext="urn:test"><ext:payload>keep</ext:payload></dot><notations>')
+      .replace('<note><rest/><duration>8</duration>', '<note><rest/><duration>6</duration>'));
+    const first = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const originalDot = doc.querySelector('dot');
+    const history = createHistory();
+    history.execute(setRhythmCommand(doc, 'P1', first, { type: 'quarter', dots: 1, tuplet: null }));
+    expect(doc.querySelector('dot')).toBe(originalDot);
+    expect(originalDot.getAttributeNS('urn:test', 'keep')).toBe('yes');
+    expect(originalDot.getElementsByTagNameNS('urn:test', 'payload')[0].textContent).toBe('keep');
+
+    history.execute(setRhythmCommand(doc, 'P1', first, { type: 'quarter', dots: 2, tuplet: null }));
+    expect(doc.querySelectorAll('dot')).toHaveLength(2);
+    expect(doc.querySelectorAll('dot')[0]).toBe(originalDot);
+    history.execute(setRhythmCommand(doc, 'P1', first, { type: 'quarter', dots: 1, tuplet: null }));
+    expect(doc.querySelectorAll('dot')).toHaveLength(1);
+    expect(doc.querySelector('dot')).toBe(originalDot);
   });
 
   it('preserves unsupported elements and every other part byte-semantically', () => {
