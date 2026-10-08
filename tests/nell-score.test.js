@@ -34,6 +34,16 @@ function linkTypesStartingIn(number) {
   return index.links.filter((link) => ids.has(link.startEventId)).map((link) => link.type);
 }
 
+function linkedFrets(number, type) {
+  const ids = new Set(measure(number).events.map((event) => event.id));
+  const byId = new Map(index.measures.flatMap((entry) => entry.events).map((event) => [event.id, event]));
+  return index.links.filter((link) => link.type === type && ids.has(link.startEventId)).map((link) => {
+    const from = byId.get(link.startEventId).notes[link.fromNoteIndex];
+    const to = byId.get(link.endEventId).notes[link.toNoteIndex];
+    return [from.fret, to.fret, from.string, to.string];
+  });
+}
+
 describe('1:03 Gt.1 reference score', () => {
   it('ships the transcribed score as a repository asset', () => {
     expect(scoreExists).toBe(true);
@@ -47,6 +57,13 @@ describe('1:03 Gt.1 reference score', () => {
     expect(index.measures).toHaveLength(77);
     expect(index.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
     expect(index.measures.every((entry) => entry.actualDuration.n === 4 && entry.actualDuration.d === 1)).toBe(true);
+    expect(Array.from(doc.querySelectorAll('staff-tuning'), (entry) => [
+      Number(entry.getAttribute('line')),
+      entry.querySelector('tuning-step')?.textContent,
+      Number(entry.querySelector('tuning-octave')?.textContent)
+    ])).toEqual([
+      [1, 'E', 2], [2, 'A', 2], [3, 'D', 3], [4, 'G', 3], [5, 'B', 3], [6, 'E', 4]
+    ]);
   });
 
   it.runIf(scoreExists)('keeps page and system anchors instead of placeholder measures', () => {
@@ -96,13 +113,31 @@ describe('1:03 Gt.1 reference score', () => {
     expect(roots(64)).toEqual(['D', 'E']);
     expect(roots(71)).toEqual(['A', 'C']);
     expect(roots(77)).toEqual(['A']);
+    for (const number of [6, 10, 26, 30, 34, 68]) {
+      const second = doc.querySelectorAll(`measure[number="${number}"] harmony`)[1];
+      expect(second.querySelector('root-step')?.textContent).toBe('E');
+      expect(second.querySelector('root-alter')?.textContent).toBe('-1');
+      expect(second.querySelector('kind')?.textContent).toBe('major');
+      expect(second.querySelector('bass')).toBeNull();
+    }
   });
 
-  it.runIf(scoreExists)('uses explicit 3:2 timing for triplet durations', () => {
+  it.runIf(scoreExists)('uses zero-time grace notes and explicit 3:2 timing', () => {
     const durations = (number) => measure(number).events.map((event) => event.duration.n * 24 / event.duration.d);
-    expect(durations(71)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 8, 8, 8, 8, 8, 8]);
-    expect(durations(72)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 8, 8, 8, 12, 12]);
+    expect(durations(71)).toEqual([6, 6, 6, 6, 6, 6, 6, 0, 8, 8, 8, 12, 6, 12]);
+    expect(durations(72)).toEqual([6, 6, 6, 6, 6, 6, 6, 0, 12, 12, 12, 6, 12]);
     expect(durations(73)).toEqual(durations(71));
+    for (const number of [71, 72, 73]) {
+      const grace = doc.querySelector(`measure[number="${number}"] note:has(> grace)`);
+      expect(grace).not.toBeNull();
+      expect(grace.querySelector(':scope > duration')).toBeNull();
+      expect(grace.querySelector('fret')?.textContent).toBe('15');
+      expect(grace.querySelector('string')?.textContent).toBe('1');
+      const graceEvent = measure(number).events.find((event) => event.notes?.some((note) => note.fret === 15) && event.duration.n === 0);
+      const following = measure(number).events[measure(number).events.indexOf(graceEvent) + 1];
+      expect(graceEvent.onset).toEqual({ n: 7, d: 4 });
+      expect(following.onset).toEqual(graceEvent.onset);
+    }
     const irregular = Array.from(doc.querySelectorAll('note')).filter((entry) => ['4', '8'].includes(entry.querySelector(':scope > duration')?.textContent));
     expect(irregular.length).toBeGreaterThan(0);
     expect(irregular.every((entry) =>
@@ -115,7 +150,7 @@ describe('1:03 Gt.1 reference score', () => {
     expect(linkTypesStartingIn(21)).toContain('hammer-on');
     expect(measure(21).events.some((event) => event.notes?.some((note) => note.dead))).toBe(true);
     expect(linkTypesStartingIn(49)).toContain('slide');
-    expect(measure(50).events.some((event) => event.notes?.some((note) => note.bend?.n === 1 && note.bend?.d === 2))).toBe(true);
+    expect(measure(50).events.some((event) => event.notes?.some((note) => note.bend?.n === 1 && note.bend?.d === 1))).toBe(true);
     expect(linkTypesStartingIn(51)).toEqual(expect.arrayContaining(['pull-off', 'slide']));
     expect(measure(51).events.some((event) => event.tuplet?.actual === 3 && event.tuplet?.normal === 2)).toBe(true);
     expect(measure(33).endings).toContainEqual({ number: '1', type: 'start' });
@@ -123,6 +158,71 @@ describe('1:03 Gt.1 reference score', () => {
     expect(measure(74).barlines).toEqual(expect.arrayContaining([expect.objectContaining({ repeat: 'backward' })]));
     expect(index.playbackMeasures.length).toBeGreaterThan(77);
     expect(measure(77).events.some((event) => event.fermata)).toBe(true);
+  });
+
+  it.runIf(scoreExists)('matches bend amounts, pull-off endpoints, dead strokes, and the D4 tie', () => {
+    for (const number of [50, 52, 54, 56, 60, 62]) {
+      const bends = measure(number).events.flatMap((event) => event.notes || []).filter((note) => note.bend);
+      expect(bends).toHaveLength(1);
+      expect(bends[0].bend).toEqual({ n: 1, d: 1 });
+    }
+    for (const number of [6, 10, 34]) {
+      expect(linkedFrets(number, 'pull-off')).toEqual([[8, 7, 2, 2], [10, 8, 2, 2]]);
+    }
+    for (const number of [51, 55, 59]) {
+      expect(linkedFrets(number, 'pull-off')).toEqual([[10, 9, 4, 4], [9, 7, 4, 4]]);
+    }
+    for (const number of [71, 73]) {
+      expect(linkedFrets(number, 'pull-off')).toEqual([[17, 15, 1, 1], [15, 14, 1, 1]]);
+    }
+    for (const number of [22, 46]) {
+      const dead = measure(number).events.filter((event) => event.notes?.some((note) => note.dead));
+      expect(dead.map((event) => [event.onset, event.duration])).toEqual([
+        [{ n: 5, d: 2 }, { n: 1, d: 1 }],
+        [{ n: 7, d: 2 }, { n: 1, d: 4 }],
+        [{ n: 15, d: 4 }, { n: 1, d: 4 }]
+      ]);
+    }
+    const tie = index.links.find((link) => link.type === 'tie' && link.startEventId.startsWith('P1:m61:'));
+    expect(tie).toBeTruthy();
+    const start = measure(62).events.find((event) => event.id === tie.startEventId).notes[tie.fromNoteIndex];
+    const stop = measure(63).events.find((event) => event.id === tie.endEventId).notes[tie.toNoteIndex];
+    expect(start.pitch).toEqual({ step: 'D', octave: 4 });
+    expect(stop.pitch).toEqual(start.pitch);
+    expect(doc.querySelector('measure[number="62"] note > tie[type="start"]')).not.toBeNull();
+    expect(doc.querySelector('measure[number="62"] note tied[type="start"]')).not.toBeNull();
+    expect(doc.querySelector('measure[number="63"] note > tie[type="stop"]')).not.toBeNull();
+    expect(doc.querySelector('measure[number="63"] note tied[type="stop"]')).not.toBeNull();
+  });
+
+  it.runIf(scoreExists)('keeps every recurring printed motif in sync', () => {
+    const fingerprint = (number) => measure(number).events.map((event) => ({
+      kind: event.kind, onset: event.onset, duration: event.duration,
+      notes: event.notes?.map((note) => ({ string: note.string, fret: note.fret, dead: note.dead, ghost: note.ghost }))
+    }));
+    for (const group of [
+      [5, 9, 33], [6, 10, 34], [7, 11, 35], [8, 12, 36],
+      [21, 23, 45, 47], [22, 46],
+      [25, 29, 67], [26, 30, 68], [27, 31, 69], [28, 32, 70],
+      [49, 53], [51, 55, 59], [52, 56, 60], [71, 73], [74, 75, 76]
+    ]) {
+      for (const candidate of group.slice(1)) expect(fingerprint(candidate)).toEqual(fingerprint(group[0]));
+    }
+  });
+
+  it.runIf(scoreExists)('keeps every TAB position consistent with capo-one sounding pitch', () => {
+    const stepPc = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    const openMidi = { 1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 40 };
+    for (const entry of index.measures) {
+      for (const event of entry.events) {
+        for (const note of event.notes || []) {
+          if (note.string === undefined || note.fret === undefined || !note.pitch?.step) continue;
+          const actual = (note.pitch.octave + 1) * 12 + stepPc[note.pitch.step] + (note.pitch.alter || 0);
+          expect(actual, `measure ${entry.number}, string ${note.string}, fret ${note.fret}`)
+            .toBe(openMidi[note.string] + 1 + note.fret);
+        }
+      }
+    }
   });
 
   it('loads the built-in score only after an explicit call', async () => {
