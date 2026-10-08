@@ -66,8 +66,8 @@
   </part-list>
   <part id="P1">
     <!-- META-LAYOUT: layout and preservation nodes, with two explicit staves. -->
-    <measure number="1" width="280">
-      <print>
+    <measure number="1" implicit="yes" width="280">
+      <print new-system="yes" new-page="yes">
         <system-layout>
           <system-margins><left-margin>40</left-margin><right-margin>0</right-margin></system-margins>
           <top-system-distance>100</top-system-distance>
@@ -94,15 +94,15 @@
           <capo>2</capo>
         </staff-details>
       </attributes>
-      <direction placement="above"><direction-type><rehearsal>META-LAYOUT</rehearsal></direction-type><staff>1</staff></direction>
+      <direction placement="above"><direction-type><rehearsal color="#1F618D">META-LAYOUT</rehearsal></direction-type><staff>1</staff></direction>
       <bookmark id="fixture-layout" name="Layout and metadata"/>
       <grouping type="single" number="1"><feature type="coverage">layout-preservation</feature></grouping>
       <note>
-        <pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type>
+        <pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type>
         <notehead-text><display-text>E</display-text></notehead-text><staff>1</staff>
       </note>
-      <backup><duration>32</duration></backup>
-      <note><rest measure="yes"/><duration>32</duration><voice>2</voice><staff>2</staff></note>
+      <backup><duration>8</duration></backup>
+      <note><rest/><duration>8</duration><voice>2</voice><type>quarter</type><staff>2</staff></note>
     </measure>
 
     <!-- TAB-STANDARD: open tuning is non-capo; the sounding notes include capo 2. -->
@@ -115,7 +115,7 @@
       <note><pitch><step>B</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>5</fret></technical></notations></note>
     </measure>
 
-    <!-- RHYTHM-DURATIONS spans three complete 4/4 measures. -->
+    <!-- RHYTHM-DURATIONS includes a 3/4 bar at divisions 16, then restores 4/4 and 8. -->
     <measure number="3">
       <attributes><staff-details number="2"><capo>0</capo></staff-details></attributes>
       <direction placement="above"><direction-type><rehearsal>RHYTHM-DURATIONS</rehearsal></direction-type><staff>1</staff></direction>
@@ -131,12 +131,24 @@
       <note><rest/><duration>1</duration><voice>1</voice><type>32nd</type><staff>1</staff></note>
     </measure>
     <measure number="5">
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
-      <note><pitch><step>D</step><octave>4</octave></pitch><duration>7</duration><voice>1</voice><type>eighth</type><dot/><dot/><staff>1</staff></note>
-      <note><rest/><duration>1</duration><voice>1</voice><type>32nd</type><staff>1</staff></note>
+      <attributes>
+        <divisions>16</divisions>
+        <key><fifths>2</fifths><mode>major</mode></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <!-- C-sharp and D-flat sound alike but keep their distinct spellings. Total: 48 divisions. -->
+      <note><pitch><step>C</step><alter>1</alter><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>quarter</type><dot/><accidental>sharp</accidental><staff>1</staff></note>
+      <note><pitch><step>D</step><alter>-1</alter><octave>4</octave></pitch><duration>14</duration><voice>1</voice><type>eighth</type><dot/><dot/><accidental>flat</accidental><staff>1</staff></note>
+      <note><rest/><duration>8</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <note><rest/><duration>2</duration><voice>1</voice><type>32nd</type><staff>1</staff></note>
     </measure>
 
     <measure number="6">
+      <attributes>
+        <divisions>8</divisions>
+        <key><fifths>0</fifths><mode>major</mode></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
       <direction placement="above"><direction-type><rehearsal>RHYTHM-GRACE-CUE</rehearsal></direction-type><staff>1</staff></direction>
       <note><grace slash="yes"/><pitch><step>G</step><octave>4</octave></pitch><voice>1</voice><type>eighth</type><staff>1</staff></note>
       <note><grace slash="no"/><pitch><step>A</step><octave>4</octave></pitch><voice>1</voice><type>eighth</type><staff>1</staff></note>
@@ -172,10 +184,13 @@
     </measure>
 
     <measure number="9">
+      <print new-system="yes"/>
       <direction placement="above"><direction-type><rehearsal>RHYTHM-VOICES</rehearsal></direction-type><staff>1</staff></direction>
-      <note><pitch><step>E</step><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>half</type><stem>up</stem><staff>1</staff></note>
-      <note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>half</type><stem>up</stem><staff>1</staff></note>
-      <note><pitch><step>F</step><octave>4</octave></pitch><duration>16</duration><voice>1</voice><type>half</type><stem>up</stem><staff>1</staff></note>
+      <!-- Voice 1's beamed eighths cross from standard notation to TAB, then return. -->
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><stem>down</stem><staff>1</staff><beam number="1">begin</beam></note>
+      <note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><stem>down</stem><staff>1</staff></note>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><type>eighth</type><stem>down</stem><staff>2</staff><beam number="1">end</beam><notations><technical><string>1</string><fret>1</fret></technical></notations></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><stem>up</stem><staff>1</staff></note>
       <backup><duration>32</duration></backup>
       <note><pitch><step>E</step><octave>2</octave></pitch><duration>8</duration><voice>2</voice><type>quarter</type><stem>down</stem><staff>2</staff><notations><technical><string>6</string><fret>0</fret></technical></notations></note>
       <forward><duration>8</duration><voice>2</voice><staff>2</staff></forward>
@@ -221,7 +236,7 @@
 
     <measure number="14">
       <direction placement="above"><direction-type><rehearsal>TECH-HANDS</rehearsal></direction-type><staff>2</staff></direction>
-      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><fingering>3</fingering><pluck>i</pluck><string>1</string><fret>3</fret></technical></notations></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><thumb-position/><fingering>3</fingering><pluck>i</pluck><string>1</string><fret>3</fret></technical></notations></note>
       <note><pitch><step>A</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>5</fret><tap>T</tap></technical></notations></note>
       <note><pitch><step>B</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>7</fret><heel/><toe/></technical></notations></note>
       <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>2</staff><notations><technical><string>1</string><fret>3</fret><fingernails/></technical></notations></note>
@@ -231,8 +246,11 @@
       <direction placement="above"><direction-type><rehearsal>TECH-ATTACKS</rehearsal></direction-type><staff>1</staff></direction>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><technical><up-bow/><open-string/></technical><arpeggiate number="1" direction="up"/></notations></note>
       <note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><arpeggiate number="1" direction="up"/></notations></note>
-      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><technical><down-bow/><stopped/></technical></notations></note>
-      <note><pitch><step>A</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><technical><snap-pizzicato/></technical></notations></note>
+      <direction><direction-type><words>Palm mute</words></direction-type><staff>1</staff></direction>
+      <!-- Dead note: x notehead. Ghost note: a parenthesized normal notehead. -->
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><notehead>x</notehead><staff>1</staff><notations><technical><down-bow/><stopped/></technical></notations></note>
+      <note dynamics="40"><pitch><step>A</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><notehead parentheses="yes">normal</notehead><staff>1</staff><notations><technical><snap-pizzicato/></technical></notations></note>
+      <direction><direction-type><words>Let ring</words></direction-type><staff>1</staff></direction>
       <note><pitch><step>C</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><non-arpeggiate type="bottom" number="1"/></notations></note>
       <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff><notations><non-arpeggiate type="top" number="1"/></notations></note>
     </measure>
@@ -307,6 +325,7 @@
     </measure>
 
     <measure number="23">
+      <print new-page="yes"/>
       <direction placement="above"><direction-type><rehearsal>HARMONY-CHORDS</rehearsal></direction-type><staff>1</staff></direction>
       <harmony>
         <root><root-step>C</root-step></root>
@@ -334,52 +353,99 @@
     </measure>
 
     <measure number="24">
+      <harmony>
+        <root><root-step>A</root-step></root><kind>minor</kind>
+        <!-- A minor: open fifth/first strings; no frame-note on string 6 means unplayed. -->
+        <frame unplayed="x">
+          <frame-strings>6</frame-strings><frame-frets>4</frame-frets>
+          <frame-note><string>5</string><fret>0</fret></frame-note>
+          <frame-note><string>4</string><fret>2</fret><fingering>2</fingering></frame-note>
+          <frame-note><string>3</string><fret>2</fret><fingering>3</fingering></frame-note>
+          <frame-note><string>2</string><fret>1</fret><fingering>1</fingering></frame-note>
+          <frame-note><string>1</string><fret>0</fret></frame-note>
+        </frame>
+        <offset sound="yes">8</offset><staff>1</staff>
+      </harmony>
+      <note><rest/><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>A</step><octave>2</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+      <note><chord/><pitch><step>A</step><octave>3</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type><dot/><staff>1</staff></note>
+    </measure>
+    <measure number="25">
+      <harmony>
+        <root><root-step>G</root-step></root><kind text="7">dominant</kind>
+        <degree><degree-value>5</degree-value><degree-alter>-1</degree-alter><degree-type>alter</degree-type></degree><staff>1</staff>
+      </harmony>
+      <note><pitch><step>G</step><octave>2</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>B</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>D</step><alter>-1</alter><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><accidental>flat</accidental><staff>1</staff></note>
+      <note><chord/><pitch><step>F</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+    <measure number="26">
+      <harmony>
+        <root><root-step>C</root-step></root><kind text="maj7">major-seventh</kind>
+        <degree><degree-value>5</degree-value><degree-alter>0</degree-alter><degree-type>subtract</degree-type></degree><staff>1</staff>
+      </harmony>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>B</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+    <measure number="27">
+      <harmony><root><root-step>D</root-step></root><kind text="sus4">suspended-fourth</kind><staff>1</staff></harmony>
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>G</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+      <note><chord/><pitch><step>A</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
+    </measure>
+
+    <measure number="28">
       <direction placement="above"><direction-type><rehearsal>FLOW-REPEAT</rehearsal></direction-type><staff>1</staff></direction>
       <barline location="left"><bar-style>heavy-light</bar-style><repeat direction="forward"/></barline>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
     </measure>
-    <measure number="25">
+    <measure number="29">
       <barline location="left"><bar-style>regular</bar-style><ending number="1" type="start">1.</ending></barline>
       <note><pitch><step>G</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
       <barline location="right"><bar-style>light-heavy</bar-style><ending number="1" type="stop"/><repeat direction="backward" times="2"/></barline>
     </measure>
-    <measure number="26">
+    <measure number="30">
       <barline location="left"><bar-style>regular</bar-style><ending number="2" type="start">2.</ending></barline>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
       <barline location="right"><bar-style>light-light</bar-style><ending number="2" type="discontinue"/></barline>
     </measure>
 
     <!-- Independent navigation examples: target IDs correspond to the commands below. -->
-    <measure number="27">
+    <measure number="31">
       <direction placement="above"><direction-type><rehearsal>FLOW-NAVIGATION</rehearsal></direction-type><staff>1</staff></direction>
       <direction placement="above"><direction-type><segno/></direction-type><staff>1</staff><sound segno="segno-A"/></direction>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
       <direction placement="above"><direction-type><words>To Coda</words></direction-type><staff>1</staff><sound tocoda="coda-A"/></direction>
     </measure>
-    <measure number="28">
+    <measure number="32">
       <note><pitch><step>G</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
       <direction placement="above"><direction-type><words>D.S. al Coda</words></direction-type><staff>1</staff><sound dalsegno="segno-A"/></direction>
     </measure>
-    <measure number="29">
+    <measure number="33">
       <direction placement="above"><direction-type><coda/></direction-type><staff>1</staff><sound coda="coda-A"/></direction>
       <note><pitch><step>A</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
       <direction placement="above"><direction-type><words>Fine</words></direction-type><staff>1</staff><sound fine="yes"/></direction>
     </measure>
-    <measure number="30">
+    <measure number="34">
       <note><rest measure="yes"/><duration>32</duration><voice>1</voice><staff>1</staff></note>
       <direction placement="above"><direction-type><words>D.C. al Fine (independent example)</words></direction-type><staff>1</staff><sound dacapo="yes"/></direction>
     </measure>
 
     <!-- Each measure style has its own span, rather than conflicting styles on one staff. -->
-    <measure number="31">
+    <measure number="35">
       <direction placement="above"><direction-type><rehearsal>MEASURE-STYLES</rehearsal></direction-type><staff>1</staff></direction>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
     </measure>
-    <measure number="32">
+    <measure number="36">
       <attributes><measure-style number="1"><measure-repeat type="start" slashes="1">1</measure-repeat></measure-style></attributes>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff></note>
     </measure>
-    <measure number="33">
+    <measure number="37">
       <attributes><measure-style number="1"><measure-repeat type="stop"/></measure-style></attributes>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
       <attributes><measure-style number="1"><beat-repeat type="start" slashes="1"><slash-type>quarter</slash-type></beat-repeat></measure-style></attributes>
@@ -387,7 +453,7 @@
       <attributes><measure-style number="1"><beat-repeat type="stop"/></measure-style></attributes>
       <note><rest/><duration>16</duration><voice>1</voice><type>half</type><staff>1</staff></note>
     </measure>
-    <measure number="34">
+    <measure number="38">
       <attributes><measure-style number="1"><slash type="start" use-stems="yes"><slash-type>quarter</slash-type></slash></measure-style></attributes>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
@@ -395,19 +461,19 @@
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>8</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
       <attributes><measure-style number="1"><slash type="stop"/></measure-style></attributes>
     </measure>
-    <measure number="35">
+    <measure number="39">
       <attributes><measure-style><multiple-rest use-symbols="no">2</multiple-rest></measure-style></attributes>
       <note><rest measure="yes"/><duration>32</duration><voice>1</voice><staff>1</staff></note>
       <backup><duration>32</duration></backup>
       <note><rest measure="yes"/><duration>32</duration><voice>2</voice><staff>2</staff></note>
     </measure>
-    <measure number="36">
+    <measure number="40">
       <note><rest measure="yes"/><duration>32</duration><voice>1</voice><staff>1</staff></note>
       <backup><duration>32</duration></backup>
       <note><rest measure="yes"/><duration>32</duration><voice>2</voice><staff>2</staff></note>
     </measure>
 
-    <measure number="37">
+    <measure number="41">
       <attributes>
         <staff-details number="2">
           <staff-lines>6</staff-lines>
@@ -426,7 +492,7 @@
       <note><pitch><step>E</step><octave>2</octave></pitch><duration>16</duration><voice>1</voice><type>half</type><staff>2</staff><notations><technical><string>6</string><fret>2</fret></technical></notations></note>
     </measure>
 
-    <measure number="38">
+    <measure number="42">
       <direction placement="above"><direction-type><rehearsal>FINAL</rehearsal></direction-type><staff>1</staff></direction>
       <note><pitch><step>D</step><octave>3</octave></pitch><duration>32</duration><voice>1</voice><type>whole</type><staff>1</staff><notations><fermata type="upright">normal</fermata></notations></note>
       <backup><duration>32</duration></backup>
