@@ -445,6 +445,24 @@ describe('곡 관리', () => {
     expect(deleteSong('nope')).toBe(false);
   });
 
+  it('편집한 v3 곡의 사본과 현재 선택을 v4에서 다시 불러온다', () => {
+    const original = currentSong().id;
+    const changed = state.measures.map((measure) => measure.map((row) => row.slice()));
+    changed[1][1][0] = '12h';
+    changed[1][1][1] = '5';
+    state.measures = changed;
+    save();
+    const copy = duplicateSong(original);
+    expect(deleteSong(original)).toBe(true);
+    expect(currentSong().id).toBe(copy.id);
+
+    load();
+
+    expect(currentSong().id).toBe(copy.id);
+    expect(state.title).toBe('옛 곡 사본');
+    expect(state.measures[1][1][0]).toBe('12h');
+  });
+
   it('MusicXML import storage failure rolls back library, current state, and persisted v4', () => {
     const backing = {};
     let failWrites = false;

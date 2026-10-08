@@ -4,6 +4,11 @@
 
 ## 0. 현재 상태 (2026-10)
 
+- 데스크톱 전문 TAB v4 완료: MusicXML 4.0 DOM이 유일한 저장 정본이며, `ScoreIndex`는 렌더링·편집·재생용 메모리 투영이다.
+- `.musicxml`/`.xml`/`.mxl` 가져오기·내보내기, 파트 선택, SVG TAB, 명령 기반 Undo/Redo, 반복·엔딩 재생과 진단 패널을 제공한다.
+- 내장 `1:03` Gt.1은 사용자가 곡 목록에서 명시적으로 열며 실제 77마디·BPM 84·카포 1이다.
+- 빠른 격자는 단순 4/4·16분음표 입력 보조 모드다. 무손실 투영할 수 없는 MusicXML에서는 읽기 전용이다.
+- 범용 PDF→MusicXML OMR, 오선보 편집, 모바일 전문 레이아웃은 범위 밖이다.
 - 9절의 리팩터링 완료: ES 모듈로 분리, Vite 빌드, vitest 테스트(`npm test`), Playwright 스모크 테스트(`tests/e2e/smoke.mjs`).
 - 로드맵 1번(곡 여러 개 관리) 완료. localStorage 키는 `gtab-editor-v3`, 기존 v1/v2 데이터는 첫 곡으로 자동 마이그레이션.
 - 분리 전 원본은 `legacy/guitar-tab-editor.html`에 참고용으로 남겨 둠(더 이상 수정하지 않음).
@@ -15,19 +20,22 @@
 
 ## 1. 제품 요구사항 (사용자가 정한 것)
 
+- 현재 제품 방향은 **모바일이 아닌 데스크톱 전문 TAB 편집기**다. 아래 4마디×16칸 요구는 빠른 격자 호환 모드에만 적용한다.
 - 한 줄에 **4마디**, 한 마디는 **16분음표 16칸** 고정 그리드. (이 틀은 유지)
 - 폰에서 입력·재생·공유까지 되는 "쓸모 있는" 타브 에디터. Songsterr(재생·반복), Guitar Pro(프렛보드 입력·코드 라이브러리·속도 트레이너), Ultimate Guitar(텍스트 타브)를 참고 모델로 삼음.
 - 외부 서버 없이 동작. 저장은 브라우저 localStorage.
 
 ## 2. 기술 스택과 제약
 
-- Vanilla JS, ES 모듈(`src/*.js`), 빌드는 Vite(`base:'./'`라 하위 경로 배포 가능). 런타임 라이브러리 없음.
+- Vanilla JS, ES 모듈(`src/*.js`), 빌드는 Vite(`base:'./'`라 하위 경로 배포 가능). MXL ZIP 처리를 위해 `fflate`를 사용한다.
 - 외부 리소스는 Google Fonts(`Red Hat Mono`)뿐. 아티팩트 환경 CSP 때문에 외부 스크립트·이미지·fetch를 쓰지 않았음. 자체 호스팅이면 이 제약은 없다(샘플 로딩, 파일 다운로드 등 가능).
 - 이미지는 아직 "길게 눌러 저장" 방식. 자체 호스팅에서는 `<a download>`로 바꿔도 됨.
 - 모달/확인창은 `confirm()`/`prompt()` 대신 자체 구현(`ask()`, `openMenu()`). iframe sandbox 때문.
 - 테마: `:root` 토큰 + `prefers-color-scheme` + `data-theme` 속성. 크기: `data-zoom` (s/m/l/fit).
 
 ## 3. 데이터 모델
+
+현재 저장 문서는 `gtab-editor-v4`이며 곡별 `musicxml`, `selectedPartId`, `editorMode`를 저장한다. MusicXML이 음악 정보의 정본이고 기존 `measures`/`marks`는 빠른 격자 투영이다. 아래 v3 구조는 레거시 마이그레이션과 빠른 격자 구현을 이해하기 위한 참고다.
 
 저장 문서(v3, `gtab-editor-v3`)는 "책장"이고, 편집 코드가 보는 `state`는 "책상 위에 펼친 책 한 권 + 설정"이다.
 

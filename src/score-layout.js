@@ -39,8 +39,29 @@ function rationalNumber(value) {
   return (value?.n ?? 0) / (value?.d || 1);
 }
 
+function visualColumns(measure) {
+  const groups = new Map();
+  for (const event of measure.events || []) {
+    const key = rationalKey(event.onset);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  }
+  const columns = new Map();
+  let next = 0;
+  for (const events of groups.values()) {
+    const grace = events.filter((event) => rationalNumber(event.duration) === 0);
+    const timed = events.filter((event) => rationalNumber(event.duration) !== 0);
+    for (const event of grace) columns.set(event, next++);
+    if (timed.length > 0) {
+      for (const event of timed) columns.set(event, next);
+      next += 1;
+    }
+  }
+  return { columns, count: next };
+}
+
 function rhythmicColumns(measure) {
-  return new Set((measure.events || []).map((event) => rationalKey(event.onset))).size;
+  return visualColumns(measure).count;
 }
 
 function measureWidths(measures, options) {
@@ -301,13 +322,12 @@ function makeBarlines(measure, measureLayout, isSystemStart) {
 }
 
 function layoutEvents(measure, measureLayout, options) {
-  const onsetKeys = [...new Set((measure.events || []).map((event) => rationalKey(event.onset)))];
-  const onsetColumns = new Map(onsetKeys.map((key, index) => [key, index]));
+  const visual = visualColumns(measure);
   const usableWidth = Math.max(0, measureLayout.width - options.leftPadding - options.rightPadding);
-  const spacing = usableWidth / Math.max(1, onsetKeys.length);
+  const spacing = usableWidth / Math.max(1, visual.count);
 
   return (measure.events || []).map((event) => {
-    const column = onsetColumns.get(rationalKey(event.onset)) || 0;
+    const column = visual.columns.get(event) || 0;
     const x = measureLayout.x + options.leftPadding + spacing * (column + 0.5);
     const dots = Array.from({ length: eventDots(event) }, (_, dotIndex) => ({
       x: x + 9 + dotIndex * 5,

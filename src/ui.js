@@ -14,6 +14,7 @@ export function openMenu(title, items) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'menu-item' + (it.danger ? ' danger' : '');
+    if (it.key) b.dataset.menuAction = it.key;
     if (it.disabled) b.disabled = true;
     const k = document.createElement('span'); k.className = 'k'; k.textContent = it.k || '';
     const tx = document.createElement('span');

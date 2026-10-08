@@ -224,12 +224,12 @@ function bind() {
   });
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [
-      { k: 'XML', label: 'MusicXML 불러오기', desc: '.musicxml, .xml, .mxl', action: () => { musicXmlImportController.open($('exportMenu')); } },
-      { k: 'XML', label: 'MusicXML 내보내기', desc: '전체 파트를 보존한 .musicxml', action: () => downloadMusicXml('xml') },
-      { k: 'MXL', label: '압축 MusicXML 내보내기', desc: '전체 파트를 보존한 .mxl', action: () => downloadMusicXml('mxl') },
-      { k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
-      { k: '▣', label: '이미지로 저장', desc: 'PNG, 길게 눌러 저장', action: openImage },
-      { k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
+      { key: 'musicxml-import', k: 'XML', label: 'MusicXML 불러오기', desc: '.musicxml, .xml, .mxl', action: () => { musicXmlImportController.open($('exportMenu')); } },
+      { key: 'musicxml-export', k: 'XML', label: 'MusicXML 내보내기', desc: '전체 파트를 보존한 .musicxml', action: () => downloadMusicXml('xml') },
+      { key: 'mxl-export', k: 'MXL', label: '압축 MusicXML 내보내기', desc: '전체 파트를 보존한 .mxl', action: () => downloadMusicXml('mxl') },
+      { key: 'text-export', k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
+      { key: 'image-export', k: '▣', label: '이미지로 저장', desc: 'PNG, 길게 눌러 저장', action: openImage },
+      { key: 'text-import', k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
     ]);
   });
   $('settingsBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
@@ -281,7 +281,7 @@ function bind() {
     if (state.viewMode === 'score') scoreController?.scheduleScreenRender();
   });
   window.addEventListener('gtab:songchange', () => {
-    if (state.viewMode === 'score') scoreController?.renderScreen();
+    applyViewMode(state.viewMode, false);
   });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
   document.addEventListener('visibilitychange', () => { if (document.hidden && pb.playing) stopPlay(); });

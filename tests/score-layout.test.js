@@ -121,6 +121,20 @@ describe('layoutScore geometry', () => {
     expect(layout.events.find((item) => item.id === 'rest')).toMatchObject({ kind: 'rest', label: '𝜽' });
   });
 
+  it('places zero-time grace notes before a following note at the same onset', () => {
+    const grace = event('grace', r(2), r(0), [{ string: 1, fret: 15 }], { noteType: 'eighth' });
+    const main = event('main', r(2), r(1, 2), [{ string: 1, fret: 17 }], { noteType: 'eighth' });
+
+    const layout = layoutScore(
+      { partId: 'P1', measures: [measure(71, [grace, main])], links: [] },
+      { width: 240, staffGap: 12 }
+    );
+
+    expect(layout.events.find((item) => item.id === 'main').x
+      - layout.events.find((item) => item.id === 'grace').x).toBeGreaterThanOrEqual(14);
+    expect(findOverlaps(layout.hitBoxes)).toEqual([]);
+  });
+
   it('uses one rhythmic column for a chord and keeps fret hit boxes separate', () => {
     const chord = event('chord', r(0), r(1), [
       { string: 1, fret: 12 },

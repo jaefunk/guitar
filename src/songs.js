@@ -126,10 +126,10 @@ function songMenu(id) {
   const s = library.songs[id];
   if (!s) return;
   openMenu(songLabel(s), [
-    { k: '→', label: '열기', action: () => { openSong(id); }, disabled: id === library.currentId },
-    { k: 'A', label: '이름 바꾸기', action: () => { rename(id); }, disabled: s.editorMode !== 'grid-v3' },
-    { k: '⎘', label: '복제', desc: '같은 내용으로 새 곡을 만들어요', action: () => { const c = duplicateSong(id); toast('"' + songLabel(c) + '" 만듦'); openSongs(); } },
-    { k: '×', label: '삭제', desc: '되돌릴 수 없어요', danger: true, action: () => { remove(id); } }
+    { key: 'song-open', k: '→', label: '열기', action: () => { openSong(id); }, disabled: id === library.currentId },
+    { key: 'song-rename', k: 'A', label: '이름 바꾸기', action: () => { rename(id); }, disabled: s.editorMode !== 'grid-v3' },
+    { key: 'song-duplicate', k: '⎘', label: '복제', desc: '같은 내용으로 새 곡을 만들어요', action: () => { const c = duplicateSong(id); toast('"' + songLabel(c) + '" 만듦'); openSongs(); } },
+    { key: 'song-delete', k: '×', label: '삭제', desc: '되돌릴 수 없어요', danger: true, action: () => { remove(id); } }
   ]);
 }
 

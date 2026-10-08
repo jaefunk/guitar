@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** MusicXML 4.0을 저장 정본으로 사용하는 데스크톱 전문 TAB 편집기와 `1:03` Gt1 75마디 샘플을 구현한다.
+**Goal:** MusicXML 4.0을 저장 정본으로 사용하는 데스크톱 전문 TAB 편집기와 `1:03` Gt1 실제 77마디 샘플을 구현한다.
 
 **Architecture:** MusicXML DOM이 영구 저장 정본이며 `ScoreIndex`는 선택 파트를 렌더링·편집·재생하기 위한 메모리 전용 투영이다. 기능을 MusicXML 기반, SVG 조판, 편집·재생, 악보 전사의 네 단계로 나누고 각 단계가 독립적으로 테스트되고 커밋되게 한다.
 
@@ -33,7 +33,7 @@
 - `tests/score-layout.test.js`
 - `tests/score-edit.test.js`
 - `tests/score-audio.test.js`
-- `songs/nell-1-03-gt1.musicxml` — verified 75-measure transcription
+- `songs/nell-1-03-gt1.musicxml` — verified 77-measure transcription
 - `tests/nell-score.test.js` — transcription acceptance checks
 
 ### Modify
@@ -662,7 +662,7 @@ git commit -m "MusicXML 악보 재생 스케줄러 추가"
 
 ## Phase D — `1:03` transcription and release validation
 
-### Task 11: Transcribe and validate the 75-measure Gt1 score
+### Task 11: Transcribe and validate the 77-measure Gt1 score
 
 **Files:**
 - Create: `songs/nell-1-03-gt1.musicxml`
@@ -678,17 +678,19 @@ Encode title `1:03`, part `Gt.1`, tempo 84, 4/4, capo 1 and six-string tuning. E
 ```js
 it('matches the fixed score metadata and structure', () => {
   const index = buildScoreIndex(doc, 'P1');
-  expect(index.measures).toHaveLength(75);
+  expect(index.measures).toHaveLength(77);
   expect(readScoreMetadata(doc, 'P1')).toMatchObject({ tempo: 84, capo: 1, beats: 4, beatType: 4 });
   expect(index.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
 });
 
 it('contains the reference techniques and form', () => {
   expect(techniquesIn(21)).toEqual(expect.arrayContaining(['hammer-on', 'dead-note']));
-  expect(techniquesIn(49)).toEqual(expect.arrayContaining(['bend', 'pull-off', 'slide']));
-  expect(measure(49).events.some((e) => e.tuplet?.actual === 3)).toBe(true);
-  expect(index.playbackMeasures.length).toBeGreaterThan(75);
-  expect(measure(75).events.some((e) => e.fermata)).toBe(true);
+  expect(techniquesIn(49)).toContain('slide');
+  expect(techniquesIn(50)).toContain('bend');
+  expect(techniquesIn(51)).toEqual(expect.arrayContaining(['pull-off', 'slide']));
+  expect(measure(51).events.some((e) => e.tuplet?.actual === 3)).toBe(true);
+  expect(index.playbackMeasures.length).toBeGreaterThan(77);
+  expect(measure(77).events.some((e) => e.fermata)).toBe(true);
 });
 ```
 
@@ -702,7 +704,7 @@ Expected: FAIL because only measures 1–20 exist.
 
 Check every onset, fret, string, rest, dead note, hammer-on, repeat and first ending against the rendered PDF pages.
 
-- [ ] **Step 5: Transcribe measures 49–75 and verify PDF pages 5–7**
+- [ ] **Step 5: Transcribe measures 49–77 and verify PDF pages 5–7**
 
 Check bends, pull-offs, slides, tuplets, second endings, the repeat at measure 71 and the final fermata.
 
@@ -710,7 +712,7 @@ Check bends, pull-offs, slides, tuplets, second endings, the repeat at measure 7
 
 Run: `npx vitest run tests/nell-score.test.js tests/score-index.test.js`
 
-Expected: PASS with 75 measures and zero error diagnostics.
+Expected: PASS with 77 measures and zero error diagnostics.
 
 - [ ] **Step 7: Add the score to the built-in song list**
 
@@ -766,7 +768,7 @@ Expected: every smoke check prints `ok` and exits 0.
 
 - [ ] **Step 7: Perform visual verification**
 
-Open score mode at 1440×900 and print preview. Inspect measures 21, 49, 71 and 75 for fret-label, beam, tuplet, technique-link and ending collisions. Record each check in the work log.
+Open score mode at 1440×900 and print preview. Inspect measures 21, 49, 50, 51, 71, 75 and 77 for fret-label, beam, tuplet, technique-link, ending and fermata collisions. Record each check in the work log.
 
 - [ ] **Step 8: Commit**
 

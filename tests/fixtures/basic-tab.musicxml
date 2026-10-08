@@ -92,6 +92,9 @@
         <voice>1</voice>
         <type>eighth</type>
       </note>
+      <forward>
+        <duration>12</duration>
+      </forward>
     </measure>
   </part>
 </score-partwise>
