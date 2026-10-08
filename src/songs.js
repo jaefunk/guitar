@@ -16,6 +16,7 @@ export function refreshSongUI() {
   setSel(ed.sel, false);
   if (state.padMode === 'fret') buildFretboard();
   syncQuickEditability();
+  window.dispatchEvent(new CustomEvent('gtab:songchange'));
 }
 
 function fmtDate(t) {

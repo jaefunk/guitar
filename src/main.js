@@ -1,6 +1,6 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
-import { state, ed, load, save, canEditCurrentSong } from './state.js';
+import { state, ed, load, save, canEditCurrentSong, currentSong } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
 import { render, setSel } from './render.js';
 import {
@@ -13,6 +13,60 @@ import { toText, parseText, renderImage } from './io.js';
 import { bindSongs } from './songs.js';
 import { padMeasures } from './tab.js';
 import { applyBpmInput, applyTitleInput, applyTuningInput, syncQuickEditability } from './quick-edit.js';
+import { renderScoreDocument, setScoreViewMode } from './score-render.js';
+
+function scoreElements() {
+  return {
+    gridWorkspace: $('gridWorkspace'), scoreWorkspace: $('scoreWorkspace'), pad: $('pad'),
+    modeGrid: $('modeGrid'), modeScore: $('modeScore')
+  };
+}
+
+function scoreWidth() {
+  const available = $('scoreCanvas').clientWidth - 40;
+  return available >= 720 ? Math.min(1120, available) : 1120;
+}
+
+function renderMeasureNavigation(index) {
+  const host = $('measureNav').querySelector('.measure-nav-list');
+  host.replaceChildren();
+  for (const measure of index.measures) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = measure.number;
+    button.dataset.measureNumber = measure.number;
+    button.setAttribute('aria-label', `${measure.number}마디로 이동`);
+    host.appendChild(button);
+  }
+}
+
+function renderProfessionalScore() {
+  const song = currentSong();
+  if (!song) return null;
+  const result = renderScoreDocument({
+    canvas: $('scoreCanvas'), diagnostics: $('scoreDiagnostics'),
+    musicxml: song.musicxml, partId: song.selectedPartId,
+    options: { width: scoreWidth() }
+  });
+  const nav = $('measureNav').querySelector('.measure-nav-list');
+  if (result) renderMeasureNavigation(result.index);
+  else nav.replaceChildren();
+  return result;
+}
+
+function scrollToScoreMeasure(number) {
+  const measure = [...$('scoreCanvas').querySelectorAll('[data-measure-number]')]
+    .find((element) => element.dataset.measureNumber === number);
+  measure?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+}
+
+function applyViewMode(mode, persist = true) {
+  const next = setScoreViewMode(mode, {
+    settings: state, song: currentSong(), persist: persist ? save : null, elements: scoreElements()
+  });
+  document.body.classList.toggle('score-mode', next.mode === 'score');
+  if (next.mode === 'score') renderProfessionalScore();
+}
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
 function openExport() { $('exportText').value = toText(state); $('modal').hidden = false; }
@@ -50,6 +104,18 @@ function openImage() {
 
 /* ---------- 이벤트 ---------- */
 function bind() {
+  $('modeGrid').addEventListener('click', () => { applyViewMode('grid'); });
+  $('modeScore').addEventListener('click', () => { applyViewMode('score'); });
+  $('measureNav').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-measure-number]');
+    if (!button) return;
+    scrollToScoreMeasure(button.dataset.measureNumber);
+  });
+  $('scoreDiagnostics').addEventListener('click', (event) => {
+    const diagnostic = event.target.closest('[data-measure-number]');
+    if (!diagnostic?.dataset.measureNumber) return;
+    scrollToScoreMeasure(diagnostic.dataset.measureNumber);
+  });
   $('sheet').addEventListener('click', (e) => {
     const mk = e.target.closest('.mk');
     if (mk) { const mm = +mk.dataset.m, ii = +mk.dataset.i; setSel({ m: mm, s: ed.sel ? ed.sel.s : 0, i: ii }, false); editMark(mm, ii); return; }
@@ -181,7 +247,14 @@ function bind() {
   $('reverb').addEventListener('input', function () { setReverb(this.value / 100); save(); });
   $('countIn').addEventListener('change', function () { state.countIn = this.checked; save(); });
   $('preview').addEventListener('change', function () { state.preview = this.checked; save(); });
-  window.addEventListener('resize', () => { updatePadH(); if (state.zoom === 'fit') applyZoom(); });
+  window.addEventListener('resize', () => {
+    updatePadH();
+    if (state.zoom === 'fit') applyZoom();
+    if (state.viewMode === 'score') renderProfessionalScore();
+  });
+  window.addEventListener('gtab:songchange', () => {
+    if (state.viewMode === 'score') renderProfessionalScore();
+  });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
   document.addEventListener('visibilitychange', () => { if (document.hidden && pb.playing) stopPlay(); });
   bindSongs();
@@ -210,6 +283,7 @@ function boot() {
   syncAuto(); syncMetro(); applyTheme(); applyZoom();
   ed.sel = { m: 0, s: 0, i: 0 };
   render();
+  applyViewMode(state.viewMode, false);
   setPadMode(state.padMode);
   setCollapsed(state.collapsed);
   syncQuickEditability();

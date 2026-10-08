@@ -61,6 +61,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .btn.danger{color:var(--danger)}
 .btn .caret{font-size:9px;color:var(--muted)}
 .btn.primary .caret{color:var(--accent-ink)}
+.view-mode{height:34px}
+.view-mode button{padding:0 12px}
 
 /* ---------- 악보 ---------- */
 .sheet-wrap{overflow-x:auto;padding:2px 0 8px;-webkit-overflow-scrolling:touch}
@@ -107,6 +109,63 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .cell .v .mod{color:var(--mod);font-weight:500}
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
+
+/* ---------- 전문 TAB ---------- */
+.score-workspace{padding:10px 14px 30px;gap:12px;max-width:1500px;margin:0 auto}
+.score-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;min-width:0}
+.score-panel h2{margin:0 0 10px;font:700 13px/1.2 var(--sans)}
+.score-panel p{margin:0;color:var(--muted);font-size:12px}
+.measure-nav{grid-area:measure-nav;overflow:auto}
+.measure-nav-list{display:flex;gap:5px;flex-wrap:wrap}
+.measure-nav-list button{min-width:36px;height:30px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--ink);font:700 11px/1 var(--mono)}
+.score-canvas{grid-area:score-canvas;background:#fff;color:#171717;border:1px solid #d8d8d3;border-radius:8px;overflow:auto;padding:20px;min-height:420px}
+.score-inspector{grid-area:score-inspector}
+.score-diagnostics{grid-area:score-diagnostics;overflow:auto}
+.score-diagnostics ul{margin:0;padding-left:18px}
+.score-diagnostic{font-size:12px;margin:0 0 6px;color:var(--muted)}
+.score-diagnostic-error{color:var(--danger)}
+.professional-score{display:block;max-width:none;background:#fff;color:#171717;font-family:var(--mono)}
+.score-staff-line,.score-barline-stroke,.score-stem,.score-technique path,.score-bend path,.score-ending line,.score-tuplet line{stroke:currentColor;fill:none;vector-effect:non-scaling-stroke}
+.score-staff-line{stroke-width:1}
+.score-measure-target{pointer-events:none}
+.score-measure-number{font-size:10px;fill:#656565}
+.score-event{cursor:pointer;outline:none}
+.score-event:focus .score-fret-background,.score-event:hover .score-fret-background{fill:#dce6ff}
+.score-fret-background{fill:#fff}
+.score-fret,.score-rest,.score-chord,.score-measure-number,.score-technique text,.score-ending text,.score-tuplet text{text-anchor:middle;fill:currentColor}
+.score-fret{font-size:11px;font-weight:700}
+.score-rest{font-size:14px}
+.score-chord{font-size:12px;font-weight:700}
+.score-stem{stroke-width:1.2}
+.score-dot,.score-repeat-dot,.score-fermata-dot{fill:currentColor}
+.score-beam{stroke:currentColor;stroke-width:4;stroke-linecap:butt}
+.score-tuplet line{stroke-width:1}
+.score-tuplet text{font-size:9px;paint-order:stroke;stroke:#fff;stroke-width:4px}
+.score-technique path{stroke-width:1}
+.score-technique text,.score-bend text,.score-ending text{font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}
+.score-bend path{stroke-width:1.2}
+.score-ending line{stroke-width:1.2}
+.score-fermata{stroke:currentColor;stroke-width:1.4;fill:none}
+
+@media (min-width:1024px){
+  .top{max-width:none}
+  .score-workspace{
+    display:grid;
+    grid-template-columns:150px minmax(0,1fr) 260px;
+    grid-template-rows:auto minmax(180px,1fr);
+    grid-template-areas:"measure-nav score-canvas score-inspector" "measure-nav score-canvas score-diagnostics";
+    align-items:stretch;
+  }
+}
+
+@media print{
+  @page{size:A4 portrait;margin:12mm}
+  body{padding:0;background:#fff;color:#000}
+  .top,.pad,#gridWorkspace,.measure-nav,.score-inspector,.score-diagnostics,.toast,.modal{display:none !important}
+  #scoreWorkspace{display:block !important;width:186mm;max-width:186mm;margin:0;padding:0}
+  .score-canvas{border:0;border-radius:0;padding:0;overflow:visible;width:186mm;min-height:0}
+  .professional-score{width:186mm;height:auto}
+}
 
 /* ---------- 입력 패드 ---------- */
 .pad{

@@ -16,14 +16,14 @@ export const KEY_V4 = 'gtab-editor-v4';
 export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'measures', 'marks'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
-  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview'
+  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'viewMode'
 ];
 
 export function defaultSettings() {
   return {
     zoom: 'm', theme: 'system', autoAdv: true, metro: false, loop: 'none', padMode: 'keys',
     fretShift: 0, haptic: true, collapsed: false, seen: false, instr: 'acoustic',
-    volume: 0.8, reverb: 0.25, countIn: false, preview: true
+    volume: 0.8, reverb: 0.25, countIn: false, preview: true, viewMode: 'grid'
   };
 }
 
@@ -181,6 +181,7 @@ export function sanitizeSettings(d) {
   if (d.instr && INSTR[d.instr]) s.instr = d.instr;
   if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) s.volume = d.volume;
   if (typeof d.reverb === 'number' && d.reverb >= 0 && d.reverb <= 1) s.reverb = d.reverb;
+  if (d.viewMode === 'score' || d.viewMode === 'grid') s.viewMode = d.viewMode;
   return s;
 }
 

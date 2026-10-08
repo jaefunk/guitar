@@ -46,7 +46,8 @@ describe('마이그레이션 (v2 → v3)', () => {
     expect(doc.currentId).toBe(s.id);
     expect(doc.settings).toEqual({
       zoom: 'l', theme: 'dark', autoAdv: false, metro: true, loop: 'measure', padMode: 'fret', fretShift: 12,
-      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false
+      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false,
+      viewMode: 'grid'
     });
   });
   it('v3 키가 없으면 v2 키를, 그것도 없으면 v1 키를 읽는다', () => {
@@ -112,6 +113,15 @@ describe('곡 관리', () => {
     expect(st.dump()['gtab-editor-v2']).toBeTruthy();
     load();
     expect(state.measures[1][1][1]).toBe('7');
+  });
+  it('전문 악보 화면 모드는 곡 editorMode와 별도 설정으로 저장된다', () => {
+    state.viewMode = 'score';
+
+    save();
+
+    const stored = JSON.parse(st.dump()[KEY_V4]);
+    expect(stored.settings.viewMode).toBe('score');
+    expect(stored.songs[stored.currentId].editorMode).toBe('grid-v3');
   });
 
   it('v3에서 v4를 만들 때 v3 키를 그대로 두고 ID와 메타데이터를 보존한다', () => {

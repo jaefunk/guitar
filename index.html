@@ -19,6 +19,10 @@
     <button class="icon-btn" id="helpBtn" type="button" aria-label="도움말" title="도움말">?</button>
   </div>
   <div class="toolbar">
+    <div class="seg view-mode" role="group" aria-label="악보 보기 방식">
+      <button type="button" id="modeGrid" class="on" aria-pressed="true">빠른 격자</button>
+      <button type="button" id="modeScore" aria-pressed="false">전문 TAB</button>
+    </div>
     <button class="btn primary" id="addLine" type="button">+ 줄 추가</button>
     <button class="btn" id="measureMenu" type="button">마디 <span class="caret">▼</span></button>
     <button class="btn" id="chordBtn" type="button">코드 넣기</button>
@@ -28,9 +32,22 @@
   </div>
 </header>
 
-<main>
+<main id="gridWorkspace">
   <div class="sheet-wrap" id="sheetWrap"><div class="sheet" id="sheet"></div></div>
 </main>
+
+<section id="scoreWorkspace" class="score-workspace" aria-label="전문 TAB 악보" hidden>
+  <nav id="measureNav" class="score-panel measure-nav" aria-label="마디 탐색">
+    <h2>마디</h2>
+    <div class="measure-nav-list"></div>
+  </nav>
+  <div id="scoreCanvas" class="score-canvas" aria-live="polite"></div>
+  <aside id="scoreInspector" class="score-panel score-inspector" aria-label="악보 속성">
+    <h2>속성</h2>
+    <p>음표를 선택하면 세부 속성을 확인할 수 있습니다.</p>
+  </aside>
+  <aside id="scoreDiagnostics" class="score-panel score-diagnostics" aria-label="악보 진단"></aside>
+</section>
 
 <div class="pad" id="pad">
   <div class="pad-inner">
