@@ -333,4 +333,89 @@ describe('MusicXML file workflow', () => {
     expect(controller.getStaged()).not.toBeNull();
     expect(onError).toHaveBeenCalledTimes(1);
   });
+
+  it('moves focus inside on success and traps Tab in both directions', async () => {
+    document.body.innerHTML = `
+      <button id="opener">열기</button><input id="file"><div id="choice" hidden>
+      <div id="parts"></div><p id="status"></p><button id="cancel">취소</button><button id="confirm">확인</button></div>`;
+    const dialog = document.querySelector('#choice');
+    const controller = createMusicXmlImportController({
+      input: document.querySelector('#file'), dialog, partsHost: document.querySelector('#parts'),
+      status: document.querySelector('#status'), confirm: document.querySelector('#confirm'),
+      cancel: document.querySelector('#cancel'), commit: vi.fn()
+    });
+    await controller.stage(new File([multipart], 'score.musicxml'));
+    const first = document.querySelector('input[value="P2"]');
+    const last = document.querySelector('#confirm');
+    expect(document.activeElement).toBe(first);
+
+    last.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(first);
+    first.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('focuses an alert inside the modal when file preparation fails', async () => {
+    document.body.innerHTML = `
+      <input id="file"><div id="choice" hidden><div id="parts"></div><p id="status"></p>
+      <button id="cancel">취소</button><button id="confirm">확인</button></div>`;
+    const status = document.querySelector('#status');
+    const controller = createMusicXmlImportController({
+      input: document.querySelector('#file'), dialog: document.querySelector('#choice'),
+      partsHost: document.querySelector('#parts'), status,
+      confirm: document.querySelector('#confirm'), cancel: document.querySelector('#cancel'), commit: vi.fn()
+    });
+    await controller.stage(new File(['bad'], 'bad.xml'));
+    expect(status.getAttribute('role')).toBe('alert');
+    expect(status.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(status);
+  });
+
+  it('open immediately invalidates an in-flight stage and clears stale UI', async () => {
+    document.body.innerHTML = `
+      <button id="opener">열기</button><input id="file" value=""><div id="choice">
+      <div id="parts">old part</div><p id="status">old error</p><button id="cancel">취소</button><button id="confirm">확인</button></div>`;
+    let finish;
+    const slow = {
+      name: 'slow.musicxml', type: 'application/xml', size: multipart.length,
+      arrayBuffer: () => new Promise((resolve) => { finish = () => resolve(new TextEncoder().encode(multipart).buffer); })
+    };
+    const opener = document.querySelector('#opener');
+    const dialog = document.querySelector('#choice');
+    const partsHost = document.querySelector('#parts');
+    const status = document.querySelector('#status');
+    const controller = createMusicXmlImportController({
+      input: document.querySelector('#file'), dialog, partsHost, status,
+      confirm: document.querySelector('#confirm'), cancel: document.querySelector('#cancel'), commit: vi.fn()
+    });
+    const pending = controller.stage(slow);
+    controller.open(opener);
+    expect(controller.getStaged()).toBeNull();
+    expect(dialog.hidden).toBe(true);
+    expect(partsHost.textContent).toBe('');
+    expect(status.textContent).toBe('');
+    finish();
+    await pending;
+    expect(dialog.hidden).toBe(true);
+    expect(controller.getStaged()).toBeNull();
+  });
+
+  it('destroy removes document and element listeners safely', async () => {
+    document.body.innerHTML = `
+      <input id="file"><div id="choice" hidden><div id="parts"></div><p id="status"></p>
+      <button id="cancel">취소</button><button id="confirm">확인</button></div>`;
+    const dialog = document.querySelector('#choice');
+    const controller = createMusicXmlImportController({
+      input: document.querySelector('#file'), dialog, partsHost: document.querySelector('#parts'),
+      status: document.querySelector('#status'), confirm: document.querySelector('#confirm'),
+      cancel: document.querySelector('#cancel'), commit: vi.fn()
+    });
+    await controller.stage(new File([multipart], 'score.musicxml'));
+    controller.destroy();
+    dialog.hidden = false;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(dialog.hidden).toBe(false);
+  });
 });

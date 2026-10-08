@@ -97,20 +97,35 @@ export function createMusicXmlImportController({
   let generation = 0;
   let opener = null;
 
+  const clearStatus = () => {
+    status.textContent = '';
+    status.setAttribute('role', 'status');
+    status.removeAttribute('tabindex');
+  };
+
+  const showError = (error, fallback) => {
+    status.textContent = error?.message || fallback;
+    status.setAttribute('role', 'alert');
+    status.setAttribute('tabindex', '-1');
+    dialog.hidden = false;
+    status.focus();
+    onError(error);
+  };
+
   const reset = ({ restoreFocus = true } = {}) => {
     generation += 1;
     staged = null;
     partsHost.replaceChildren();
-    status.textContent = '';
+    clearStatus();
     dialog.hidden = true;
     if (input) input.value = '';
     if (restoreFocus && opener?.isConnected) opener.focus();
   };
 
   const open = (trigger = document.activeElement) => {
+    reset({ restoreFocus: false });
     opener = trigger;
     if (input) {
-      input.value = '';
       input.click();
     }
   };
@@ -119,7 +134,7 @@ export function createMusicXmlImportController({
     const request = ++generation;
     staged = null;
     partsHost.replaceChildren();
-    status.textContent = '';
+    clearStatus();
     try {
       const prepared = await prepareMusicXmlImport(file);
       if (request !== generation) return null;
@@ -141,31 +156,47 @@ export function createMusicXmlImportController({
       return prepared;
     } catch (error) {
       if (request !== generation) return null;
-      status.textContent = error?.message || 'MusicXML 파일을 읽지 못했습니다';
-      dialog.hidden = false;
-      onError(error);
+      showError(error, 'MusicXML 파일을 읽지 못했습니다');
       return null;
     }
   };
 
-  input?.addEventListener('change', () => {
+  const handleInputChange = () => {
     const file = input.files?.[0];
     if (file) stage(file);
-  });
-  cancel.addEventListener('click', reset);
-  dialog.addEventListener('click', (event) => {
+  };
+  const handleCancel = () => reset();
+  const handleBackdrop = (event) => {
     if (event.target === dialog) reset();
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || !dialog.isConnected || dialog.hidden) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    reset();
-  }, true);
-  document.addEventListener('gtab:closemodals', () => {
+  };
+  const focusableElements = () => [...dialog.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+  )].filter((element) => !element.hidden && !element.closest('[hidden]'));
+  const handleKeydown = (event) => {
+    if (!dialog.isConnected || dialog.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      reset();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = focusableElements();
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (focusable.length === 1 || (!event.shiftKey && document.activeElement === last)) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    }
+  };
+  const handleGlobalClose = () => {
     if (dialog.isConnected && (!dialog.hidden || staged)) reset();
-  });
-  confirm.addEventListener('click', () => {
+  };
+  const handleConfirm = () => {
     if (!staged) return;
     const selectedPartId = partsHost.querySelector('input[name="musicxml-part"]:checked')?.value;
     if (!selectedPartId) {
@@ -177,12 +208,29 @@ export function createMusicXmlImportController({
       reset();
       onImported(imported);
     } catch (error) {
-      status.textContent = error?.message || 'MusicXML을 저장하지 못했습니다';
-      onError(error);
+      showError(error, 'MusicXML을 저장하지 못했습니다');
     }
-  });
+  };
 
-  return { open, stage, cancel: reset, getStaged: () => staged };
+  input?.addEventListener('change', handleInputChange);
+  cancel.addEventListener('click', handleCancel);
+  dialog.addEventListener('click', handleBackdrop);
+  document.addEventListener('keydown', handleKeydown, true);
+  document.addEventListener('gtab:closemodals', handleGlobalClose);
+  confirm.addEventListener('click', handleConfirm);
+
+  const destroy = () => {
+    input?.removeEventListener('change', handleInputChange);
+    cancel.removeEventListener('click', handleCancel);
+    dialog.removeEventListener('click', handleBackdrop);
+    document.removeEventListener('keydown', handleKeydown, true);
+    document.removeEventListener('gtab:closemodals', handleGlobalClose);
+    confirm.removeEventListener('click', handleConfirm);
+    reset({ restoreFocus: false });
+    opener = null;
+  };
+
+  return { open, stage, cancel: reset, destroy, getStaged: () => staged };
 }
 
 export function sanitizeScoreFilename(title) {
