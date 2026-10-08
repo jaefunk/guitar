@@ -6,6 +6,9 @@ function greatestCommonDivisor(a, b) {
 }
 
 export function rational(n, d = 1) {
+  if (!Number.isFinite(n) || !Number.isFinite(d)) {
+    throw new Error('Rational values must be finite');
+  }
   if (d === 0) throw new Error('Rational denominator cannot be zero');
   if (n === 0) return { n: 0, d: 1 };
 
@@ -42,6 +45,10 @@ function numberValue(element) {
 function durationValue(element, divisions) {
   const duration = numberValue(childElement(element, 'duration'));
   return rational(duration ?? 0, divisions);
+}
+
+function compareRational(a, b) {
+  return a.n * b.d - b.n * a.d;
 }
 
 function readPitch(noteElement) {
@@ -89,6 +96,8 @@ function indexMeasure(measureElement, context, measureIndex) {
   for (const element of Array.from(measureElement.children || [])) {
     if (element.localName === 'attributes') {
       updateContext(element, context);
+      previousNoteOnset = null;
+      previousNotesEvent = null;
       continue;
     }
 
@@ -102,16 +111,21 @@ function indexMeasure(measureElement, context, measureIndex) {
       continue;
     }
 
-    if (element.localName !== 'note') continue;
+    if (element.localName !== 'note') {
+      previousNoteOnset = null;
+      previousNotesEvent = null;
+      continue;
+    }
 
     const duration = durationValue(element, context.divisions);
     const isChord = Boolean(childElement(element, 'chord'));
-    const onset = isChord && previousNoteOnset ? previousNoteOnset : cursor;
+    const canJoinChord = isChord && previousNotesEvent;
+    const onset = canJoinChord ? previousNoteOnset : cursor;
 
     if (childElement(element, 'rest')) {
       events.push({ kind: 'rest', onset, duration });
       previousNotesEvent = null;
-    } else if (isChord && previousNotesEvent) {
+    } else if (canJoinChord) {
       previousNotesEvent.notes.push(readNote(element));
     } else {
       previousNotesEvent = {
@@ -124,15 +138,20 @@ function indexMeasure(measureElement, context, measureIndex) {
     }
 
     previousNoteOnset = onset;
-    if (!isChord) cursor = addRational(cursor, duration);
+    if (!canJoinChord) cursor = addRational(cursor, duration);
   }
+
+  const orderedEvents = events
+    .map((event, sourceOrder) => ({ event, sourceOrder }))
+    .sort((a, b) => compareRational(a.event.onset, b.event.onset) || a.sourceOrder - b.sourceOrder)
+    .map(({ event }) => event);
 
   return {
     number: measureElement.getAttribute('number') || String(measureIndex + 1),
     divisions: context.divisions,
     beats: context.beats,
     beatType: context.beatType,
-    events
+    events: orderedEvents
   };
 }
 

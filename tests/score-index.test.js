@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseMusicXml } from '../src/musicxml.js';
+import { parseMusicXml, serializeMusicXml } from '../src/musicxml.js';
 import { addRational, buildScoreIndex, rational } from '../src/score-index.js';
 
 const moduleUrl = import.meta.url;
@@ -21,6 +21,9 @@ describe('ScoreIndex timing', () => {
     expect(rational(0, -5)).toEqual({ n: 0, d: 1 });
     expect(addRational({ n: 1, d: 6 }, { n: 1, d: 3 })).toEqual({ n: 1, d: 2 });
     expect(() => rational(1, 0)).toThrow(/denominator/i);
+    expect(() => rational(Number.NaN)).toThrow(/finite/i);
+    expect(() => rational(Number.POSITIVE_INFINITY)).toThrow(/finite/i);
+    expect(() => rational(1, Number.NEGATIVE_INFINITY)).toThrow(/finite/i);
   });
 
   it('uses MusicXML cursor rules and groups chord notes', () => {
@@ -36,7 +39,7 @@ describe('ScoreIndex timing', () => {
     expect(measure.events[0].notes).toHaveLength(2);
     expect(measure.events[0].notes).toEqual([
       expect.objectContaining({ string: 3, fret: 5, pitch: { step: 'C', octave: 4 } }),
-      expect.objectContaining({ string: 3, fret: 7, pitch: { step: 'D', octave: 4 } })
+      expect.objectContaining({ string: 2, fret: 7, pitch: { step: 'D', octave: 4 } })
     ]);
   });
 
@@ -48,10 +51,32 @@ describe('ScoreIndex timing', () => {
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note>
     </measure>`);
 
-    expect(buildScoreIndex(doc, 'P1').measures[0].events.map((event) => event.onset)).toEqual([
+    const events = buildScoreIndex(doc, 'P1').measures[0].events;
+
+    expect(events.map((event) => event.onset)).toEqual([
       { n: 0, d: 1 },
       { n: 0, d: 1 }
     ]);
+    expect(events.map((event) => event.notes[0].pitch.step)).toEqual(['C', 'E']);
+  });
+
+  it('stable-sorts completed events by rational onset', () => {
+    const doc = scoreWithMeasures(`<measure number="7">
+      <attributes><divisions>2</divisions></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note>
+      <backup><duration>2</duration></backup>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice></note>
+    </measure>`);
+
+    const events = buildScoreIndex(doc, 'P1').measures[0].events;
+
+    expect(events.map((event) => event.onset)).toEqual([
+      { n: 0, d: 1 },
+      { n: 1, d: 2 },
+      { n: 1, d: 1 }
+    ]);
+    expect(events.map((event) => event.notes[0].pitch.step)).toEqual(['C', 'E', 'D']);
   });
 
   it('advances the cursor by forward duration', () => {
@@ -66,6 +91,34 @@ describe('ScoreIndex timing', () => {
       onset: { n: 1, d: 2 },
       duration: { n: 1, d: 2 }
     });
+  });
+
+  it('treats a chord marker at measure start as an advancing note', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes><divisions>2</divisions></attributes>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>`);
+
+    expect(buildScoreIndex(doc, 'P1').measures[0].events.map((event) => event.onset)).toEqual([
+      { n: 0, d: 1 },
+      { n: 1, d: 1 }
+    ]);
+  });
+
+  it('treats a chord marker after a rest as an advancing note', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes><divisions>2</divisions></attributes>
+      <note><rest/><duration>1</duration></note>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>`);
+
+    expect(buildScoreIndex(doc, 'P1').measures[0].events.map((event) => event.onset)).toEqual([
+      { n: 0, d: 1 },
+      { n: 1, d: 2 },
+      { n: 1, d: 1 }
+    ]);
   });
 
   it('carries divisions and time signature context across measures', () => {
@@ -102,5 +155,14 @@ describe('ScoreIndex timing', () => {
     expect(buildScoreIndex(doc, 'P2').measures).toHaveLength(1);
     expect(buildScoreIndex(doc, 'P2').measures[0]).toMatchObject({ number: '9', divisions: 2 });
     expect(() => buildScoreIndex(doc, 'missing')).toThrow(/part/i);
+  });
+
+  it('does not mutate the retained MusicXML document', () => {
+    const doc = parseMusicXml(fixture);
+    const before = serializeMusicXml(doc);
+
+    buildScoreIndex(doc, 'P1');
+
+    expect(serializeMusicXml(doc)).toBe(before);
   });
 });
