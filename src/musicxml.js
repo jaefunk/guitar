@@ -15,9 +15,16 @@ function descendantElement(element, name) {
   return descendantElements(element, name)[0] || null;
 }
 
-function textNumber(element) {
-  const value = Number(element?.textContent?.trim());
+function numberValue(rawValue) {
+  const normalized = rawValue?.trim();
+  if (!normalized) return null;
+
+  const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
+}
+
+function textNumber(element) {
+  return numberValue(element?.textContent);
 }
 
 function partBody(doc, partId) {
@@ -27,18 +34,21 @@ function partBody(doc, partId) {
 
 export function parseMusicXml(text) {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
-  const parserError = descendantElement(doc, 'parsererror');
+  const root = doc.documentElement;
+  const parserError = root?.localName === 'parsererror'
+    || doc.getElementsByTagNameNS('http://www.mozilla.org/newlayout/xml/parsererror.xml', 'parsererror').length > 0;
 
-  if (parserError || doc.documentElement?.localName !== 'score-partwise') {
-    throw new Error('Invalid MusicXML: expected a well-formed score-partwise document');
+  if (parserError || root?.localName !== 'score-partwise' || root.getAttribute('version') !== '4.0') {
+    throw new Error('Invalid MusicXML: expected a well-formed score-partwise 4.0 document');
   }
 
   return doc;
 }
 
 export function serializeMusicXml(doc) {
-  const root = new XMLSerializer().serializeToString(doc.documentElement);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${root}`;
+  const serialized = new XMLSerializer().serializeToString(doc)
+    .replace(/^\s*<\?xml\s+[^?]*\?>\s*/i, '');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${serialized}`;
 }
 
 export function listTabParts(doc) {
@@ -56,7 +66,9 @@ export function listTabParts(doc) {
     return [{
       id,
       name: childElement(scorePart, 'part-name')?.textContent?.trim() || id,
-      staff: Number(tabClef.getAttribute('number')) || 1
+      staff: tabClef.hasAttribute('number')
+        ? numberValue(tabClef.getAttribute('number'))
+        : 1
     }];
   });
 }
@@ -69,7 +81,7 @@ export function readScoreMetadata(doc, partId) {
   const time = descendantElement(body, 'time');
 
   return {
-    tempo: sound ? Number(sound.getAttribute('tempo')) : textNumber(metronomeTempo),
+    tempo: sound ? numberValue(sound.getAttribute('tempo')) : textNumber(metronomeTempo),
     capo: textNumber(descendantElement(body, 'capo')),
     beats: textNumber(childElement(time, 'beats')),
     beatType: textNumber(childElement(time, 'beat-type'))
