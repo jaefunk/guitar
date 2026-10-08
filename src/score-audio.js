@@ -24,22 +24,29 @@ function occurrenceKey(eventId, occurrence) {
   return `${eventId}@${occurrence}`;
 }
 
-export function createScoreHighlighter(host) {
+export function createScoreHighlighter(host, { status = null } = {}) {
   let active = [];
   const clear = () => {
     for (const element of active) {
       element.classList.remove('play');
       delete element.dataset.playbackOccurrence;
+      element.removeAttribute('aria-current');
     }
     active = [];
+    if (status) status.textContent = '';
   };
-  const highlight = (eventId, occurrence) => {
+  const highlight = (eventId, occurrence, entry = {}) => {
     clear();
     active = [...host.querySelectorAll('[data-event-id]')]
       .filter((element) => element.dataset.eventId === eventId);
     for (const element of active) {
       element.classList.add('play');
       element.dataset.playbackOccurrence = String(occurrence);
+      element.setAttribute('aria-current', 'true');
+    }
+    if (status) {
+      const measure = entry.measureNumber === undefined ? '' : `${entry.measureNumber}마디 · `;
+      status.textContent = `재생: ${measure}${eventId} · ${occurrence + 1}번째 연주`;
     }
     active[0]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
@@ -111,6 +118,7 @@ export function buildPlaybackPlan(index, {
         playbackRun,
         startQuarter: absoluteQuarter + rationalNumber(event.onset),
         durationQuarter: rationalNumber(event.duration),
+        voice: event.voice || '1',
         notes: event.notes || []
       };
       if (event.kind === 'rest') rests.push(record);
@@ -136,6 +144,7 @@ export function buildPlaybackPlan(index, {
         measureIndex: event.measureIndex,
         measureNumber: event.measureNumber,
         string: note.string,
+        voice: note.voice || event.voice || '1',
         fret: note.fret,
         midi,
         startQuarter: event.startQuarter,
@@ -144,7 +153,9 @@ export function buildPlaybackPlan(index, {
         ghost: Boolean(note.ghost),
         muted: Boolean(note.dead),
         bendSemitones: rationalNumber(note.bend),
-        legato: []
+        attack: 'normal',
+        legato: [],
+        legatoFrom: []
       };
       if (entry.bendSemitones) entry.technique = 'bend';
       rawNotes.push(entry);
@@ -164,8 +175,15 @@ export function buildPlaybackPlan(index, {
 
   for (const link of index.links || []) {
     for (const [startEvent, endEvent] of pairLinkOccurrences(rawEvents, link)) {
-      startEvent.notes.forEach((startNote, startIndex) => {
-        const endNote = matchingNote(startNote, endEvent, startIndex);
+      const startIndices = Number.isInteger(link.fromNoteIndex)
+        ? [link.fromNoteIndex]
+        : startEvent.notes.map((_, startIndex) => startIndex);
+      startIndices.forEach((startIndex) => {
+        const startNote = startEvent.notes[startIndex];
+        if (!startNote) return;
+        const endNote = Number.isInteger(link.toNoteIndex)
+          ? endEvent.notes[link.toNoteIndex]
+          : matchingNote(startNote, endEvent, startIndex);
         if (!endNote) return;
         const endIndex = endEvent.notes.indexOf(endNote);
         const startKey = `${startEvent.eventKey}:${startIndex}`;
@@ -181,6 +199,11 @@ export function buildPlaybackPlan(index, {
         const metadata = { type: link.type, targetEventId: endEvent.eventId };
         if (link.type === 'slide') metadata.targetMidi = endEntry.midi;
         startEntry.legato.push(metadata);
+        if (endEntry.attack !== 'legato') {
+          endEntry.attack = 'legato';
+          endEntry.velocity = Math.round(endEntry.velocity * 550) / 1000;
+        }
+        endEntry.legatoFrom.push({ type: link.type, sourceEventId: startEvent.eventId });
       });
     }
   }
@@ -197,6 +220,25 @@ export function buildPlaybackPlan(index, {
     );
   }
 
+  const notesByString = new Map();
+  for (const entry of notes) {
+    if (entry.string === undefined) continue;
+    const stringNotes = notesByString.get(entry.string) || [];
+    stringNotes.push(entry);
+    notesByString.set(entry.string, stringNotes);
+  }
+  for (const stringNotes of notesByString.values()) {
+    stringNotes.sort((a, b) => a.startQuarter - b.startQuarter || a.noteIndex - b.noteIndex);
+    for (let index = 0; index + 1 < stringNotes.length; index += 1) {
+      const current = stringNotes[index];
+      const next = stringNotes[index + 1];
+      current.durationQuarter = Math.min(
+        current.durationQuarter,
+        Math.max(0, next.startQuarter - current.startQuarter)
+      );
+    }
+  }
+
   for (const entry of notes) {
     entry.startSeconds = entry.startQuarter * secondsPerQuarter;
     entry.durationSeconds = entry.muted
@@ -210,6 +252,7 @@ export function buildPlaybackPlan(index, {
     for (const entry of notes) {
       if (entry.startQuarter >= rest.startQuarter) continue;
       if (entry.startQuarter + entry.durationQuarter <= rest.startQuarter) continue;
+      if (entry.voice !== rest.voice) continue;
       const current = activeByString.get(entry.string);
       if (!current || current.startQuarter < entry.startQuarter) activeByString.set(entry.string, entry);
     }
@@ -282,7 +325,17 @@ export function createLookaheadPlaybackController({
   const highlightTimers = new Set();
   const gateTimers = new Set();
   const voices = new Map();
+  const clickHandles = new Set();
   const scheduledHighlights = new Set();
+
+  const stopClickHandles = (at) => {
+    if (clickAdapter?.stop) {
+      for (const handle of clickHandles) {
+        try { clickAdapter.stop(handle, at); } catch (error) { /* 이미 종료된 클릭 */ }
+      }
+    }
+    clickHandles.clear();
+  };
 
   const scheduleTimer = (collection, callback, delayMs) => {
     let id;
@@ -304,6 +357,7 @@ export function createLookaheadPlaybackController({
       highlightTimers.clear();
       gateTimers.clear();
       voices.clear();
+      stopClickHandles(clock());
       scheduledHighlights.clear();
       onClearHighlight();
       noteCursor = 0;
@@ -322,6 +376,7 @@ export function createLookaheadPlaybackController({
     highlightTimers.clear();
     gateTimers.clear();
     voices.clear();
+    stopClickHandles(clock());
     onClearHighlight();
     onEnd();
   };
@@ -341,7 +396,7 @@ export function createLookaheadPlaybackController({
       if (!scheduledHighlights.has(highlightKey)) {
         scheduledHighlights.add(highlightKey);
         scheduleTimer(highlightTimers, () => {
-          if (playing) onHighlight(entry.eventId, entry.occurrence);
+          if (playing) onHighlight(entry.eventId, entry.occurrence, entry);
         }, (at - now) * 1000);
       }
     }
@@ -360,7 +415,8 @@ export function createLookaheadPlaybackController({
       const at = startTime + metronomeClick.atSeconds;
       if (at > horizon) break;
       clickCursor += 1;
-      clickAdapter?.schedule(at, metronomeClick.accent);
+      const handle = clickAdapter?.schedule(at, metronomeClick.accent);
+      if (handle !== undefined && handle !== null) clickHandles.add(handle);
     }
     tickTimer = setTimer(tick, tickMilliseconds);
   };
@@ -379,6 +435,7 @@ export function createLookaheadPlaybackController({
     const now = clock();
     voices.forEach((handle) => voiceAdapter.stop(handle, now));
     voices.clear();
+    stopClickHandles(now);
     scheduledHighlights.clear();
     onClearHighlight();
   };

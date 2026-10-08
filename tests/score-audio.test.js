@@ -191,6 +191,71 @@ describe('buildPlaybackPlan', () => {
     });
   });
 
+  it('clamps a sounding note at the next note on the same physical string only', () => {
+    const index = scoreIndex({
+      measures: [{ number: '1', beats: 4, beatType: 4, events: [
+        note('long', 0, 4, [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }]),
+        note('other-string', 0, 4, [{ string: 2, fret: 1, pitch: { step: 'C', octave: 4 } }]),
+        note('next', 1, 1, [{ string: 1, fret: 1, pitch: { step: 'F', octave: 4 } }])
+      ] }], links: [], playbackMeasures: [0]
+    });
+
+    const plan = buildPlaybackPlan(index, { bpm: 60 });
+
+    expect(plan.notes.find((entry) => entry.eventId === 'long').durationQuarter).toBe(1);
+    expect(plan.notes.find((entry) => entry.eventId === 'other-string').durationQuarter).toBe(4);
+    expect(plan.notes.every((entry) => entry.durationQuarter >= 0)).toBe(true);
+  });
+
+  it('applies rests only to the same voice and exact tied chord note', () => {
+    const start = note('start', 0, 1, [
+      { string: 1, fret: 0, pitch: { step: 'E', octave: 4 }, voice: '1' },
+      { string: 2, fret: 1, pitch: { step: 'C', octave: 4 }, voice: '1' }
+    ]);
+    start.voice = '1';
+    const end = note('end', 1, 1, [
+      { string: 1, fret: 0, pitch: { step: 'E', octave: 4 }, voice: '1' },
+      { string: 2, fret: 1, pitch: { step: 'C', octave: 4 }, voice: '1' }
+    ]);
+    end.voice = '1';
+    const rest = { id: 'rest-v2', kind: 'rest', onset: q(1), duration: q(1), voice: '2' };
+    const link = { type: 'tie', startEventId: 'start', endEventId: 'end', fromNoteIndex: 0, toNoteIndex: 0 };
+    const index = scoreIndex({
+      measures: [{ number: '1', beats: 4, beatType: 4, events: [start, rest, end] }],
+      links: [link], playbackMeasures: [0]
+    });
+
+    const plan = buildPlaybackPlan(index, { bpm: 60 });
+
+    expect(plan.notes.map((entry) => [entry.eventId, entry.noteIndex])).toEqual([
+      ['start', 0], ['start', 1], ['end', 1]
+    ]);
+    expect(plan.notes.find((entry) => entry.eventId === 'start' && entry.noteIndex === 0).durationQuarter).toBe(2);
+    expect(plan.gates).toEqual([]);
+  });
+
+  it('marks hammer, pull, and slide targets as lower-velocity legato attacks', () => {
+    const index = scoreIndex({
+      measures: [{ number: '1', beats: 4, beatType: 4, events: [
+        note('source', 0, 1, [{ string: 1, fret: 5, pitch: { step: 'A', octave: 4 } }]),
+        note('target', 1, 1, [{ string: 1, fret: 7, pitch: { step: 'B', octave: 4 } }])
+      ] }],
+      links: [
+        { type: 'hammer-on', startEventId: 'source', endEventId: 'target' },
+        { type: 'slide', startEventId: 'source', endEventId: 'target' }
+      ], playbackMeasures: [0]
+    });
+
+    const plan = buildPlaybackPlan(index, { bpm: 60, velocity: 0.8 });
+    const source = plan.notes.find((entry) => entry.eventId === 'source');
+    const target = plan.notes.find((entry) => entry.eventId === 'target');
+
+    expect(source.attack).toBe('normal');
+    expect(source.velocity).toBe(0.8);
+    expect(target).toMatchObject({ attack: 'legato', velocity: 0.44 });
+    expect(target.legatoFrom.map((item) => item.type)).toEqual(['hammer-on', 'slide']);
+  });
+
   it('uses an explicit playback-measure slice and creates deterministic quarter-note metronome clicks', () => {
     const plan = buildPlaybackPlan(scoreIndex(), { bpm: 120, playbackMeasures: [1], metronome: true });
 
@@ -245,10 +310,14 @@ describe('createLookaheadPlaybackController', () => {
 
   it('schedules each note once inside the 250ms horizon and highlights at sounding time', () => {
     const h = harness();
+    const highlightedEntries = [];
     const controller = createLookaheadPlaybackController({
       plan, clock: h.clock, setTimer: h.setTimer, clearTimer: h.clearTimer,
       voiceAdapter: h.voiceAdapter,
-      onHighlight: (id, occurrence) => h.calls.highlighted.push([id, occurrence]),
+      onHighlight: (id, occurrence, entry) => {
+        h.calls.highlighted.push([id, occurrence]);
+        highlightedEntries.push(entry);
+      },
       onClearHighlight: () => { h.calls.cleared += 1; }, onEnd: () => { h.calls.ended += 1; }
     });
 
@@ -259,6 +328,7 @@ describe('createLookaheadPlaybackController', () => {
     expect(h.calls.highlighted).toEqual([['a', 0]]);
     h.advance(0.18);
     expect(h.calls.highlighted).toEqual([['a', 0], ['b', 0]]);
+    expect(highlightedEntries.map((entry) => entry.key)).toEqual(['a@0:0', 'b@0:0']);
     expect(new Set(h.calls.scheduled.map((voice) => voice.entry.key)).size).toBe(2);
   });
 
@@ -301,6 +371,61 @@ describe('createLookaheadPlaybackController', () => {
     expect(h.calls.cleared).toBe(1);
     expect(h.calls.ended).toBe(0);
     expect(h.timers.size).toBe(0);
+    expect(controller.isPlaying()).toBe(false);
+  });
+
+  it('tracks and stops scheduled metronome handles on manual stop and natural end', () => {
+    const manual = harness();
+    const manualClicks = { scheduled: [], stopped: [] };
+    const clickAdapter = {
+      schedule(at, accent) {
+        const handle = { at, accent };
+        manualClicks.scheduled.push(handle);
+        return handle;
+      },
+      stop(handle, at) { manualClicks.stopped.push([handle, at]); }
+    };
+    const clickPlan = {
+      durationSeconds: 0.5, notes: [], gates: [],
+      clicks: [{ atSeconds: 0.2, accent: true }]
+    };
+    const controller = createLookaheadPlaybackController({
+      plan: clickPlan, clock: manual.clock, setTimer: manual.setTimer, clearTimer: manual.clearTimer,
+      voiceAdapter: manual.voiceAdapter, clickAdapter
+    });
+
+    controller.start({ delaySeconds: 0 });
+    controller.stop();
+    expect(manualClicks.stopped).toEqual([[manualClicks.scheduled[0], 10]]);
+
+    const natural = harness();
+    const naturalClicks = { scheduled: [], stopped: [] };
+    const naturalController = createLookaheadPlaybackController({
+      plan: clickPlan, clock: natural.clock, setTimer: natural.setTimer, clearTimer: natural.clearTimer,
+      voiceAdapter: natural.voiceAdapter,
+      clickAdapter: {
+        schedule(at, accent) { const handle = { at, accent }; naturalClicks.scheduled.push(handle); return handle; },
+        stop(handle, at) { naturalClicks.stopped.push([handle, at]); }
+      }
+    });
+    naturalController.start({ delaySeconds: 0 });
+    natural.advance(0.5);
+    expect(naturalClicks.stopped).toEqual([[naturalClicks.scheduled[0], 10.5]]);
+  });
+
+  it('continues cleanup when an injected click handle has already ended', () => {
+    const h = harness();
+    const controller = createLookaheadPlaybackController({
+      plan: { durationSeconds: 1, notes: [], gates: [], clicks: [{ atSeconds: 0, accent: true }] },
+      clock: h.clock, setTimer: h.setTimer, clearTimer: h.clearTimer,
+      voiceAdapter: h.voiceAdapter,
+      clickAdapter: { schedule: () => ({}), stop: () => { throw new Error('ended'); } },
+      onClearHighlight: () => { h.calls.cleared += 1; }
+    });
+    controller.start({ delaySeconds: 0 });
+
+    expect(() => controller.stop()).not.toThrow();
+    expect(h.calls.cleared).toBe(1);
     expect(controller.isPlaying()).toBe(false);
   });
 
@@ -358,18 +483,25 @@ describe('createLookaheadPlaybackController', () => {
 });
 
 describe('createScoreHighlighter', () => {
-  it('tracks repeat occurrence and restores pre-existing SVG classes when cleared', () => {
+  it('tracks repeat occurrence, aria-current, and live playback status while restoring classes', () => {
     const host = document.createElement('div');
     host.innerHTML = '<svg><g data-event-id="a" class="score-event selected"></g><g data-event-id="b" class="score-event"></g></svg>';
-    const highlighter = createScoreHighlighter(host);
+    const status = document.createElement('p');
+    const highlighter = createScoreHighlighter(host, { status });
 
-    highlighter.highlight('a', 2);
+    highlighter.highlight('a', 2, { measureNumber: '7' });
     expect(host.querySelector('[data-event-id="a"]').classList.contains('play')).toBe(true);
     expect(host.querySelector('[data-event-id="a"]').dataset.playbackOccurrence).toBe('2');
-    highlighter.highlight('b', 0);
+    expect(host.querySelector('[data-event-id="a"]').getAttribute('aria-current')).toBe('true');
+    expect(status.textContent).toContain('7마디');
+    expect(status.textContent).toContain('a');
+    highlighter.highlight('b', 0, { measureNumber: '8' });
     expect(host.querySelector('[data-event-id="a"]').className.baseVal).toBe('score-event selected');
+    expect(host.querySelector('[data-event-id="a"]').hasAttribute('aria-current')).toBe(false);
     highlighter.clear();
     expect(host.querySelector('[data-event-id="b"]').className.baseVal).toBe('score-event');
     expect(host.querySelector('[data-playback-occurrence]')).toBeNull();
+    expect(host.querySelector('[aria-current]')).toBeNull();
+    expect(status.textContent).toBe('');
   });
 });

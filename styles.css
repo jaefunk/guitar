@@ -126,6 +126,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .score-inspector{grid-area:score-inspector}
 .score-diagnostics{grid-area:score-diagnostics;overflow:auto}
 .score-diagnostics ul{margin:0;padding-left:18px}
+.score-playback-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .score-diagnostic{font-size:12px;margin:0 0 6px;color:var(--muted)}
 .score-diagnostic button{border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:2px 0;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px}
 .score-diagnostic-error{color:var(--danger)}

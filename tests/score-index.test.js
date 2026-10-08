@@ -275,6 +275,52 @@ describe('ScoreIndex techniques and playback', () => {
     }]);
   });
 
+  it('preserves voice and identifies the exact chord notes connected by a technique', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes><divisions>1</divisions></attributes>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice>
+        <tie type="start"/><notations><technical><string>1</string><fret>0</fret></technical></notations>
+      </note>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice>
+        <notations><technical><string>2</string><fret>1</fret></technical></notations></note>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice>
+        <tie type="stop"/><notations><technical><string>1</string><fret>0</fret></technical></notations>
+      </note>
+      <note><chord/><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice>
+        <notations><technical><string>2</string><fret>1</fret></technical></notations></note>
+      <note><rest/><duration>2</duration><voice>1</voice></note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.measures[0].events.map((event) => event.voice)).toEqual(['2', '2', '1']);
+    expect(index.measures[0].events[0].notes.map((note) => note.voice)).toEqual(['2', '2']);
+    expect(index.links).toContainEqual(expect.objectContaining({
+      type: 'tie', fromNoteIndex: 0, toNoteIndex: 0,
+      fromString: 1, toString: 1,
+      fromPitch: 'E4', toPitch: 'E4'
+    }));
+  });
+
+  it('pairs unnumbered chord ties by voice, pitch, and string instead of stack order', () => {
+    const tied = (chord, step, octave, string, action) => `<note>${chord ? '<chord/>' : ''}
+      <pitch><step>${step}</step><octave>${octave}</octave></pitch><duration>1</duration><voice>1</voice>
+      <tie type="${action}"/><notations><technical><string>${string}</string><fret>0</fret></technical></notations>
+    </note>`;
+    const doc = scoreWithMeasures(`<measure number="1"><attributes><divisions>1</divisions></attributes>
+      ${tied(false, 'E', 4, 1, 'start')}${tied(true, 'B', 3, 2, 'start')}
+      ${tied(false, 'E', 4, 1, 'stop')}${tied(true, 'B', 3, 2, 'stop')}
+      <note><rest/><duration>2</duration></note>
+    </measure>`);
+
+    const links = buildScoreIndex(doc, 'P1').links;
+
+    expect(links.map((link) => [link.fromNoteIndex, link.toNoteIndex, link.fromPitch, link.toPitch]))
+      .toEqual([[0, 0, 'E4', 'E4'], [1, 1, 'B3', 'B3']]);
+  });
+
   it('does not duplicate links when tie and tied are both present', () => {
     const doc = scoreWithMeasures(`<measure number="1">
       <note>

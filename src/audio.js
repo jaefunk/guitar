@@ -15,6 +15,7 @@ const bufCache = {};
 let active = [], playTimer = null, hlTimers = [], playPos = 0, nextTime = 0, loopA = 0, loopB = 0, loopOn = false;
 let previewVoices = [];
 let scorePlayback = null;
+let scoreCountInClicks = [];
 
 /** 재생 상태(다른 모듈이 읽기만 함) */
 export const pb = { playing: false, lastHL: null };
@@ -116,7 +117,11 @@ function playNote(midi, t, o) {
   const muted = !!o.muted, src = actx.createBufferSource();
   src.buffer = noteBuffer(midi, !!o.soft, muted);
   const g = actx.createGain(), vel = (o.vel || 0.7) * (0.94 + Math.random() * 0.12);
-  g.gain.setValueAtTime(vel, t); src.connect(g); g.connect(getChain(state.instr).input);
+  if (o.attack === 'legato') {
+    g.gain.setValueAtTime(vel * 0.35, t);
+    g.gain.linearRampToValueAtTime(vel, t + 0.025);
+  } else g.gain.setValueAtTime(vel, t);
+  src.connect(g); g.connect(getChain(state.instr).input);
   if (o.mod === 'b' || o.bendSemitones) {
     const semitones = o.bendSemitones || 1;
     src.playbackRate.setValueAtTime(1, t);
@@ -143,7 +148,8 @@ export function createScoreVoiceAdapter({ play = playNote, stop = stopVoice } = 
       const slide = entry.legato?.find((item) => item.type === 'slide' && Number.isFinite(item.targetMidi));
       const options = {
         muted: Boolean(entry.muted),
-        soft: Boolean(entry.ghost || entry.legato?.some((item) => ['hammer-on', 'pull-off'].includes(item.type))),
+        soft: Boolean(entry.ghost || entry.attack === 'legato'),
+        attack: entry.attack || 'normal',
         vel: entry.velocity,
         bendSemitones: entry.bendSemitones || 0,
         durationSeconds: entry.durationSeconds
@@ -170,6 +176,22 @@ function click(t, accent) {
   o.frequency.setValueAtTime(accent ? 2300 : 1700, t); o.frequency.exponentialRampToValueAtTime(accent ? 1500 : 1100, t + 0.03);
   const g = actx.createGain(); g.gain.setValueAtTime(accent ? 0.55 : 0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
+  return { oscillator: o };
+}
+function stopClick(handle, t) {
+  try { handle?.oscillator?.stop(t); } catch (error) { /* 이미 종료됨 */ }
+}
+
+export function createScoreClickAdapter({ schedule = click, stop = stopClick } = {}) {
+  return {
+    schedule(at, accent) { return schedule(at, accent); },
+    stop(handle, at) { try { stop(handle, at); } catch (error) { /* 이미 종료됨 */ } }
+  };
+}
+
+function stopCountInClicks(t) {
+  for (const handle of scoreCountInClicks) stopClick(handle, t);
+  scoreCountInClicks = [];
 }
 function scheduleSlot(pos, t) {
   const m = Math.floor(pos / SLOTS), i = pos % SLOTS, meas = state.measures[m];
@@ -279,16 +301,18 @@ export function startScorePlay(index, { selectedEventId = null, canvas = $('scor
     playbackMeasures,
     metronome: state.metro
   });
-  const highlighter = createScoreHighlighter(canvas);
+  const highlighter = createScoreHighlighter(canvas, { status: $('scorePlaybackStatus') });
+  const scoreClickAdapter = createScoreClickAdapter();
   scorePlayback = createLookaheadPlaybackController({
     plan,
     clock: () => actx.currentTime,
     voiceAdapter: createScoreVoiceAdapter(),
-    clickAdapter: { schedule: click },
+    clickAdapter: scoreClickAdapter,
     loop: state.loop !== 'none',
     onHighlight: highlighter.highlight,
     onClearHighlight: highlighter.clear,
     onEnd: () => {
+      stopCountInClicks(actx.currentTime);
       scorePlayback = null;
       pb.playing = false;
       $('playBtn').textContent = '▶';
@@ -303,7 +327,9 @@ export function startScorePlay(index, { selectedEventId = null, canvas = $('scor
   if (state.countIn) {
     const beat = 60 / state.bpm;
     const start = actx.currentTime + delaySeconds;
-    for (let beatIndex = 0; beatIndex < 4; beatIndex += 1) click(start + beatIndex * beat, beatIndex === 0);
+    for (let beatIndex = 0; beatIndex < 4; beatIndex += 1) {
+      scoreCountInClicks.push(scoreClickAdapter.schedule(start + beatIndex * beat, beatIndex === 0));
+    }
     delaySeconds += 4 * beat;
   }
   scorePlayback.start({ delaySeconds });
@@ -326,6 +352,7 @@ function tick() {
   playTimer = setTimeout(tick, 70);
 }
 export function stopPlay() {
+  if (actx) stopCountInClicks(actx.currentTime);
   if (scorePlayback) {
     const controller = scorePlayback;
     scorePlayback = null;

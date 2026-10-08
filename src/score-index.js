@@ -76,6 +76,16 @@ function readNoteType(noteElement) {
   return childElement(noteElement, 'type')?.textContent?.trim().toLowerCase() || null;
 }
 
+function readVoice(noteElement) {
+  return childElement(noteElement, 'voice')?.textContent?.trim() || '1';
+}
+
+function pitchIdentifier(pitch) {
+  if (!pitch?.step || !Number.isFinite(pitch?.octave)) return null;
+  const accidental = pitch.alter > 0 ? '#'.repeat(pitch.alter) : pitch.alter < 0 ? 'b'.repeat(-pitch.alter) : '';
+  return `${pitch.step}${accidental}${pitch.octave}`;
+}
+
 function readBeams(noteElement) {
   return childElements(noteElement, 'beam').flatMap((beamElement) => {
     const number = Number(beamElement.getAttribute('number') || '1');
@@ -85,7 +95,7 @@ function readBeams(noteElement) {
 }
 
 function readNote(noteElement) {
-  const note = {};
+  const note = { voice: readVoice(noteElement) };
   const string = numberValue(descendantElement(noteElement, 'string'));
   const fret = numberValue(descendantElement(noteElement, 'fret'));
   const bendAlter = numberValue(descendantElement(noteElement, 'bend-alter'));
@@ -171,7 +181,7 @@ function techniqueDiagnostic(severity, code, measureNumber, eventId, message) {
   return { severity, code, measureNumber, eventId, message };
 }
 
-function registerTechniques(noteElement, eventId, measureNumber, techniqueStacks, links, diagnostics) {
+function registerTechniques(noteElement, eventId, noteIndex, note, measureNumber, techniqueStacks, links, diagnostics) {
   for (const technique of readTechniques(noteElement)) {
     const key = `${technique.type}:${technique.number}`;
     const stack = techniqueStacks.get(key) || [];
@@ -180,13 +190,27 @@ function registerTechniques(noteElement, eventId, measureNumber, techniqueStacks
         type: technique.type,
         number: technique.number,
         eventId,
+        noteIndex,
+        string: note?.string,
+        pitch: pitchIdentifier(note?.pitch),
+        voice: note?.voice || '1',
         measureNumber
       });
       techniqueStacks.set(key, stack);
       continue;
     }
 
-    const start = stack.pop();
+    let startIndex = stack.length - 1;
+    if (technique.type === 'tie') {
+      const targetPitch = pitchIdentifier(note?.pitch);
+      const targetVoice = note?.voice || '1';
+      const exactIndex = stack.findLastIndex((candidate) =>
+        candidate.voice === targetVoice
+        && candidate.pitch === targetPitch
+        && (candidate.string === undefined || note?.string === undefined || candidate.string === note.string));
+      if (exactIndex >= 0) startIndex = exactIndex;
+    }
+    const start = startIndex >= 0 ? stack.splice(startIndex, 1)[0] : null;
     if (!start) {
       diagnostics.push(techniqueDiagnostic(
         'error',
@@ -197,12 +221,21 @@ function registerTechniques(noteElement, eventId, measureNumber, techniqueStacks
       ));
       continue;
     }
-    links.push({
+    const link = {
       type: technique.type,
       number: technique.number,
       startEventId: start.eventId,
       endEventId: eventId
+    };
+    Object.defineProperties(link, {
+      fromNoteIndex: { value: start.noteIndex, enumerable: false },
+      toNoteIndex: { value: noteIndex, enumerable: false },
+      fromString: { value: start.string, enumerable: false },
+      toString: { value: note?.string, enumerable: false },
+      fromPitch: { value: start.pitch, enumerable: false },
+      toPitch: { value: pitchIdentifier(note?.pitch), enumerable: false }
     });
+    links.push(link);
   }
 }
 
@@ -256,6 +289,8 @@ function indexMeasure(
       ? previousNotesEvent.id
       : `${partId}:m${measureIndex}:s${notePosition}`;
     const note = childElement(element, 'rest') ? null : readNote(element);
+    const voice = readVoice(element);
+    const noteIndex = canJoinChord ? previousNotesEvent.notes.length : 0;
     const tuplet = readTuplet(element);
     const fermata = Boolean(descendantElement(element, 'fermata'));
     const dots = childElements(element, 'dot').length;
@@ -263,7 +298,7 @@ function indexMeasure(
     const beams = readBeams(element);
 
     if (childElement(element, 'rest')) {
-      const event = { id: eventId, kind: 'rest', onset, duration };
+      const event = { id: eventId, kind: 'rest', onset, duration, voice };
       if (dots > 0) event.dots = dots;
       if (noteType) event.noteType = noteType;
       if (beams.length > 0) event.beams = beams;
@@ -286,6 +321,7 @@ function indexMeasure(
         kind: 'notes',
         onset,
         duration,
+        voice,
         notes: [note]
       };
       if (tuplet) {
@@ -311,7 +347,7 @@ function indexMeasure(
         `String ${note.string} is outside the supported TAB range 1-6`
       ));
     }
-    registerTechniques(element, eventId, measureNumber, techniqueStacks, links, diagnostics);
+    registerTechniques(element, eventId, noteIndex, note, measureNumber, techniqueStacks, links, diagnostics);
     notePosition += 1;
 
     previousNoteOnset = onset;

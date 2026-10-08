@@ -19,6 +19,7 @@ describe('professional score workspace shell', () => {
     for (const id of ['scoreCanvas', 'measureNav', 'scoreInspector', 'scoreDiagnostics']) {
       expect(doc.querySelector(`#scoreWorkspace #${id}`)).not.toBeNull();
     }
+    expect(doc.querySelector('#scorePlaybackStatus[role="status"][aria-live="polite"]')).not.toBeNull();
   });
 
   it('defines a desktop four-region grid and print rules for A4 score output', () => {
