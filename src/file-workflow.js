@@ -1,11 +1,15 @@
 import { listTabParts, parseMusicXml, serializeMusicXml } from './musicxml.js';
-import { packMxl, unpackMxl } from './mxl.js';
+import {
+  MAX_ARCHIVE_BYTES, MAX_ROOT_SCORE_BYTES, packMxl, unpackMxl
+} from './mxl.js';
 import { buildScoreIndex } from './score-index.js';
 
 const XML_MIME = 'application/vnd.recordare.musicxml+xml';
 const MXL_MIME = 'application/vnd.recordare.musicxml';
 const XML_MIMES = new Set([XML_MIME, 'application/xml', 'text/xml']);
 const MXL_MIMES = new Set([MXL_MIME, 'application/zip', 'application/octet-stream']);
+export const MAX_XML_FILE_BYTES = MAX_ROOT_SCORE_BYTES;
+export const MAX_MXL_FILE_BYTES = MAX_ARCHIVE_BYTES;
 
 function extension(name = '') {
   return name.match(/\.([^.]+)$/)?.[1]?.toLowerCase() || '';
@@ -45,13 +49,26 @@ export async function decodeMusicXmlFile(file) {
     }
     throw new Error('지원하는 파일 형식은 .musicxml, .xml, .mxl입니다');
   }
+  const limit = isMxl ? MAX_MXL_FILE_BYTES : MAX_XML_FILE_BYTES;
+  const limitLabel = isMxl ? '16 MiB' : '8 MiB';
+  if (Number.isFinite(file.size) && file.size > limit) {
+    throw new Error(`${isMxl ? 'MXL' : 'MusicXML'} 파일은 ${limitLabel} 이하여야 합니다`);
+  }
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.byteLength > limit) {
+    throw new Error(`${isMxl ? 'MXL' : 'MusicXML'} 파일은 ${limitLabel} 이하여야 합니다`);
+  }
   if (isMxl) return { ...unpackMxl(bytes), format: 'mxl' };
-  return { xml: strictUtf8(bytes), path: file.name, format: 'xml' };
+  const xml = strictUtf8(bytes);
+  if (xml.length > MAX_XML_FILE_BYTES) throw new Error('MusicXML 텍스트는 8 MiB 이하여야 합니다');
+  return { xml, path: file.name, format: 'xml' };
 }
 
 export async function prepareMusicXmlImport(file) {
   const decoded = await decodeMusicXmlFile(file);
+  if (decoded.xml.length > MAX_XML_FILE_BYTES) {
+    throw new Error('MusicXML 텍스트는 8 MiB 이하여야 합니다');
+  }
   const doc = parseMusicXml(decoded.xml);
   const parts = listTabParts(doc);
   if (!parts.length) throw new Error('MusicXML 문서에 TAB 파트가 없습니다');
@@ -77,20 +94,35 @@ export function createMusicXmlImportController({
   onImported = () => {}, onError = () => {}
 }) {
   let staged = null;
+  let generation = 0;
+  let opener = null;
 
-  const reset = () => {
+  const reset = ({ restoreFocus = true } = {}) => {
+    generation += 1;
     staged = null;
     partsHost.replaceChildren();
+    status.textContent = '';
     dialog.hidden = true;
     if (input) input.value = '';
+    if (restoreFocus && opener?.isConnected) opener.focus();
+  };
+
+  const open = (trigger = document.activeElement) => {
+    opener = trigger;
+    if (input) {
+      input.value = '';
+      input.click();
+    }
   };
 
   const stage = async (file) => {
+    const request = ++generation;
     staged = null;
     partsHost.replaceChildren();
     status.textContent = '';
     try {
       const prepared = await prepareMusicXmlImport(file);
+      if (request !== generation) return null;
       staged = prepared;
       for (const part of prepared.parts) {
         const label = document.createElement('label');
@@ -108,6 +140,7 @@ export function createMusicXmlImportController({
       partsHost.querySelector('input')?.focus();
       return prepared;
     } catch (error) {
+      if (request !== generation) return null;
       status.textContent = error?.message || 'MusicXML 파일을 읽지 못했습니다';
       dialog.hidden = false;
       onError(error);
@@ -120,6 +153,18 @@ export function createMusicXmlImportController({
     if (file) stage(file);
   });
   cancel.addEventListener('click', reset);
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) reset();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !dialog.isConnected || dialog.hidden) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    reset();
+  }, true);
+  document.addEventListener('gtab:closemodals', () => {
+    if (dialog.isConnected && (!dialog.hidden || staged)) reset();
+  });
   confirm.addEventListener('click', () => {
     if (!staged) return;
     const selectedPartId = partsHost.querySelector('input[name="musicxml-part"]:checked')?.value;
@@ -137,7 +182,7 @@ export function createMusicXmlImportController({
     }
   });
 
-  return { stage, cancel: reset, getStaged: () => staged };
+  return { open, stage, cancel: reset, getStaged: () => staged };
 }
 
 export function sanitizeScoreFilename(title) {
@@ -147,8 +192,9 @@ export function sanitizeScoreFilename(title) {
     .replace(/[. ]+$/g, '')
     .trim();
   if (!name) return 'score';
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name = `score-${name}`;
-  return name.slice(0, 120) || 'score';
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `score-${name}`;
+  name = name.slice(0, 120).replace(/[. ]+$/g, '');
+  return name || 'score';
 }
 
 export function createMusicXmlDownload({

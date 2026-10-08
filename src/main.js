@@ -21,6 +21,7 @@ import { createMusicXmlDownload, createMusicXmlImportController } from './file-w
 
 let scoreController = null;
 let scoreEditor = null;
+let musicXmlImportController = null;
 
 function scoreElements() {
   return {
@@ -202,7 +203,7 @@ function bind() {
   });
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [
-      { k: 'XML', label: 'MusicXML 불러오기', desc: '.musicxml, .xml, .mxl', action: () => { $('musicXmlFile').click(); } },
+      { k: 'XML', label: 'MusicXML 불러오기', desc: '.musicxml, .xml, .mxl', action: () => { musicXmlImportController.open($('exportMenu')); } },
       { k: 'XML', label: 'MusicXML 내보내기', desc: '전체 파트를 보존한 .musicxml', action: () => downloadMusicXml('xml') },
       { k: 'MXL', label: '압축 MusicXML 내보내기', desc: '전체 파트를 보존한 .mxl', action: () => downloadMusicXml('mxl') },
       { k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
@@ -270,7 +271,7 @@ function bind() {
 /* ---------- 시작 ---------- */
 function boot() {
   load();
-  createMusicXmlImportController({
+  musicXmlImportController = createMusicXmlImportController({
     input: $('musicXmlFile'),
     dialog: $('musicXmlImportModal'),
     partsHost: $('musicXmlPartChoices'),

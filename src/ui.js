@@ -59,6 +59,7 @@ export function toast(msg) {
 
 export function anyModalOpen() { return MODALS.some((id) => !$(id).hidden); }
 export function closeModals() {
+  document.dispatchEvent(new CustomEvent('gtab:closemodals'));
   MODALS.forEach((id) => {
     if (id === 'dlg') { if (!$(id).hidden) closeDlg(dlgCancelValue()); } else $(id).hidden = true;
   });

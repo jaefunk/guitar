@@ -416,11 +416,20 @@ export function load() {
 }
 
 /** 변경이 있을 때마다 호출. 비싸지 않다(JSON 직렬화 한 번). */
-export function save() {
+export function save({ throwOnError = false } = {}) {
   flush();
   const st = getStorage();
-  if (!st) return;
-  try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (e) { /* 용량 초과 등 */ }
+  if (!st) {
+    if (throwOnError) throw new Error('MusicXML을 저장할 저장소를 사용할 수 없습니다');
+    return false;
+  }
+  try {
+    st.setItem(KEY_V4, JSON.stringify(toDoc()));
+    return true;
+  } catch (error) {
+    if (throwOnError) throw new Error('MusicXML 저장소에 기록하지 못했습니다', { cause: error });
+    return false;
+  }
 }
 
 /* ---------- 곡 관리(데이터만; UI 갱신은 songs.js) ---------- */
@@ -519,12 +528,29 @@ export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode
   if (!staged) throw new Error(`MusicXML part cannot be imported: ${selectedPartId}`);
 
   flush();
-  library.songs[id] = staged;
-  library.order.push(id);
-  activate(id);
-  state.viewMode = 'score';
-  save();
-  return staged;
+  const beforeDoc = toDoc();
+  const st = getStorage();
+  let beforeStored = null;
+  try { beforeStored = st?.getItem(KEY_V4) ?? null; } catch (error) {
+    throw new Error('MusicXML 저장소를 읽지 못했습니다', { cause: error });
+  }
+  try {
+    library.songs[id] = staged;
+    library.order.push(id);
+    activate(id);
+    state.viewMode = 'score';
+    save({ throwOnError: true });
+    return staged;
+  } catch (error) {
+    applyDoc(sanitizeV4Doc(beforeDoc, Date.now(), false));
+    if (st) {
+      try {
+        if (beforeStored === null) st.removeItem?.(KEY_V4);
+        else st.setItem(KEY_V4, beforeStored);
+      } catch (restoreError) { /* setItem은 원자적이므로 일반적으로 기존 값이 그대로다. */ }
+    }
+    throw error;
+  }
 }
 
 export function duplicateSong(id) {

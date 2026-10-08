@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
   listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
-  KEY_V4, canEditCurrentSong
+  KEY_V4, canEditCurrentSong, importMusicXmlSong, toDoc
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
@@ -443,5 +443,35 @@ describe('곡 관리', () => {
     expect(state.title).toBe('');
     expect(state.measures.length).toBe(8);
     expect(deleteSong('nope')).toBe(false);
+  });
+
+  it('MusicXML import storage failure rolls back library, current state, and persisted v4', () => {
+    const backing = {};
+    let failWrites = false;
+    const storage = {
+      getItem(key) { return backing[key] ?? null; },
+      setItem(key, value) {
+        if (failWrites) throw new DOMException('quota', 'QuotaExceededError');
+        backing[key] = String(value);
+      },
+      removeItem(key) { delete backing[key]; }
+    };
+    useStorage(storage);
+    load();
+    const beforeDoc = JSON.stringify(toDoc());
+    const beforeStored = backing[KEY_V4];
+    const beforeCurrent = library.currentId;
+    const xml = v3SongToMusicXml({
+      id: 'incoming', title: 'Incoming', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    failWrites = true;
+
+    expect(() => importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Incoming', editorMode: 'musicxml-score'
+    })).toThrow(/저장|storage/i);
+    expect(JSON.stringify(toDoc())).toBe(beforeDoc);
+    expect(library.currentId).toBe(beforeCurrent);
+    expect(backing[KEY_V4]).toBe(beforeStored);
   });
 });
