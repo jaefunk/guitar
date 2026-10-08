@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const fixtureUrl = new URL('./fixtures/guitar-tab-all-specs.musicxml', import.meta.url);
+const fixturePath = resolve('tests/fixtures/guitar-tab-all-specs.musicxml');
 const expectedRehearsals = [
   'META-LAYOUT', 'TAB-STANDARD', 'RHYTHM-DURATIONS', 'RHYTHM-GRACE-CUE',
   'RHYTHM-BEAMS', 'RHYTHM-TUPLETS', 'RHYTHM-VOICES', 'TECH-LEGATO',
@@ -13,7 +14,7 @@ const expectedRehearsals = [
 ];
 
 function parseFixture() {
-  const xml = readFileSync(fixtureUrl, 'utf8');
+  const xml = readFileSync(fixturePath, 'utf8');
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   expect(doc.querySelector('parsererror')).toBeNull();
   return { xml, doc };
