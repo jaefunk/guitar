@@ -30,6 +30,11 @@ function writeUint32(bytes, offset, value) {
   bytes[offset + 3] = value >>> 24;
 }
 
+function writeUint16(bytes, offset, value) {
+  bytes[offset] = value;
+  bytes[offset + 1] = value >>> 8;
+}
+
 function findCentralEntry(bytes, name) {
   for (let offset = 0; offset <= bytes.length - 46; offset += 1) {
     if (readUint32(bytes, offset) !== 0x02014b50) continue;
@@ -175,6 +180,14 @@ describe('MXL validation', () => {
     const forged = forgeEntryMetadata(bytes, 'score.musicxml', { crc: forgedCrc });
 
     expect(() => unpackMxl(forged)).toThrow(/crc|integrity/i);
+  });
+
+  it('rejects a central entry that starts on another disk', () => {
+    const forged = packMxl(score).slice();
+    const { centralOffset } = findCentralEntry(forged, 'score.musicxml');
+    writeUint16(forged, centralOffset + 34, 1);
+
+    expect(() => unpackMxl(forged)).toThrow(/multi.?disk|disk/i);
   });
 
   it('rejects an archive without META-INF/container.xml', () => {

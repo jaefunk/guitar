@@ -120,11 +120,15 @@ function parseZipDirectory(bytes) {
     const nameLength = readUint16(bytes, offset + 28);
     const extraLength = readUint16(bytes, offset + 30);
     const commentLength = readUint16(bytes, offset + 32);
+    const diskStart = readUint16(bytes, offset + 34);
     const localOffset = readUint32(bytes, offset + 42);
     const recordLength = 46 + nameLength + extraLength + commentLength;
     assertRange(bytes, offset, recordLength, 'central directory entry');
 
     const name = decodeUtf8(bytes.subarray(offset + 46, offset + 46 + nameLength), 'entry name');
+    if (diskStart !== 0) {
+      throw new Error('Invalid MXL archive: multi-disk entries are unsupported');
+    }
     if (entries.has(name)) throw new Error(`Invalid MXL archive: duplicate entry ${name}`);
     if (flags & 1) throw new Error('Invalid MXL archive: encrypted entries are unsupported');
     if (originalSize > MAX_ENTRY_BYTES) {
