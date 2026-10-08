@@ -9,7 +9,7 @@ import {
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
 import { isLosslessV3GridMusicXml, musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
-import { parseMusicXml, serializeMusicXml } from './musicxml.js';
+import { listTabParts, parseMusicXml, serializeMusicXml } from './musicxml.js';
 
 export const KEY_V4 = 'gtab-editor-v4';
 
@@ -494,6 +494,37 @@ export function persistCurrentScoreMusicXml(xml) {
     try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (error) { /* 저장 실패 시 메모리 편집은 유지 */ }
   }
   return song.musicxml;
+}
+
+/** 검증된 외부 MusicXML을 새 곡으로 한 번에 추가하고 활성화한다. */
+export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode = 'musicxml-score' }) {
+  const doc = parseMusicXml(xml);
+  const selectedPart = [...doc.documentElement.children]
+    .find((node) => node.localName === 'part' && node.getAttribute('id') === selectedPartId);
+  if (!selectedPart) throw new Error(`Selected MusicXML part is missing: ${selectedPartId}`);
+  if (!listTabParts(doc).some((part) => part.id === selectedPartId)) {
+    throw new Error(`Selected MusicXML part is not a TAB part: ${selectedPartId}`);
+  }
+  const normalizedXml = serializeMusicXml(doc);
+  const timestamp = Date.now();
+  const id = newId();
+  const staged = sanitizeV4Song({
+    title,
+    musicxml: normalizedXml,
+    selectedPartId,
+    editorMode,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }, id, timestamp);
+  if (!staged) throw new Error(`MusicXML part cannot be imported: ${selectedPartId}`);
+
+  flush();
+  library.songs[id] = staged;
+  library.order.push(id);
+  activate(id);
+  state.viewMode = 'score';
+  save();
+  return staged;
 }
 
 export function duplicateSong(id) {

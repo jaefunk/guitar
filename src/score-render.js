@@ -298,14 +298,25 @@ export function renderScoreDiagnostics(host, diagnostics = [], { onMeasure } = {
     host.appendChild(empty);
     return;
   }
-  const list = document.createElement('ul');
+  const grouped = new Map();
   for (const diagnostic of diagnostics) {
+    const key = JSON.stringify([
+      diagnostic.measureNumber ?? null, diagnostic.code || '', diagnostic.message || ''
+    ]);
+    const current = grouped.get(key);
+    if (current) {
+      current.count += 1;
+      if (diagnostic.severity === 'error') current.severity = 'error';
+    } else grouped.set(key, { ...diagnostic, count: 1 });
+  }
+  const list = document.createElement('ul');
+  for (const diagnostic of grouped.values()) {
     const item = document.createElement('li');
     item.className = `score-diagnostic score-diagnostic-${diagnostic.severity || 'warning'}`;
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.measureNumber = String(diagnostic.measureNumber ?? '');
-    button.textContent = `${diagnostic.measureNumber ? `${diagnostic.measureNumber}마디 · ` : ''}${diagnostic.message || diagnostic.code || '알 수 없는 진단'}`;
+    button.textContent = `${diagnostic.measureNumber ? `${diagnostic.measureNumber}마디 · ` : ''}${diagnostic.message || diagnostic.code || '알 수 없는 진단'}${diagnostic.count > 1 ? ` (${diagnostic.count}건)` : ''}`;
     if (diagnostic.measureNumber !== undefined && diagnostic.measureNumber !== null) {
       button.addEventListener('click', () => { onMeasure?.(String(diagnostic.measureNumber)); });
     } else {

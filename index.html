@@ -28,6 +28,7 @@
     <button class="btn" id="chordBtn" type="button">코드 넣기</button>
     <button class="btn" id="markBtn" type="button">메모</button>
     <button class="btn" id="exportMenu" type="button">내보내기 <span class="caret">▼</span></button>
+    <input id="musicXmlFile" type="file" accept=".musicxml,.xml,.mxl" hidden>
     <button class="btn" id="settingsBtn" type="button">설정</button>
   </div>
 </header>
@@ -168,6 +169,21 @@
     <div class="row">
       <button class="btn" id="closeImport" type="button">닫기</button>
       <button class="btn primary" id="doImport" type="button">불러오기</button>
+    </div>
+  </div>
+</div>
+
+<!-- MusicXML 파트 선택 -->
+<div class="modal" id="musicXmlImportModal" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="musicXmlImportTitle">
+    <div class="grip"></div>
+    <h2 id="musicXmlImportTitle">TAB 파트 선택</h2>
+    <p>불러와서 편집할 TAB 파트를 선택하세요. 확인하기 전에는 보관함이 바뀌지 않습니다.</p>
+    <div id="musicXmlPartChoices" class="musicxml-part-choices" role="radiogroup" aria-label="TAB 파트"></div>
+    <p id="musicXmlImportStatus" role="status" aria-live="polite"></p>
+    <div class="row">
+      <button class="btn" id="cancelMusicXmlImport" type="button">취소</button>
+      <button class="btn primary" id="confirmMusicXmlImport" type="button">불러오기</button>
     </div>
   </div>
 </div>

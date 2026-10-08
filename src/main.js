@@ -1,7 +1,7 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
 import {
-  state, ed, load, save, canEditCurrentSong, currentSong, persistCurrentScoreMusicXml
+  state, ed, load, save, canEditCurrentSong, currentSong, importMusicXmlSong, persistCurrentScoreMusicXml
 } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
 import { render, setSel } from './render.js';
@@ -12,11 +12,12 @@ import {
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
 import { toText, parseText, renderImage } from './io.js';
-import { bindSongs } from './songs.js';
+import { bindSongs, refreshSongUI } from './songs.js';
 import { padMeasures } from './tab.js';
 import { applyBpmInput, applyTitleInput, applyTuningInput, syncQuickEditability } from './quick-edit.js';
 import { createScoreWorkspaceController, setScoreViewMode } from './score-render.js';
 import { createScoreEditorBindings } from './score-ui.js';
+import { createMusicXmlDownload, createMusicXmlImportController } from './file-workflow.js';
 
 let scoreController = null;
 let scoreEditor = null;
@@ -49,7 +50,10 @@ function renderMeasureNavigation(index) {
 function scrollToScoreMeasure(number) {
   const measure = [...$('scoreCanvas').querySelectorAll('[data-measure-number]')]
     .find((element) => element.dataset.measureNumber === number);
-  measure?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  if (!measure) return;
+  measure.setAttribute('tabindex', '-1');
+  measure.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  measure.focus({ preventScroll: true });
 }
 
 function applyViewMode(mode, persist = true) {
@@ -92,6 +96,17 @@ function openImage() {
   const img = document.createElement('img'); img.alt = '타브 악보 이미지';
   try { img.src = cv.toDataURL('image/png'); } catch (e) { toast('이미지를 만들지 못했어요'); return; }
   out.appendChild(img); $('imgModal').hidden = false;
+}
+
+function downloadMusicXml(format) {
+  const song = currentSong();
+  if (!song?.musicxml) { toast('내보낼 MusicXML 악보가 없습니다'); return; }
+  try {
+    createMusicXmlDownload({ xml: song.musicxml, title: song.title, format });
+    toast(format === 'mxl' ? 'MXL 다운로드 시작' : 'MusicXML 다운로드 시작');
+  } catch (error) {
+    toast(error?.message || 'MusicXML을 내보내지 못했습니다');
+  }
 }
 
 /* ---------- 이벤트 ---------- */
@@ -187,6 +202,9 @@ function bind() {
   });
   $('exportMenu').addEventListener('click', () => {
     openMenu('내보내기', [
+      { k: 'XML', label: 'MusicXML 불러오기', desc: '.musicxml, .xml, .mxl', action: () => { $('musicXmlFile').click(); } },
+      { k: 'XML', label: 'MusicXML 내보내기', desc: '전체 파트를 보존한 .musicxml', action: () => downloadMusicXml('xml') },
+      { k: 'MXL', label: '압축 MusicXML 내보내기', desc: '전체 파트를 보존한 .mxl', action: () => downloadMusicXml('mxl') },
       { k: 'T', label: '텍스트 타브', desc: '복사해서 어디든 붙여 넣기', action: openExport },
       { k: '▣', label: '이미지로 저장', desc: 'PNG, 길게 눌러 저장', action: openImage },
       { k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
@@ -252,6 +270,21 @@ function bind() {
 /* ---------- 시작 ---------- */
 function boot() {
   load();
+  createMusicXmlImportController({
+    input: $('musicXmlFile'),
+    dialog: $('musicXmlImportModal'),
+    partsHost: $('musicXmlPartChoices'),
+    status: $('musicXmlImportStatus'),
+    confirm: $('confirmMusicXmlImport'),
+    cancel: $('cancelMusicXmlImport'),
+    commit: importMusicXmlSong,
+    onImported: (song) => {
+      refreshSongUI();
+      applyViewMode('score');
+      toast(`${song.title || '악보'} 불러옴`);
+    },
+    onError: (error) => { toast(error?.message || 'MusicXML을 불러오지 못했습니다'); }
+  });
   scoreEditor = createScoreEditorBindings({
     inspector: $('scoreInspector'),
     getSong: currentSong,

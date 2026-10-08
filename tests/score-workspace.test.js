@@ -33,4 +33,14 @@ describe('professional score workspace shell', () => {
   it('does not run legacy global shortcuts for an already handled score key', () => {
     expect(main).toMatch(/addEventListener\('keydown',[\s\S]*?if\s*\(e\.defaultPrevented\)\s*return/);
   });
+
+  it('provides an explicit MusicXML picker and accessible TAB part confirmation dialog', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelector('#musicXmlFile')?.getAttribute('accept')).toBe('.musicxml,.xml,.mxl');
+    expect(doc.querySelector('#musicXmlImportModal [role="dialog"]')).not.toBeNull();
+    expect(doc.querySelector('#musicXmlPartChoices')).not.toBeNull();
+    expect(doc.querySelector('#confirmMusicXmlImport')).not.toBeNull();
+    expect(main).toContain('createMusicXmlImportController');
+    expect(main).toContain("downloadMusicXml('mxl')");
+  });
 });

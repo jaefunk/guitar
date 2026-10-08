@@ -191,6 +191,17 @@ describe('professional score SVG renderer', () => {
     expect(onMeasure).toHaveBeenCalledWith('12');
   });
 
+  it('groups duplicate diagnostics by measure, code, and message', () => {
+    const host = document.createElement('aside');
+    renderScoreDiagnostics(host, [
+      { severity: 'warning', code: 'X', measureNumber: '2', message: '같은 경고' },
+      { severity: 'warning', code: 'X', measureNumber: '2', message: '같은 경고' },
+      { severity: 'warning', code: 'Y', measureNumber: '2', message: '다른 경고' }
+    ]);
+    expect(host.querySelectorAll('button')).toHaveLength(2);
+    expect(host.textContent).toContain('같은 경고 (2건)');
+  });
+
   it('reuses one parsed index while relayouting for print and restoring the screen layout', () => {
     const { canvas, diagnostics, inspector } = hosts();
     let parseCount = 0;

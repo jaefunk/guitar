@@ -236,6 +236,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 
 /* ---------- 모달 / 시트 ---------- */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.musicxml-part-choices{display:grid;gap:8px;margin:14px 0}.musicxml-part-choice{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
 /* 메뉴와 범용 대화상자는 다른 시트(곡 목록 등) 위에서 열리므로 더 위에 둔다 */
 #menuModal{z-index:22}
 #dlg{z-index:24}
