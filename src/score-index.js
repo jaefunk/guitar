@@ -300,14 +300,31 @@ function indexMeasure(
   };
 }
 
-function endingNumbers(measureElement) {
-  const values = descendantElements(measureElement, 'ending')
-    .filter((element) => element.getAttribute('type') === 'start')
-    .flatMap((element) => (element.getAttribute('number') || '')
-      .split(/[\s,]+/)
-      .map(Number)
-      .filter(Number.isInteger));
-  return new Set(values);
+function endingNumbers(endingElement) {
+  return (endingElement.getAttribute('number') || '')
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter(Number.isInteger);
+}
+
+function endingMemberships(measureElements) {
+  const activeEndings = new Set();
+  return measureElements.map((measure) => {
+    const endings = descendantElements(measure, 'ending');
+    for (const ending of endings) {
+      if (ending.getAttribute('type') === 'start') {
+        for (const number of endingNumbers(ending)) activeEndings.add(number);
+      }
+    }
+
+    const membership = new Set(activeEndings);
+    for (const ending of endings) {
+      if (['stop', 'discontinue'].includes(ending.getAttribute('type'))) {
+        for (const number of endingNumbers(ending)) activeEndings.delete(number);
+      }
+    }
+    return membership;
+  });
 }
 
 function hasRepeat(measureElement, direction) {
@@ -321,7 +338,9 @@ function expandPlaybackMeasures(measureElements) {
   }
 
   const playback = [];
+  const endingsByMeasure = endingMemberships(measureElements);
   const repeatedBackward = new Set();
+  const repeatPassByStart = new Map();
   let repeatStart = 0;
   let pass = 1;
   let index = 0;
@@ -331,9 +350,12 @@ function expandPlaybackMeasures(measureElements) {
   while (index < measureElements.length && steps < maxSteps) {
     steps += 1;
     const measure = measureElements[index];
-    if (hasRepeat(measure, 'forward')) repeatStart = index;
+    if (hasRepeat(measure, 'forward')) {
+      repeatStart = index;
+      pass = repeatPassByStart.get(repeatStart) || 1;
+    }
 
-    const endings = endingNumbers(measure);
+    const endings = endingsByMeasure[index];
     if (endings.size > 0 && !endings.has(pass)) {
       index += 1;
       continue;
@@ -343,6 +365,7 @@ function expandPlaybackMeasures(measureElements) {
     if (hasRepeat(measure, 'backward') && !repeatedBackward.has(index)) {
       repeatedBackward.add(index);
       pass += 1;
+      repeatPassByStart.set(repeatStart, pass);
       index = repeatStart;
       continue;
     }

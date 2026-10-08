@@ -210,6 +210,68 @@ describe('ScoreIndex techniques and playback', () => {
     `), 'P1').playbackMeasures).toEqual([0, 1]);
   });
 
+  it('starts each independent repeat section on its first pass', () => {
+    const doc = scoreWithMeasures(`
+      <measure number="1">
+        <barline location="left"><repeat direction="forward"/></barline>
+        <note><rest/><duration>4</duration></note>
+      </measure>
+      <measure number="2">
+        <barline location="left"><ending number="1" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline>
+      </measure>
+      <measure number="3">
+        <barline location="left"><ending number="2" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="2" type="stop"/></barline>
+      </measure>
+      <measure number="4">
+        <barline location="left"><repeat direction="forward"/></barline>
+        <note><rest/><duration>4</duration></note>
+      </measure>
+      <measure number="5">
+        <barline location="left"><ending number="1" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="1" type="stop"/><repeat direction="backward"/></barline>
+      </measure>
+      <measure number="6">
+        <barline location="left"><ending number="2" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="2" type="stop"/></barline>
+      </measure>
+    `);
+
+    expect(buildScoreIndex(doc, 'P1').playbackMeasures).toEqual([
+      0, 1, 0, 2,
+      3, 4, 3, 5
+    ]);
+  });
+
+  it('applies an ending number to every measure through stop or discontinue', () => {
+    const doc = scoreWithMeasures(`
+      <measure number="1">
+        <barline location="left"><repeat direction="forward"/></barline>
+        <note><rest/><duration>4</duration></note>
+      </measure>
+      <measure number="2">
+        <barline location="left"><ending number="1" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+      </measure>
+      <measure number="3">
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="1" type="discontinue"/><repeat direction="backward"/></barline>
+      </measure>
+      <measure number="4">
+        <barline location="left"><ending number="2" type="start"/></barline>
+        <note><rest/><duration>4</duration></note>
+        <barline location="right"><ending number="2" type="stop"/></barline>
+      </measure>
+    `);
+
+    expect(buildScoreIndex(doc, 'P1').playbackMeasures).toEqual([0, 1, 2, 0, 3]);
+  });
+
   it('reports invalid strings, measure duration mismatches, and unclosed techniques', () => {
     const doc = scoreWithMeasures(`<measure number="9">
       <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
