@@ -16,6 +16,46 @@ function archive(entries) {
   ));
 }
 
+function readUint32(bytes, offset) {
+  return (bytes[offset]
+    | (bytes[offset + 1] << 8)
+    | (bytes[offset + 2] << 16)
+    | (bytes[offset + 3] << 24)) >>> 0;
+}
+
+function writeUint32(bytes, offset, value) {
+  bytes[offset] = value;
+  bytes[offset + 1] = value >>> 8;
+  bytes[offset + 2] = value >>> 16;
+  bytes[offset + 3] = value >>> 24;
+}
+
+function findCentralEntry(bytes, name) {
+  for (let offset = 0; offset <= bytes.length - 46; offset += 1) {
+    if (readUint32(bytes, offset) !== 0x02014b50) continue;
+    const nameLength = bytes[offset + 28] | (bytes[offset + 29] << 8);
+    const entryName = strFromU8(bytes.subarray(offset + 46, offset + 46 + nameLength));
+    if (entryName === name) {
+      return { centralOffset: offset, localOffset: readUint32(bytes, offset + 42) };
+    }
+  }
+  throw new Error(`Central entry not found: ${name}`);
+}
+
+function forgeEntryMetadata(bytes, name, { originalSize, crc }) {
+  const forged = bytes.slice();
+  const { centralOffset, localOffset } = findCentralEntry(forged, name);
+  if (originalSize !== undefined) {
+    writeUint32(forged, centralOffset + 24, originalSize);
+    writeUint32(forged, localOffset + 22, originalSize);
+  }
+  if (crc !== undefined) {
+    writeUint32(forged, centralOffset + 16, crc);
+    writeUint32(forged, localOffset + 14, crc);
+  }
+  return forged;
+}
+
 describe('MXL packaging', () => {
   it('packs a MusicXML score with a container that points to the requested root file', () => {
     const bytes = packMxl(score, 'scores/guitar.musicxml');
@@ -30,9 +70,16 @@ describe('MXL packaging', () => {
   it('writes only the mimetype, container, and root score with mimetype first and stored', () => {
     const bytes = packMxl(score);
     const fileNameLength = bytes[26] | (bytes[27] << 8);
+    const extraLength = bytes[28] | (bytes[29] << 8);
+    const compressedSize = readUint32(bytes, 18);
+    const dataOffset = 30 + fileNameLength + extraLength;
 
     expect(strFromU8(bytes.subarray(30, 30 + fileNameLength))).toBe('mimetype');
     expect(bytes[8] | (bytes[9] << 8)).toBe(0);
+    expect(extraLength).toBe(0);
+    expect(strFromU8(bytes.subarray(dataOffset, dataOffset + compressedSize))).toBe(
+      'application/vnd.recordare.musicxml'
+    );
     expect(Object.keys(unzipSync(bytes))).toEqual([
       'mimetype',
       'META-INF/container.xml',
@@ -69,6 +116,10 @@ describe('MXL packaging', () => {
   ])('rejects reserved package path %s', (path) => {
     expect(() => packMxl(score, path)).toThrow(/reserved|path/i);
   });
+
+  it('rejects a root score whose UTF-8 representation exceeds the import limit', () => {
+    expect(() => packMxl(' '.repeat(MAX_ROOT_SCORE_BYTES + 1))).toThrow(/size|large|limit/i);
+  });
 });
 
 describe('MXL validation', () => {
@@ -104,6 +155,26 @@ describe('MXL validation', () => {
 
     expect(bytes.byteLength).toBeLessThan(MAX_ROOT_SCORE_BYTES);
     expect(() => unpackMxl(bytes)).toThrow(/root.*size|size.*root|large/i);
+  });
+
+  it('counts actual inflated bytes when declared sizes are forged small', () => {
+    const oversizedScore = ' '.repeat(MAX_ROOT_SCORE_BYTES + 1);
+    const bytes = archive({
+      'META-INF/container.xml': '<container><rootfiles><rootfile full-path="score.musicxml"/></rootfiles></container>',
+      'score.musicxml': oversizedScore
+    });
+    const forged = forgeEntryMetadata(bytes, 'score.musicxml', { originalSize: 1 });
+
+    expect(() => unpackMxl(forged)).toThrow(/actual|output|size|limit/i);
+  });
+
+  it('rejects a root score whose CRC32 metadata is forged', () => {
+    const bytes = packMxl(score);
+    const { centralOffset } = findCentralEntry(bytes, 'score.musicxml');
+    const forgedCrc = readUint32(bytes, centralOffset + 16) ^ 0xffffffff;
+    const forged = forgeEntryMetadata(bytes, 'score.musicxml', { crc: forgedCrc });
+
+    expect(() => unpackMxl(forged)).toThrow(/crc|integrity/i);
   });
 
   it('rejects an archive without META-INF/container.xml', () => {
