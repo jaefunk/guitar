@@ -99,7 +99,8 @@ describe('1:03 Gt.1 reference score', () => {
     ]));
     expect(tabFrets(49)).toEqual([10, 12, 10, 10, 9]);
     expect(tabStrings(49)).toEqual([4, 4, 4, 4, 4]);
-    expect(tabFrets(50)).toEqual([9, 7, 5, 7]);
+    expect(tabFrets(50)).toEqual([9, 7, 5, 7, 7]);
+    expect(tabStrings(50)).toEqual([4, 4, 4, 4, 2]);
     expect(tabFrets(51)).toEqual([10, 12, 12, 10, 9, 7, 7, 7, 5, 5, 7, 7, 5, 5, 5]);
     expect(tabFrets(52)).toEqual([10, 12, 12, 9, 9, 7, 7, 5, 5, 7, 7, 5, 5, 5]);
     expect(tabFrets(53)).toEqual([10, 12, 10, 10, 9]);
@@ -316,6 +317,59 @@ describe('1:03 Gt.1 reference score', () => {
     }
   });
 
+  it.runIf(scoreExists)('gives every pitched note an exact TAB position and keeps omitted-print tie positions stable', () => {
+    const expected = new Map([
+      [13, [2, 8]], [14, [2, 8]], [37, [2, 8]], [38, [2, 8]], [50, [2, 7]], [63, [4, 11]]
+    ]);
+    for (const noteElement of doc.querySelectorAll('note:has(> pitch)')) {
+      expect(noteElement.querySelector(':scope > notations > technical > string')).not.toBeNull();
+      expect(noteElement.querySelector(':scope > notations > technical > fret')).not.toBeNull();
+    }
+    for (const entry of index.measures) {
+      for (const event of entry.events) {
+        for (const note of event.notes || []) {
+          expect(note.string, `measure ${entry.number} index string`).not.toBeUndefined();
+          expect(note.fret, `measure ${entry.number} index fret`).not.toBeUndefined();
+        }
+      }
+    }
+    for (const [number, [string, fret]] of expected) {
+      const candidates = [...measure(number).events.flatMap((event) => event.notes || [])]
+        .filter((note) => note.pitch && note.string === string && note.fret === fret);
+      expect(candidates.length, `measure ${number}`).toBeGreaterThan(0);
+    }
+    expect(linkedFrets(13, 'tie')).toEqual([[8, 8, 2, 2]]);
+    expect(linkedFrets(37, 'tie')).toEqual([[8, 8, 2, 2]]);
+    const d4Tie = index.links.find((link) => link.type === 'tie' && link.startEventId.startsWith('P1:m61:'));
+    expect(linkedFrets(62, 'tie')).toContainEqual([11, 11, 4, 4]);
+    expect(d4Tie).toBeTruthy();
+  });
+
+  it.runIf(scoreExists)('keeps duration, type, dots, and tuplets mathematically consistent in all 77 measures', () => {
+    const base = { whole: 96, half: 48, quarter: 24, eighth: 12, '16th': 6, '32nd': 3 };
+    for (const [noteIndex, noteElement] of [...doc.querySelectorAll('note:not(:has(> grace))')].entries()) {
+      const type = noteElement.querySelector(':scope > type')?.textContent;
+      const duration = Number(noteElement.querySelector(':scope > duration')?.textContent);
+      const dots = noteElement.querySelectorAll(':scope > dot').length;
+      let expected = base[type];
+      let addition = expected;
+      for (let dot = 0; dot < dots; dot += 1) {
+        addition /= 2;
+        expected += addition;
+      }
+      const actualNotes = Number(noteElement.querySelector(':scope > time-modification > actual-notes')?.textContent || 1);
+      const normalNotes = Number(noteElement.querySelector(':scope > time-modification > normal-notes')?.textContent || 1);
+      expected *= normalNotes / actualNotes;
+      expect(duration, `note ${noteIndex} ${type}`).toBe(expected);
+    }
+    for (const number of [22, 46]) {
+      const firstDead = doc.querySelector(`measure[number="${number}"] note:has(other-technical)`);
+      expect(firstDead.querySelector(':scope > duration')?.textContent).toBe('24');
+      expect(firstDead.querySelector(':scope > type')?.textContent).toBe('quarter');
+      expect(firstDead.querySelector(':scope > dot')).toBeNull();
+    }
+  });
+
   it('loads the built-in score only after an explicit call', async () => {
     expect(songs.loadBuiltInNellGt1).toEqual(expect.any(Function));
     if (typeof songs.loadBuiltInNellGt1 !== 'function') return;
@@ -326,6 +380,63 @@ describe('1:03 Gt.1 reference score', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(importSong).toHaveBeenCalledTimes(1);
-    expect(imported).toMatchObject({ selectedPartId: 'P1', title: '1:03', editorMode: 'musicxml-score' });
+    expect(imported).toMatchObject({
+      builtInId: 'nell-1-03-gt1', selectedPartId: 'P1', title: '1:03', editorMode: 'musicxml-score'
+    });
+  });
+
+  it('shares one in-flight built-in load across concurrent explicit actions', async () => {
+    let resolveResponse;
+    const fetchImpl = vi.fn(() => new Promise((resolve) => { resolveResponse = resolve; }));
+    const imported = { id: 'nell', title: '1:03', builtInId: 'nell-1-03-gt1' };
+    const importSong = vi.fn(() => imported);
+
+    const first = songs.loadBuiltInNellGt1({ fetchImpl, importSong });
+    const second = songs.loadBuiltInNellGt1({ fetchImpl, importSong });
+
+    expect(second).toBe(first);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    resolveResponse({ ok: true, text: async () => '<score-partwise version="4.0"/>' });
+    await expect(Promise.all([first, second])).resolves.toEqual([imported, imported]);
+    expect(importSong).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the built-in button busy and always restores it on success and error', async () => {
+    expect(songs.openBuiltInNellGt1).toEqual(expect.any(Function));
+    if (typeof songs.openBuiltInNellGt1 !== 'function') return;
+    const button = document.createElement('button');
+    let resolveLoad;
+    const loadScore = vi.fn(() => new Promise((resolve) => { resolveLoad = resolve; }));
+    const refreshUi = vi.fn();
+    const close = vi.fn();
+    const notify = vi.fn();
+    const opening = songs.openBuiltInNellGt1(button, { loadScore, refreshUi, close, notify });
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    resolveLoad({ title: '1:03' });
+    await opening;
+    expect(button.disabled).toBe(false);
+    expect(button.hasAttribute('aria-busy')).toBe(false);
+    expect(refreshUi).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+
+    const errorButton = document.createElement('button');
+    const failed = songs.openBuiltInNellGt1(errorButton, {
+      loadScore: async () => { throw new Error('broken'); }, refreshUi, close, notify
+    });
+    expect(errorButton.disabled).toBe(true);
+    expect(errorButton.getAttribute('aria-busy')).toBe('true');
+    await failed;
+    expect(errorButton.disabled).toBe(false);
+    expect(errorButton.hasAttribute('aria-busy')).toBe(false);
+    expect(notify).toHaveBeenCalledWith('broken');
+  });
+
+  it('labels the built-in action as opening an existing copy when present', () => {
+    document.body.innerHTML = '<div id="songList"></div>';
+    songs.renderSongList();
+    const action = document.querySelector('[data-act="built-in-nell"]');
+    expect(action.textContent).toContain('열기');
+    expect(action.textContent).toContain('기존 곡');
   });
 });

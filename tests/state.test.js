@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
   listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
-  KEY_V4, canEditCurrentSong, importMusicXmlSong, toDoc
+  KEY_V4, canEditCurrentSong, importMusicXmlSong, sanitizeV4Doc, toDoc
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
@@ -472,6 +472,82 @@ describe('곡 관리', () => {
     })).toThrow(/저장|storage/i);
     expect(JSON.stringify(toDoc())).toBe(beforeDoc);
     expect(library.currentId).toBe(beforeCurrent);
+    expect(backing[KEY_V4]).toBe(beforeStored);
+  });
+
+  it('persists and sanitizes a stable built-in source identifier', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const song = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    expect(song.builtInId).toBe('nell-1-03-gt1');
+    expect(JSON.parse(st.getItem(KEY_V4)).songs[song.id].builtInId).toBe('nell-1-03-gt1');
+
+    const valid = toDoc();
+    valid.songs[song.id].builtInId = 42;
+    expect(sanitizeV4Doc(valid, 1).songs[song.id].builtInId).toBeUndefined();
+  });
+
+  it('selects an existing built-in song instead of importing a sequential duplicate', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const first = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    createSong('Other');
+    const countBefore = library.order.length;
+
+    const second = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+
+    expect(second).toBe(first);
+    expect(library.order).toHaveLength(countBefore);
+    expect(library.currentId).toBe(first.id);
+    expect(state.viewMode).toBe('score');
+    expect(listSongs().filter((song) => song.builtInId === 'nell-1-03-gt1')).toHaveLength(1);
+  });
+
+  it('rolls back current song and storage when selecting an existing built-in fails to persist', () => {
+    const backing = {};
+    let failWrites = false;
+    const storage = {
+      getItem(key) { return backing[key] ?? null; },
+      setItem(key, value) {
+        if (failWrites) throw new DOMException('quota', 'QuotaExceededError');
+        backing[key] = String(value);
+      },
+      removeItem(key) { delete backing[key]; }
+    };
+    useStorage(storage);
+    load();
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    const other = createSong('Other');
+    const beforeDoc = JSON.stringify(toDoc());
+    const beforeStored = backing[KEY_V4];
+    failWrites = true;
+
+    expect(() => importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    })).toThrow(/저장|storage/i);
+    expect(library.currentId).toBe(other.id);
+    expect(JSON.stringify(toDoc())).toBe(beforeDoc);
     expect(backing[KEY_V4]).toBe(beforeStored);
   });
 });

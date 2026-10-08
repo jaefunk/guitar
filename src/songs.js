@@ -53,31 +53,64 @@ export function renderSongList() {
   open.dataset.act = 'built-in-nell';
   const label = document.createElement('div');
   label.className = 'l';
-  label.textContent = '1:03 — Gt.1 전문 TAB';
+  label.textContent = '1:03 — Gt.1 전문 TAB 열기';
   const description = document.createElement('div');
   description.className = 'd';
-  description.textContent = '내장 MusicXML · 77마디 · BPM 84';
+  description.textContent = '처음 추가, 이후 기존 곡 열기 · 77마디 · BPM 84';
   open.append(label, description);
   builtIn.appendChild(open);
   list.appendChild(builtIn);
 }
 
-/** 사용자가 명시적으로 선택했을 때만 내장 Gt.1 MusicXML을 읽어 새 곡으로 추가한다. */
-export async function loadBuiltInNellGt1({ fetchImpl = fetch, importSong = importMusicXmlSong } = {}) {
-  const response = await fetchImpl(new URL('../songs/nell-1-03-gt1.musicxml', import.meta.url));
-  if (!response?.ok) throw new Error('내장 1:03 악보를 읽지 못했습니다');
-  const xml = await response.text();
-  return importSong({ xml, selectedPartId: 'P1', title: '1:03', editorMode: 'musicxml-score' });
+const BUILT_IN_NELL_GT1_ID = 'nell-1-03-gt1';
+let builtInNellGt1Promise = null;
+
+/** 사용자가 명시적으로 선택했을 때만 내장 Gt.1 MusicXML을 읽어 추가하거나 기존 곡을 연다. */
+export function loadBuiltInNellGt1({ fetchImpl = fetch, importSong = importMusicXmlSong } = {}) {
+  if (builtInNellGt1Promise) return builtInNellGt1Promise;
+  const loading = (async () => {
+    const response = await fetchImpl(new URL('../songs/nell-1-03-gt1.musicxml', import.meta.url));
+    if (!response?.ok) throw new Error('내장 1:03 악보를 읽지 못했습니다');
+    const xml = await response.text();
+    return importSong({
+      xml,
+      builtInId: BUILT_IN_NELL_GT1_ID,
+      selectedPartId: 'P1',
+      title: '1:03',
+      editorMode: 'musicxml-score'
+    });
+  })();
+  const shared = loading.finally(() => {
+    if (builtInNellGt1Promise === shared) builtInNellGt1Promise = null;
+  });
+  builtInNellGt1Promise = shared;
+  return shared;
 }
 
-async function openBuiltInNellGt1() {
+export async function openBuiltInNellGt1(button, {
+  loadScore = loadBuiltInNellGt1,
+  refreshUi = refreshSongUI,
+  close = () => { $('songsModal').hidden = true; },
+  notify = toast
+} = {}) {
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  }
   try {
-    const song = await loadBuiltInNellGt1();
-    refreshSongUI();
-    $('songsModal').hidden = true;
-    toast(`"${songLabel(song)}" 불러옴`);
+    const song = await loadScore();
+    refreshUi();
+    close();
+    notify(`"${songLabel(song)}" 열림`);
+    return song;
   } catch (error) {
-    toast(error?.message || '내장 악보를 불러오지 못했습니다');
+    notify(error?.message || '내장 악보를 불러오지 못했습니다');
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
   }
 }
 
@@ -133,7 +166,7 @@ export function bindSongs() {
   $('newSong').addEventListener('click', newSong);
   $('songList').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.act === 'built-in-nell') { openBuiltInNellGt1(); return; }
+    if (b.dataset.act === 'built-in-nell') { openBuiltInNellGt1(b); return; }
     const id = b.closest('.song').dataset.id;
     if (b.dataset.act === 'open') openSong(id); else songMenu(id);
   });

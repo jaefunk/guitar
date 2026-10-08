@@ -240,6 +240,9 @@ function sanitizeV4Song(value, id, now) {
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : timestamp,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : timestamp
   };
+  if (typeof value.builtInId === 'string' && value.builtInId.trim()) {
+    song.builtInId = value.builtInId.trim();
+  }
   projection.title = song.title;
   return attachLegacyProjection(song, sanitizeSong({ ...projection, id, createdAt: song.createdAt, updatedAt: song.updatedAt }, now));
 }
@@ -394,6 +397,7 @@ export function toDoc() {
       createdAt: song.createdAt,
       updatedAt: song.updatedAt
     };
+    if (song.builtInId) songs[id].builtInId = song.builtInId;
   });
   return { v: 4, songs, order: library.order.slice(), currentId: library.currentId, settings };
 }
@@ -506,7 +510,35 @@ export function persistCurrentScoreMusicXml(xml) {
 }
 
 /** 검증된 외부 MusicXML을 새 곡으로 한 번에 추가하고 활성화한다. */
-export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode = 'musicxml-score' }) {
+export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode = 'musicxml-score', builtInId = '' }) {
+  const normalizedBuiltInId = typeof builtInId === 'string' ? builtInId.trim() : '';
+  const existing = normalizedBuiltInId
+    ? listSongs().find((song) => song.builtInId === normalizedBuiltInId)
+    : null;
+  if (existing) {
+    flush();
+    const beforeDoc = toDoc();
+    const st = getStorage();
+    let beforeStored = null;
+    try { beforeStored = st?.getItem(KEY_V4) ?? null; } catch (error) {
+      throw new Error('MusicXML 저장소를 읽지 못했습니다', { cause: error });
+    }
+    try {
+      activate(existing.id);
+      state.viewMode = 'score';
+      save({ throwOnError: true });
+      return library.songs[existing.id];
+    } catch (error) {
+      applyDoc(sanitizeV4Doc(beforeDoc, Date.now(), false));
+      if (st) {
+        try {
+          if (beforeStored === null) st.removeItem?.(KEY_V4);
+          else st.setItem(KEY_V4, beforeStored);
+        } catch (restoreError) { /* setItem은 원자적이므로 일반적으로 기존 값이 그대로다. */ }
+      }
+      throw error;
+    }
+  }
   const doc = parseMusicXml(xml);
   const selectedPart = [...doc.documentElement.children]
     .find((node) => node.localName === 'part' && node.getAttribute('id') === selectedPartId);
@@ -522,6 +554,7 @@ export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode
     musicxml: normalizedXml,
     selectedPartId,
     editorMode,
+    builtInId: normalizedBuiltInId,
     createdAt: timestamp,
     updatedAt: timestamp
   }, id, timestamp);
