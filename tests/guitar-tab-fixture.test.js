@@ -33,7 +33,14 @@ describe('Guitar/TAB MusicXML 4.0 comprehensive fixture', () => {
     expect(doc.querySelector('part[id="P1"]')).not.toBeNull();
     expect(texts(doc, 'attributes > staves')).toContain('2');
     expect(texts(doc, 'clef > sign')).toEqual(expect.arrayContaining(['G', 'TAB']));
-    expect(doc.querySelectorAll('staff-details[number="2"] staff-tuning')).toHaveLength(6);
+    const initialTab = [...doc.querySelectorAll('staff-details[number="2"]')]
+      .find((node) => node.querySelector('capo'));
+    expect(initialTab).not.toBeUndefined();
+    expect(initialTab.querySelectorAll('staff-tuning')).toHaveLength(6);
+    const dropD = [...doc.querySelectorAll('staff-details[number="2"]')]
+      .find((node) => node.querySelector('staff-tuning[line="6"] > tuning-step')?.textContent.trim() === 'D');
+    expect(dropD).not.toBeUndefined();
+    expect(dropD.querySelector('staff-tuning[line="6"] > tuning-octave')?.textContent.trim()).toBe('2');
   });
 
   it('exposes every feature section through stable rehearsal labels', () => {
@@ -75,9 +82,19 @@ describe('Guitar/TAB MusicXML 4.0 comprehensive fixture', () => {
       ['wavy-line[type="start"]', 'wavy-line[type="stop"]']
     ];
     for (const [startSelector, stopSelector] of pairs) {
-      const starts = [...doc.querySelectorAll(startSelector)].map((node) => node.getAttribute('number') || '1');
-      const stops = [...doc.querySelectorAll(stopSelector)].map((node) => node.getAttribute('number') || '1');
+      const startNodes = [...doc.querySelectorAll(startSelector)];
+      const stopNodes = [...doc.querySelectorAll(stopSelector)];
+      expect(startNodes.length, `${startSelector} must have a start`).toBeGreaterThan(0);
+      const starts = startNodes.map((node) => node.getAttribute('number') || '1');
+      const stops = stopNodes.map((node) => node.getAttribute('number') || '1');
       expect(stops, `${startSelector} / ${stopSelector}`).toEqual(starts);
+      if (stopNodes.length !== startNodes.length) continue;
+      for (const [index, startNode] of startNodes.entries()) {
+        expect(
+          Boolean(startNode.compareDocumentPosition(stopNodes[index]) & Node.DOCUMENT_POSITION_FOLLOWING),
+          `${startSelector} / ${stopSelector} pair ${index + 1} order`
+        ).toBe(true);
+      }
     }
   });
 
