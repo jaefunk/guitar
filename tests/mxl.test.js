@@ -25,7 +25,23 @@ describe('MXL packaging', () => {
   });
 
   it('round-trips the default MusicXML root file', () => {
-    expect(unpackMxl(packMxl(score))).toBe(score);
+    expect(unpackMxl(packMxl(score))).toEqual({
+      path: 'score.musicxml',
+      xml: score
+    });
+  });
+
+  it('round-trips an exact ArrayBuffer slice of the packed bytes', () => {
+    const packed = packMxl(score, 'scores/guitar.musicxml');
+    const buffer = packed.buffer.slice(
+      packed.byteOffset,
+      packed.byteOffset + packed.byteLength
+    );
+
+    expect(unpackMxl(buffer)).toEqual({
+      path: 'scores/guitar.musicxml',
+      xml: score
+    });
   });
 });
 
@@ -52,7 +68,10 @@ describe('MXL validation', () => {
       'score.musicxml': score
     });
 
-    expect(unpackMxl(bytes)).toBe(score);
+    expect(unpackMxl(bytes)).toEqual({
+      path: 'score.musicxml',
+      xml: score
+    });
   });
 
   it('rejects a rootfile declaration whose score entry is missing', () => {

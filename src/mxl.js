@@ -68,7 +68,8 @@ export function packMxl(xml, path = 'score.musicxml') {
 export function unpackMxl(bytes) {
   let entries;
   try {
-    entries = unzipSync(bytes);
+    const archiveBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    entries = unzipSync(archiveBytes);
   } catch (error) {
     throw new Error('Invalid MXL archive', { cause: error });
   }
@@ -80,5 +81,8 @@ export function unpackMxl(bytes) {
   const score = entries[path];
   if (!score) throw new Error(`MXL archive is missing root score: ${path}`);
 
-  return strFromU8(score);
+  return {
+    path,
+    xml: strFromU8(score)
+  };
 }
