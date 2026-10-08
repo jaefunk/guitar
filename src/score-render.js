@@ -104,6 +104,10 @@ function drawEvents(svg, layout, selectedEventId) {
       append(group, 'text', { class: 'score-chord', x: event.chord.x, y: event.chord.y }, event.chord.text);
     }
     if (event.kind === 'rest') {
+      append(group, 'rect', {
+        class: 'score-event-rest-target', x: event.x - 10, y: event.y - 10,
+        width: 20, height: 20, rx: 4
+      });
       append(group, 'text', { class: 'score-rest', x: event.x, y: event.y + 4 }, event.label);
     }
     for (const note of event.notes) {
@@ -225,12 +229,14 @@ function bindEventSelection(svg, eventInfo, onSelect) {
     if (!group || !svg.contains(group)) return;
     if (domEvent.key === 'Enter' || domEvent.key === ' ') {
       domEvent.preventDefault();
+      domEvent.stopPropagation();
       selectRenderedEvent(svg, group.dataset.eventId, eventInfo, onSelect);
       return;
     }
     const direction = ({ ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 })[domEvent.key];
     if (!direction) return;
     domEvent.preventDefault();
+    domEvent.stopPropagation();
     const groups = [...svg.querySelectorAll('[data-event-id]')];
     const current = groups.indexOf(group);
     const next = Math.max(0, Math.min(groups.length - 1, current + direction));
@@ -390,17 +396,20 @@ export function createScoreWorkspaceController({
     diagnostics.appendChild(message);
     renderScoreInspector(inspector, null);
     lastResult = null;
+    onRendered?.({ result: null, error });
     return null;
   };
 
-  const renderAt = (width, force = false) => {
+  const renderAt = (width, force = false, preserveOnError = false) => {
     try {
       const { doc, index, key } = readIndex();
       if (!force && key === renderedKey && width === renderedWidth) return lastResult;
       let selectedEvent = null;
+      const stagedCanvas = document.createElement('div');
+      const stagedDiagnostics = document.createElement('div');
       const layout = renderIndexedScore({
-        canvas,
-        diagnostics,
+        canvas: stagedCanvas,
+        diagnostics: stagedDiagnostics,
         index,
         onMeasure,
         options: {
@@ -424,6 +433,9 @@ export function createScoreWorkspaceController({
           };
         }
       }
+      canvas.replaceChildren(...stagedCanvas.childNodes);
+      diagnostics.replaceChildren(...stagedDiagnostics.childNodes);
+      diagnostics.removeAttribute('role');
       renderScoreInspector(inspector, selectedEvent);
       renderedKey = key;
       renderedWidth = width;
@@ -431,6 +443,7 @@ export function createScoreWorkspaceController({
       onRendered?.({ width, ...lastResult });
       return lastResult;
     } catch (error) {
+      if (preserveOnError) return lastResult;
       return showError(error);
     }
   };
@@ -449,7 +462,7 @@ export function createScoreWorkspaceController({
       cancelFrame(frameId);
       frameId = null;
     }
-    renderAt(PRINT_LAYOUT_WIDTH, true);
+    renderAt(PRINT_LAYOUT_WIDTH, true, true);
   };
   const afterPrint = () => {
     printing = false;

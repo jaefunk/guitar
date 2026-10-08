@@ -137,6 +137,7 @@ function bind() {
   $('fbClear').addEventListener('click', clearColumn);
 
   document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented) return;
     const t = e.target, tag = t && t.tagName;
     if (anyModalOpen()) {
       if (e.key === 'Escape') { e.preventDefault(); closeModals(); }
@@ -254,7 +255,10 @@ function boot() {
     getSong: currentSong,
     getScreenWidth: scoreWidth,
     onMeasure: scrollToScoreMeasure,
-    onRendered: ({ index }) => { renderMeasureNavigation(index); }
+    onRendered: (result) => {
+      if (result?.index) renderMeasureNavigation(result.index);
+      else $('measureNav').querySelector('.measure-nav-list').replaceChildren();
+    }
   });
   const t = $('tuning');
   Object.keys(TUNINGS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = TUNINGS[k].name; t.appendChild(o); });

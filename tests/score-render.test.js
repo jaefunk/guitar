@@ -79,13 +79,17 @@ describe('professional score SVG renderer', () => {
     expect(events[0].tabIndex).toBe(-1);
     expect(onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: events[1].dataset.eventId }));
 
-    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const globalShortcut = vi.fn();
+    document.addEventListener('keydown', globalShortcut);
+    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     expect(onSelect).toHaveBeenCalledTimes(2);
-    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
     expect(onSelect).toHaveBeenCalledTimes(3);
-    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    events[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
     expect(events[2].classList.contains('selected')).toBe(true);
     expect(events[2].tabIndex).toBe(0);
+    expect(globalShortcut).not.toHaveBeenCalled();
+    document.removeEventListener('keydown', globalShortcut);
   });
 
   it('gives rest events a useful accessible name', () => {
@@ -97,7 +101,11 @@ describe('professional score SVG renderer', () => {
 
     renderScoreSvg(host, index, { width: 400 });
 
-    expect(host.querySelector('[data-event-id]').getAttribute('aria-label')).toMatch(/7마디.*쉼표/);
+    const restEvent = host.querySelector('[data-event-id]');
+    expect(restEvent.getAttribute('aria-label')).toMatch(/7마디.*쉼표/);
+    expect(restEvent.querySelector('.score-event-rest-target')).not.toBeNull();
+    restEvent.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(restEvent.classList.contains('selected')).toBe(true);
   });
 
   it('writes score labels as text instead of parsing markup', () => {
@@ -285,6 +293,75 @@ describe('professional score SVG renderer', () => {
     controller.scheduleScreenRender();
     queuedFrame();
     expect(renderedWidths).toEqual([1120, 900]);
+    controller.destroy();
+  });
+
+  it('keeps the live screen SVG and selection when A4 print layout is too narrow', () => {
+    const { canvas, diagnostics, inspector } = hosts();
+    const denseIndex = {
+      partId: 'P1', links: [], diagnostics: [], playbackMeasures: [0],
+      measures: [{
+        number: '1', divisions: 4, beats: 4, beatType: 4,
+        events: Array.from({ length: 30 }, (_, offset) => ({
+          id: `dense-${offset}`, kind: 'notes', onset: { n: offset, d: 8 }, duration: { n: 1, d: 8 },
+          notes: [{ string: 1, fret: offset % 20 }]
+        }))
+      }]
+    };
+    const rendered = [];
+    const controller = createScoreWorkspaceController({
+      canvas, diagnostics, inspector,
+      getSong: () => ({ musicxml: 'dense', selectedPartId: 'P1' }),
+      getScreenWidth: () => 1120,
+      parse: () => ({}), buildIndex: () => denseIndex,
+      onRendered: (result) => { rendered.push(result); }
+    });
+    controller.renderScreen();
+    const selected = canvas.querySelectorAll('[data-event-id]')[4];
+    selected.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const selectedId = selected.dataset.eventId;
+
+    window.dispatchEvent(new Event('beforeprint'));
+
+    expect(canvas.querySelector('svg').getAttribute('viewBox')).toMatch(/^0 0 1120 /);
+    expect(canvas.querySelector('.selected')?.dataset.eventId).toBe(selectedId);
+    expect(diagnostics.getAttribute('role')).not.toBe('alert');
+    expect(rendered).toHaveLength(1);
+
+    window.dispatchEvent(new Event('afterprint'));
+    expect(canvas.querySelector('svg').getAttribute('viewBox')).toMatch(/^0 0 1120 /);
+    expect(canvas.querySelector('.selected')?.dataset.eventId).toBe(selectedId);
+    controller.destroy();
+  });
+
+  it('reports normal render failure so stale measure navigation can be cleared', () => {
+    const { canvas, diagnostics, inspector } = hosts();
+    const nav = document.createElement('div');
+    let song = { musicxml: techniquesXml, selectedPartId: 'P1' };
+    const notifications = [];
+    const controller = createScoreWorkspaceController({
+      canvas, diagnostics, inspector,
+      getSong: () => song,
+      getScreenWidth: () => 1120,
+      onRendered: (result) => {
+        notifications.push(result);
+        nav.replaceChildren();
+        for (const measure of result?.index?.measures || []) {
+          const button = document.createElement('button');
+          button.textContent = measure.number;
+          nav.appendChild(button);
+        }
+      }
+    });
+    controller.renderScreen();
+    expect(nav.querySelectorAll('button').length).toBeGreaterThan(0);
+    song = { musicxml: '<score-partwise>', selectedPartId: 'P1' };
+
+    controller.renderScreen();
+
+    expect(nav.childElementCount).toBe(0);
+    expect(notifications.at(-1)).toMatchObject({ result: null, error: expect.any(Error) });
+    expect(diagnostics.getAttribute('role')).toBe('alert');
     controller.destroy();
   });
 });

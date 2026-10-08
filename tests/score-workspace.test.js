@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
 const css = readFileSync(join(process.cwd(), 'styles.css'), 'utf8');
+const main = readFileSync(join(process.cwd(), 'src', 'main.js'), 'utf8');
 
 describe('professional score workspace shell', () => {
   it('keeps the legacy grid and adds all stable score regions and mode controls', () => {
@@ -27,5 +28,9 @@ describe('professional score workspace shell', () => {
     expect(css).toMatch(/#scoreWorkspace[^}]*width:\s*186mm/);
     expect(css).toMatch(/\.top[^}]*display:\s*none/);
     expect(css).toMatch(/body\.score-mode[^}]*--padH:\s*0px[^}]*padding-bottom:\s*0/);
+  });
+
+  it('does not run legacy global shortcuts for an already handled score key', () => {
+    expect(main).toMatch(/addEventListener\('keydown',[\s\S]*?if\s*\(e\.defaultPrevented\)\s*return/);
   });
 });
