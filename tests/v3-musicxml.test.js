@@ -37,6 +37,18 @@ describe('v3 grid to MusicXML 4.0', () => {
     expect(doc.querySelector('time')?.textContent.replace(/\s/g, '')).toBe('44');
     expect(doc.querySelector('clef sign')?.textContent).toBe('TAB');
     expect(doc.querySelectorAll('staff-tuning')).toHaveLength(6);
+    expect([...doc.querySelectorAll('staff-tuning')].map((tuning) => ({
+      line: Number(tuning.getAttribute('line')),
+      step: tuning.querySelector('tuning-step')?.textContent,
+      octave: Number(tuning.querySelector('tuning-octave')?.textContent)
+    }))).toEqual([
+      { line: 1, step: 'E', octave: 2 },
+      { line: 2, step: 'A', octave: 2 },
+      { line: 3, step: 'D', octave: 3 },
+      { line: 4, step: 'G', octave: 3 },
+      { line: 5, step: 'B', octave: 3 },
+      { line: 6, step: 'E', octave: 4 }
+    ]);
   });
 
   it('emits one complete measure per legacy measure and rests for empty slots', () => {

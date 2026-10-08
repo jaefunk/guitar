@@ -85,7 +85,7 @@ function noteXml(value, stringIndex, chord, stopTypes, tuningMidi) {
 }
 
 function attributesXml() {
-  const tunings = [64, 59, 55, 50, 45, 40].map((midi, index) => {
+  const tunings = [40, 45, 50, 55, 59, 64].map((midi, index) => {
     const [step, alter] = PITCHES[midi % 12];
     const octave = Math.floor(midi / 12) - 1;
     return `<staff-tuning line="${index + 1}"><tuning-step>${step}</tuning-step>` +
