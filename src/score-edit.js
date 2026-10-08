@@ -579,9 +579,11 @@ function addTechnique(doc, note, type, action, number) {
 function noteTimeline(part) {
   const result = [];
   let order = 0;
+  let onsetOrder = -1;
   children(part, 'measure').forEach((measure, measureIndex) => {
     children(measure, 'note').forEach((note, sourcePosition) => {
-      result.push({ note, measureIndex, sourcePosition, order: order++ });
+      if (!child(note, 'chord')) onsetOrder += 1;
+      result.push({ note, measureIndex, sourcePosition, order: order++, onsetOrder });
     });
   });
   return result;
@@ -590,13 +592,14 @@ function noteTimeline(part) {
 function tieSignature(note) {
   const voice = child(note, 'voice')?.textContent?.trim() || '1';
   const midi = pitchMidi(child(note, 'pitch'));
-  const string = numericText(child(descendants(note, 'technical')[0], 'string'));
-  return `${voice}:${midi ?? 'unknown'}:${string ?? 'unknown'}`;
+  return `${voice}:${midi ?? 'unknown'}`;
 }
 
 function logicalTieEndpoints(entry) {
   const endpoints = [];
-  for (const action of ['start', 'stop']) {
+  // A continuation note may stop one tie and start the next. Stop must be
+  // consumed first so the direct-only state machine never sees two active ties.
+  for (const action of ['stop', 'start']) {
     const tied = descendants(entry.note, 'tied').filter((node) => node.getAttribute('type') === action);
     const direct = children(entry.note, 'tie').filter((node) => node.getAttribute('type') === action);
     if (tied.length) {
@@ -656,6 +659,7 @@ function techniqueInventory(part, requestedType = null) {
   const malformedNumbers = new Set();
   const endpoints = [];
   const stacks = new Map();
+  const directTieStates = new Map();
   for (const entry of noteTimeline(part)) {
     for (const type of (requestedType ? [requestedType] : ['hammer-on', 'pull-off', 'slide', 'tie'])) {
       for (const endpoint of logicalTechniqueEndpoints(entry, type)) {
@@ -666,9 +670,26 @@ function techniqueInventory(part, requestedType = null) {
           malformedNumbers.add(number);
           continue;
         }
-        const key = endpoint.directOnly
-          ? `${type}:${number}:${tieSignature(entry.note)}`
-          : `${type}:${number}`;
+        if (endpoint.directOnly) {
+          const key = `${type}:${tieSignature(entry.note)}`;
+          const active = directTieStates.get(key);
+          if (action === 'start') {
+            if (active) {
+              malformedNumbers.add(number);
+              directTieStates.set(key, { ambiguous: true });
+            } else {
+              directTieStates.set(key, endpoint);
+            }
+          } else if (active && !active.ambiguous) {
+            pairs.push({ type, number, start: active, end: endpoint });
+            directTieStates.delete(key);
+          } else {
+            malformedNumbers.add(number);
+            directTieStates.delete(key);
+          }
+          continue;
+        }
+        const key = `${type}:${number}`;
         const stack = stacks.get(key) || [];
         if (action === 'start') {
           stack.push(endpoint);
@@ -684,6 +705,7 @@ function techniqueInventory(part, requestedType = null) {
   for (const [key, stack] of stacks) {
     if (stack.length) malformedNumbers.add(key.split(':')[1]);
   }
+  if (directTieStates.size) malformedNumbers.add('1');
   return { pairs, malformedNumbers, endpoints };
 }
 

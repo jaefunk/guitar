@@ -412,12 +412,13 @@ describe('MusicXML score commands', () => {
     expect(buildScoreIndex(doc, 'P1').links).toHaveLength(1);
   });
 
-  it('pairs direct-only ties safely across measures and removes both direct and tied forms once', () => {
-    const directOnly = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure><measure number="2"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+  it('pairs cross-string direct-only ties safely across measures and removes both direct and tied forms once', () => {
+    const directOnly = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure><measure number="2"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><notations><technical><string>2</string><fret>5</fret></technical></notations></note></measure></part></score-partwise>`);
     const directIndex = buildScoreIndex(directOnly, 'P1');
     const start = directIndex.measures[0].events[0].id;
     const end = directIndex.measures[1].events[0].id;
     const before = serializeMusicXml(directOnly);
+    expect(() => setStringCommand(directOnly, 'P1', start, 1)).not.toThrow();
     expect(() => setFretCommand(directOnly, 'P1', start, 1)).toThrow(/tie|pitch/i);
     expect(serializeMusicXml(directOnly)).toBe(before);
 
@@ -436,6 +437,19 @@ describe('MusicXML score commands', () => {
     expect(restCommand.measures).toEqual([0]);
     createHistory().execute(restCommand);
     expect(bothForms.querySelectorAll('tie, tied')).toHaveLength(0);
+  });
+
+  it('rejects genuinely ambiguous direct-only tie starts atomically', () => {
+    const doc = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>2</string><fret>5</fret></technical></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+    const first = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const before = serializeMusicXml(doc);
+    expect(() => setFretCommand(doc, 'P1', first, 0)).toThrow(/ambiguous|malformed|technique/i);
+    expect(serializeMusicXml(doc)).toBe(before);
+
+    const chain = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><tie type="start"/><voice>1</voice><type>quarter</type><notations><technical><string>2</string><fret>5</fret></technical></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/><voice>1</voice><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+    const middle = buildScoreIndex(chain, 'P1').measures[0].events[1].id;
+    expect(() => setStringCommand(chain, 'P1', middle, 2)).not.toThrow();
+    expect(() => setFretCommand(chain, 'P1', middle, 6)).toThrow(/tie|pitch/i);
   });
 
   it('rejects fret/string edits that would break linked technique invariants', () => {
