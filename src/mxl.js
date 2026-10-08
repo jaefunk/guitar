@@ -1,8 +1,13 @@
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { strToU8, unzipSync, zipSync } from 'fflate';
 
 const CONTAINER_PATH = 'META-INF/container.xml';
 const MXL_MIME_TYPE = 'application/vnd.recordare.musicxml';
 const MUSICXML_MIME_TYPE = 'application/vnd.recordare.musicxml+xml';
+const MAX_ARCHIVE_BYTES = 16 * 1024 * 1024;
+const MAX_ENTRY_COUNT = 64;
+const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
+const MAX_CONTAINER_BYTES = 256 * 1024;
+const MAX_ROOT_SCORE_BYTES = 8 * 1024 * 1024;
 
 function assertSafeRootPath(path) {
   if (typeof path !== 'string' || !path || path.includes('\\') || path.includes('\0')) {
@@ -13,6 +18,11 @@ function assertSafeRootPath(path) {
   if (path.startsWith('/') || /^[a-zA-Z]:/.test(path)
     || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
     throw new Error('Invalid MXL root path');
+  }
+
+  const normalized = path.normalize('NFC').toLowerCase();
+  if (normalized === 'mimetype' || normalized === CONTAINER_PATH.toLowerCase()) {
+    throw new Error('MXL root path is reserved for package metadata');
   }
 }
 
@@ -33,6 +43,14 @@ function containerXml(path) {
 </container>`;
 }
 
+function decodeUtf8(bytes, label) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`MXL ${label} is not valid UTF-8`, { cause: error });
+  }
+}
+
 function parseRootPath(xml) {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const root = doc.documentElement;
@@ -46,13 +64,47 @@ function parseRootPath(xml) {
     throw new Error('Invalid MXL container XML');
   }
 
-  const rootfile = Array.from(root.getElementsByTagName('*'))
+  const rootfiles = Array.from(root.children)
+    .find((element) => element.localName === 'rootfiles');
+  const rootfile = Array.from(rootfiles?.children || [])
     .find((element) => element.localName === 'rootfile');
   const path = rootfile?.getAttribute('full-path');
   if (!path) throw new Error('MXL container is missing a rootfile path');
+  if (rootfile.hasAttribute('media-type')
+    && rootfile.getAttribute('media-type') !== MUSICXML_MIME_TYPE) {
+    throw new Error('MXL rootfile has an invalid media-type');
+  }
 
   assertSafeRootPath(path);
   return path;
+}
+
+function unzipSelected(archiveBytes, selectedPath, selectedLimit, label) {
+  let entryCount = 0;
+  let selected = false;
+
+  try {
+    return unzipSync(archiveBytes, {
+      filter(entry) {
+        entryCount += 1;
+        if (entryCount > MAX_ENTRY_COUNT) {
+          throw new Error(`MXL entry count exceeds limit of ${MAX_ENTRY_COUNT}`);
+        }
+        if (entry.originalSize > MAX_ENTRY_BYTES) {
+          throw new Error(`MXL entry size exceeds limit: ${entry.name}`);
+        }
+        if (entry.name !== selectedPath) return false;
+        if (selected) throw new Error(`MXL archive contains duplicate ${label}`);
+        if (entry.originalSize > selectedLimit) {
+          throw new Error(`MXL ${label} size exceeds limit`);
+        }
+        selected = true;
+        return true;
+      }
+    });
+  } catch (error) {
+    throw new Error(`Invalid MXL archive: ${error.message}`, { cause: error });
+  }
 }
 
 export function packMxl(xml, path = 'score.musicxml') {
@@ -66,23 +118,37 @@ export function packMxl(xml, path = 'score.musicxml') {
 }
 
 export function unpackMxl(bytes) {
-  let entries;
+  let archiveBytes;
   try {
-    const archiveBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    entries = unzipSync(archiveBytes);
+    archiveBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   } catch (error) {
     throw new Error('Invalid MXL archive', { cause: error });
   }
+  if (archiveBytes.byteLength > MAX_ARCHIVE_BYTES) {
+    throw new Error(`MXL archive size exceeds limit of ${MAX_ARCHIVE_BYTES} bytes`);
+  }
 
-  const container = entries[CONTAINER_PATH];
+  const containerEntries = unzipSelected(
+    archiveBytes,
+    CONTAINER_PATH,
+    MAX_CONTAINER_BYTES,
+    'container'
+  );
+  const container = containerEntries[CONTAINER_PATH];
   if (!container) throw new Error('MXL archive is missing META-INF/container.xml');
 
-  const path = parseRootPath(strFromU8(container));
-  const score = entries[path];
+  const path = parseRootPath(decodeUtf8(container, 'container'));
+  const scoreEntries = unzipSelected(
+    archiveBytes,
+    path,
+    MAX_ROOT_SCORE_BYTES,
+    'root score'
+  );
+  const score = scoreEntries[path];
   if (!score) throw new Error(`MXL archive is missing root score: ${path}`);
 
   return {
     path,
-    xml: strFromU8(score)
+    xml: decodeUtf8(score, 'root score')
   };
 }
