@@ -16,17 +16,18 @@ function finitePositive(value, fallback) {
 }
 
 function optionsWithDefaults(options) {
+  const source = options || {};
   return {
-    width: finitePositive(options.width, DEFAULTS.width),
-    minMeasureWidth: finitePositive(options.minMeasureWidth, DEFAULTS.minMeasureWidth),
-    leftPadding: finitePositive(options.leftPadding, DEFAULTS.leftPadding),
-    rightPadding: finitePositive(options.rightPadding, DEFAULTS.rightPadding),
-    columnWidth: finitePositive(options.columnWidth, DEFAULTS.columnWidth),
-    staffGap: finitePositive(options.staffGap, DEFAULTS.staffGap),
-    systemGap: finitePositive(options.systemGap, DEFAULTS.systemGap),
-    systemTopPadding: finitePositive(options.systemTopPadding, DEFAULTS.systemTopPadding),
-    systemBottomPadding: finitePositive(options.systemBottomPadding, DEFAULTS.systemBottomPadding),
-    techniqueLaneHeight: finitePositive(options.techniqueLaneHeight, DEFAULTS.techniqueLaneHeight)
+    width: finitePositive(source.width, DEFAULTS.width),
+    minMeasureWidth: finitePositive(source.minMeasureWidth, DEFAULTS.minMeasureWidth),
+    leftPadding: finitePositive(source.leftPadding, DEFAULTS.leftPadding),
+    rightPadding: finitePositive(source.rightPadding, DEFAULTS.rightPadding),
+    columnWidth: finitePositive(source.columnWidth, DEFAULTS.columnWidth),
+    staffGap: finitePositive(source.staffGap, DEFAULTS.staffGap),
+    systemGap: finitePositive(source.systemGap, DEFAULTS.systemGap),
+    systemTopPadding: finitePositive(source.systemTopPadding, DEFAULTS.systemTopPadding),
+    systemBottomPadding: finitePositive(source.systemBottomPadding, DEFAULTS.systemBottomPadding),
+    techniqueLaneHeight: finitePositive(source.techniqueLaneHeight, DEFAULTS.techniqueLaneHeight)
   };
 }
 
@@ -118,21 +119,101 @@ function eventDots(event) {
   return Number.isInteger(count) && count > 0 ? count : 0;
 }
 
-function endingRecords(measure, layout, options) {
-  const endings = measure.endings || [];
+function endingNumbers(number) {
+  return String(number || '').split(/[\s,]+/).filter(Boolean);
+}
+
+function measureEndingMarkers(measure) {
+  const markers = [
+    ...(measure.endings || []),
+    ...(measure.barlines || []).flatMap((barline) => barline.ending ? [barline.ending] : [])
+  ];
   const seen = new Set();
-  return endings.flatMap((ending) => {
-    const key = `${ending.number}:${ending.type}`;
+  return markers.flatMap((marker) => endingNumbers(marker.number).flatMap((number) => {
+    const key = `${number}:${marker.type}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{
-      number: String(ending.number),
-      type: ending.type,
-      x1: layout.x,
-      x2: layout.x + layout.width,
-      y: layout.staffTop - options.techniqueLaneHeight * 2
-    }];
+    return [{ number, type: marker.type }];
+  }));
+}
+
+function pairEndingSpans(sourceMeasures) {
+  const active = new Map();
+  const spans = [];
+  let order = 0;
+  sourceMeasures.forEach((measure, measureIndex) => {
+    for (const marker of measureEndingMarkers(measure)) {
+      const stack = active.get(marker.number) || [];
+      if (marker.type === 'start') {
+        stack.push({ number: marker.number, startMeasureIndex: measureIndex, order: order += 1 });
+        active.set(marker.number, stack);
+      } else if (marker.type === 'stop' || marker.type === 'discontinue') {
+        const start = stack.pop();
+        if (stack.length === 0) active.delete(marker.number);
+        if (start) {
+          spans.push({ ...start, endMeasureIndex: measureIndex, type: marker.type });
+        } else {
+          spans.push({
+            number: marker.number,
+            startMeasureIndex: measureIndex,
+            endMeasureIndex: measureIndex,
+            type: marker.type,
+            malformed: 'unmatched-stop',
+            order: order += 1
+          });
+        }
+      }
+    }
   });
+  for (const stack of active.values()) {
+    for (const start of stack) {
+      spans.push({
+        ...start,
+        endMeasureIndex: sourceMeasures.length - 1,
+        type: 'start',
+        open: true,
+        malformed: 'unmatched-start'
+      });
+    }
+  }
+  return spans.sort((a, b) => a.order - b.order);
+}
+
+function endingSegments(sourceMeasures, measures, systems) {
+  const segments = [];
+  for (const span of pairEndingSpans(sourceMeasures)) {
+    const firstSystem = measures[span.startMeasureIndex].systemIndex;
+    const lastSystem = measures[span.endMeasureIndex].systemIndex;
+    for (let systemIndex = firstSystem; systemIndex <= lastSystem; systemIndex += 1) {
+      const system = systems[systemIndex];
+      const startMeasureIndex = Math.max(span.startMeasureIndex, system.measureIndexes[0]);
+      const endMeasureIndex = Math.min(span.endMeasureIndex, system.measureIndexes.at(-1));
+      const first = systemIndex === firstSystem;
+      const last = systemIndex === lastSystem;
+      const startMeasure = measures[startMeasureIndex];
+      const endMeasure = measures[endMeasureIndex];
+      const segment = {
+        number: span.number,
+        type: span.type,
+        systemIndex,
+        startMeasureIndex,
+        endMeasureIndex,
+        x1: startMeasure.x,
+        x2: endMeasure.x + endMeasure.width,
+        ...(first ? { label: span.number } : {}),
+        startCap: first,
+        stopCap: last && span.type === 'stop',
+        discontinue: last && span.type === 'discontinue',
+        continuationStart: !first,
+        continuationEnd: !last,
+        ...(span.open ? { open: true } : {}),
+        ...(span.malformed ? { malformed: span.malformed } : {})
+      };
+      measures[startMeasureIndex].endings.push(segment);
+      segments.push(segment);
+    }
+  }
+  return segments;
 }
 
 function makeBarlines(measure, measureLayout, isSystemStart) {
@@ -401,9 +482,8 @@ function tupletRecords(events, measures) {
   return records;
 }
 
-function techniqueLinkRecords(sourceLinks, events, systems, options) {
+function techniqueLinkRecords(sourceLinks, events, systems) {
   const eventById = new Map(events.map((event) => [event.id, event]));
-  const lanesBySystem = new Map();
   const records = [];
 
   for (const [sourceIndex, link] of (sourceLinks || []).entries()) {
@@ -417,13 +497,6 @@ function techniqueLinkRecords(sourceLinks, events, systems, options) {
       const system = systems[systemIndex];
       const x1 = systemIndex === start.systemIndex ? start.x : 0;
       const x2 = systemIndex === end.systemIndex ? end.x : system.width;
-      const left = Math.min(x1, x2);
-      const right = Math.max(x1, x2);
-      const occupied = lanesBySystem.get(systemIndex) || [];
-      let lane = 0;
-      while (occupied[lane] !== undefined && left <= occupied[lane] + 8) lane += 1;
-      occupied[lane] = right;
-      lanesBySystem.set(systemIndex, occupied);
       records.push({
         type: link.type,
         number: link.number,
@@ -431,14 +504,117 @@ function techniqueLinkRecords(sourceLinks, events, systems, options) {
         endEventId: link.endEventId,
         sourceIndex,
         systemIndex,
-        lane,
         x1,
-        x2,
-        y: system.staffTop - options.techniqueLaneHeight * (lane + 1)
+        x2
       });
     }
   }
   return records;
+}
+
+function intervalsOverlap(a, b, margin = 4) {
+  return a.x1 < b.x2 + margin && b.x1 < a.x2 + margin;
+}
+
+function allocateAnnotationLanes(candidates, systemCount) {
+  const laneIntervals = Array.from({ length: systemCount }, () => []);
+  const ordered = [...candidates].sort((a, b) => (
+    a.systemIndex - b.systemIndex
+    || a.x1 - b.x1
+    || a.x2 - b.x2
+    || a.order - b.order
+  ));
+  for (const candidate of ordered) {
+    const lanes = laneIntervals[candidate.systemIndex];
+    let lane = 0;
+    while ((lanes[lane] || []).some((interval) => intervalsOverlap(candidate, interval))) lane += 1;
+    if (!lanes[lane]) lanes[lane] = [];
+    lanes[lane].push({ x1: candidate.x1, x2: candidate.x2 });
+    candidate.lane = lane;
+  }
+  return laneIntervals.map((lanes) => lanes.length);
+}
+
+function annotationCandidates(endings, links, events, tuplets) {
+  const candidates = [];
+  let order = 0;
+  const add = (annotationKind, record, systemIndex, x1, x2) => {
+    candidates.push({ annotationKind, record, systemIndex, x1, x2, order: order += 1 });
+  };
+  for (const ending of endings) add('ending', ending, ending.systemIndex, ending.x1, ending.x2);
+  for (const link of links) add('technique', link, link.systemIndex, Math.min(link.x1, link.x2), Math.max(link.x1, link.x2));
+  for (const event of events) {
+    if (event.fermata) add('fermata', event.fermata, event.systemIndex, event.x - 9, event.x + 9);
+    if (event.chordSymbol) {
+      event.chord = { text: event.chordSymbol, x: event.x };
+      add('chord', event.chord, event.systemIndex, event.x - 14, event.x + 14);
+    }
+  }
+  for (const tuplet of tuplets) add('tuplet', tuplet, tuplet.systemIndex, tuplet.x1, tuplet.x2);
+  return candidates;
+}
+
+function reflowSystems(systems, measures, events, laneCounts, options) {
+  let y = 0;
+  for (const system of systems) {
+    const annotationLaneCount = laneCounts[system.index] || 0;
+    const topPadding = Math.max(
+      options.systemTopPadding,
+      8 + annotationLaneCount * options.techniqueLaneHeight
+    );
+    system.y = y;
+    system.annotationLaneCount = annotationLaneCount;
+    system.topPadding = topPadding;
+    system.height = topPadding + options.staffGap * 5 + options.systemBottomPadding;
+    system.staffTop = y + topPadding;
+    system.staffBottom = system.staffTop + options.staffGap * 5;
+    system.staffLines = system.staffLines.map((line, stringIndex) => ({
+      ...line,
+      y: system.staffTop + stringIndex * options.staffGap
+    }));
+    y += system.height + options.systemGap;
+  }
+
+  for (const measure of measures) {
+    const system = systems[measure.systemIndex];
+    measure.y = system.y;
+    measure.height = system.height;
+    measure.staffTop = system.staffTop;
+    measure.staffBottom = system.staffBottom;
+  }
+  for (const event of events) {
+    const measure = measures[event.measureIndex];
+    event.y = event.kind === 'rest' ? measure.staffTop + options.staffGap * 2.5 : measure.staffBottom;
+    event.notes = event.notes.map((note) => ({
+      ...note,
+      y: measure.staffTop + ((note.string || 1) - 1) * options.staffGap
+    }));
+    event.dots = event.dots.map((dot) => ({ ...dot, y: measure.staffBottom + 23 }));
+    if (event.stem) {
+      event.stem = { ...event.stem, y1: measure.staffBottom + 7, y2: measure.staffBottom + 30 };
+    }
+  }
+}
+
+function positionAnnotations(candidates, systems, options) {
+  return candidates.map((candidate) => {
+    const system = systems[candidate.systemIndex];
+    const boxY = system.staffTop - 8 - (candidate.lane + 1) * options.techniqueLaneHeight;
+    const box = {
+      id: `annotation:${candidate.order}`,
+      kind: 'annotation',
+      annotationKind: candidate.annotationKind,
+      systemIndex: candidate.systemIndex,
+      x: candidate.x1,
+      y: boxY,
+      width: Math.max(1, candidate.x2 - candidate.x1),
+      height: Math.max(1, options.techniqueLaneHeight - 4)
+    };
+    candidate.record.lane = candidate.lane;
+    candidate.record.y = box.y + box.height / 2;
+    candidate.record.box = { ...box };
+    return box;
+  });
 }
 
 export function layoutScore(index, options = {}) {
@@ -499,9 +675,9 @@ export function layoutScore(index, options = {}) {
         height: system.height,
         staffTop: system.staffTop,
         staffBottom: system.staffBottom,
-        rhythmicColumns: widths[measureIndex].columns
+        rhythmicColumns: widths[measureIndex].columns,
+        endings: []
       };
-      layout.endings = endingRecords(source, layout, settings);
       measures.push(layout);
       x += layout.width;
     }
@@ -512,15 +688,20 @@ export function layoutScore(index, options = {}) {
     measureLayout,
     settings
   ));
+  const endings = endingSegments(sourceMeasures, measures, systems);
+  const tuplets = tupletRecords(events, measures);
+  const links = techniqueLinkRecords(index?.links, events, systems);
+  const annotations = annotationCandidates(endings, links, events, tuplets);
+  const laneCounts = allocateAnnotationLanes(annotations, systems.length);
+  reflowSystems(systems, measures, events, laneCounts, settings);
+  const annotationBoxes = positionAnnotations(annotations, systems, settings);
   const barlines = measures.flatMap((measureLayout) => makeBarlines(
     sourceMeasures[measureLayout.index],
     measureLayout,
     systems[measureLayout.systemIndex].measureIndexes[0] === measureLayout.index
   ));
   const beams = beamRecords(events, measures);
-  const tuplets = tupletRecords(events, measures);
-  const links = techniqueLinkRecords(index?.links, events, systems, settings);
-  const hitBoxes = makeHitBoxes(events, settings.staffGap);
+  const hitBoxes = [...makeHitBoxes(events, settings.staffGap), ...annotationBoxes];
   const totalHeight = systems.at(-1).y + systems.at(-1).height;
 
   return { systems, measures, events, beams, tuplets, links, barlines, hitBoxes, totalHeight };

@@ -60,6 +60,12 @@ describe('layoutScore geometry', () => {
     expect(layout.totalHeight).toBe(0);
   });
 
+  it('treats null options like an empty options object', () => {
+    const index = { partId: 'P1', measures: [sparse], links: [] };
+
+    expect(layoutScore(index, null)).toEqual(layoutScore(index, {}));
+  });
+
   it('allocates more width to rhythm-dense measures and wraps systems', () => {
     const layout = layoutScore(
       { partId: 'P1', measures: [sparse, dense, sparse, dense], links: [], playbackMeasures: [0, 1, 2, 3] },
@@ -198,7 +204,10 @@ describe('layoutScore geometry', () => {
       expect.objectContaining({ measureIndex: 1, location: 'right', repeat: 'backward' })
     ]));
     expect(layout.measures[1].endings).toEqual([
-      expect.objectContaining({ number: '1', type: 'start', y: expect.any(Number) })
+      expect.objectContaining({
+        number: '1', type: 'stop', startMeasureIndex: 1, endMeasureIndex: 1,
+        startCap: true, stopCap: true, y: expect.any(Number)
+      })
     ]);
   });
 
@@ -210,10 +219,9 @@ describe('layoutScore geometry', () => {
       expect.objectContaining({ measureIndex: 0, repeat: 'forward' }),
       expect.objectContaining({ measureIndex: 3, repeat: 'backward' })
     ]));
-    expect(layout.measures[3].endings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ number: '1', type: 'start' }),
-      expect.objectContaining({ number: '1', type: 'stop' })
-    ]));
+    expect(layout.measures[3].endings).toEqual([
+      expect.objectContaining({ number: '1', type: 'stop', startCap: true, stopCap: true })
+    ]);
     const dottedQuarter = layout.events.find((item) => item.id === index.measures[2].events[0].id);
     expect(dottedQuarter.dots).toHaveLength(1);
     expect(dottedQuarter.stem).toEqual(expect.objectContaining({ x: expect.any(Number) }));
@@ -341,6 +349,79 @@ describe('layoutScore geometry', () => {
       expect.objectContaining({ eventIds: ['open-begin'], open: true })
     ]);
     expect(first).toEqual(second);
+  });
+
+  it('pairs a multi-measure ending and splits it into system segments', () => {
+    const measures = [1, 2, 3, 4].map((number) => measure(number, [rest(`r${number}`, r(0), r(4))]));
+    measures[0].endings = [{ number: '1', type: 'start' }];
+    measures[3].endings = [{ number: '1', type: 'stop' }];
+
+    const layout = layoutScore({ partId: 'P1', measures, links: [] }, { width: 360 });
+    const segments = layout.measures.flatMap((item) => item.endings);
+
+    expect(segments).toEqual([
+      expect.objectContaining({
+        number: '1', systemIndex: 0, startMeasureIndex: 0, endMeasureIndex: 1,
+        x1: 0, x2: 360, label: '1', startCap: true, stopCap: false,
+        continuationStart: false, continuationEnd: true
+      }),
+      expect.objectContaining({
+        number: '1', systemIndex: 1, startMeasureIndex: 2, endMeasureIndex: 3,
+        x1: 0, x2: 360, startCap: false, stopCap: true,
+        continuationStart: true, continuationEnd: false
+      })
+    ]);
+  });
+
+  it('uses no stop hook for discontinue and handles nested or unmatched endings deterministically', () => {
+    const measures = [1, 2, 3].map((number) => measure(number, [rest(`r${number}`, r(0), r(4))]));
+    measures[0].endings = [{ number: '1', type: 'start' }, { number: '2', type: 'start' }];
+    measures[1].endings = [{ number: '2', type: 'stop' }, { number: '9', type: 'stop' }];
+    measures[2].endings = [{ number: '1', type: 'discontinue' }];
+    const index = { partId: 'P1', measures, links: [] };
+
+    const first = layoutScore(index, { width: 720 });
+    const second = layoutScore(index, { width: 720 });
+    const endings = first.measures.flatMap((item) => item.endings);
+
+    expect(endings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ number: '1', type: 'discontinue', stopCap: false, discontinue: true }),
+      expect.objectContaining({ number: '2', type: 'stop', stopCap: true }),
+      expect.objectContaining({ number: '9', malformed: 'unmatched-stop' })
+    ]));
+    expect(first).toEqual(second);
+  });
+
+  it('shares collision-free annotation lanes and grows system geometry dynamically', () => {
+    const annotatedEvents = [
+      event('a', r(0), r(1, 2), [{ string: 2, fret: 5 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 }, fermata: true, chordSymbol: 'Fm' }),
+      event('b', r(1, 2), r(1, 2), [{ string: 2, fret: 7 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 } }),
+      event('c', r(1), r(1, 2), [{ string: 2, fret: 8 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 } })
+    ];
+    const firstMeasure = measure(1, annotatedEvents, {
+      endings: [{ number: '1', type: 'start' }, { number: '1', type: 'stop' }]
+    });
+    const secondMeasure = measure(2, [rest('rest-2', r(0), r(4))]);
+    const links = Array.from({ length: 6 }, (_, index) => ({
+      type: `technique-${index}`,
+      number: '1',
+      startEventId: 'a',
+      endEventId: 'c'
+    }));
+    const index = { partId: 'P1', measures: [firstMeasure, secondMeasure], links };
+
+    const crowded = layoutScore(index, { width: 180, systemTopPadding: 24, techniqueLaneHeight: 16 });
+    const plain = layoutScore(
+      { partId: 'P1', measures: [measure(1, annotatedEvents), secondMeasure], links: [] },
+      { width: 180, systemTopPadding: 24, techniqueLaneHeight: 16 }
+    );
+    const boxes = crowded.hitBoxes.filter((box) => box.kind === 'annotation');
+
+    expect(crowded.systems[0].annotationLaneCount).toBeGreaterThanOrEqual(9);
+    expect(findOverlaps(boxes.filter((box) => box.systemIndex === 0))).toEqual([]);
+    expect(Math.min(...boxes.map((box) => box.y))).toBeGreaterThanOrEqual(crowded.systems[0].y);
+    expect(crowded.systems[1].y).toBeGreaterThanOrEqual(crowded.systems[0].y + crowded.systems[0].height);
+    expect(crowded.totalHeight).toBeGreaterThan(plain.totalHeight);
   });
 
   it('is deterministic and does not mutate its input', () => {
