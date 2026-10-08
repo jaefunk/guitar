@@ -7,6 +7,13 @@ function deferred() {
   return { promise, resolve };
 }
 
+function within(promise, timeoutMs = 250) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('operation did not settle in time')), timeoutMs))
+  ]);
+}
+
 describe('E2E resource lifecycle', () => {
   it('rescans newly assigned resources and serializes repeated cleanup calls', async () => {
     const lifecycle = new E2ELifecycle();
@@ -38,12 +45,20 @@ describe('E2E resource lifecycle', () => {
     const acquisition = lifecycle.acquire('browser', () => pending.promise, (value) => value.close());
 
     const aborting = lifecycle.abort(new Error('synthetic timeout'));
+    await expect(within(aborting)).resolves.toBeUndefined();
     pending.resolve(browser);
 
     await expect(acquisition).rejects.toThrow(/synthetic timeout/);
-    await aborting;
     expect(browser.close).toHaveBeenCalledOnce();
     await lifecycle.cleanup();
     expect(browser.close).toHaveBeenCalledOnce();
+  });
+
+  it('returns from abort while an acquisition never resolves', async () => {
+    const lifecycle = new E2ELifecycle();
+    void lifecycle.acquire('preview', () => new Promise(() => {}), vi.fn());
+
+    await expect(within(lifecycle.cleanup())).resolves.toBeUndefined();
+    await expect(within(lifecycle.abort(new Error('single signal')))).resolves.toBeUndefined();
   });
 });

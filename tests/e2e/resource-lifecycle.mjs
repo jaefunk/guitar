@@ -2,7 +2,6 @@ const RESOURCE_NAMES = new Set(['browser', 'context', 'preview', 'outputDir']);
 
 export class E2ELifecycle {
   #resources = new Map();
-  #pending = new Set();
   #cleanupChain = Promise.resolve();
   #abortError = null;
 
@@ -11,14 +10,7 @@ export class E2ELifecycle {
   acquire(name, factory, dispose) {
     this.#validateName(name);
     this.#throwIfAborted();
-    const acquisition = this.#performAcquire(name, factory, dispose);
-    this.#pending.add(acquisition);
-    void acquisition.then(() => {
-      this.#pending.delete(acquisition);
-    }, () => {
-      this.#pending.delete(acquisition);
-    });
-    return acquisition;
+    return this.#performAcquire(name, factory, dispose);
   }
 
   release(name) {
@@ -39,7 +31,6 @@ export class E2ELifecycle {
       this.#abortError = reason instanceof Error ? reason : new Error(String(reason));
     }
     await this.cleanup();
-    await Promise.allSettled([...this.#pending]);
     await this.cleanup();
   }
 

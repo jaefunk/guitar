@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startOwnedPreview } from './preview-server.mjs';
 import { E2ELifecycle } from './resource-lifecycle.mjs';
+import { createAbortTimeout, createSignalAbortHandler } from './runtime-guards.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const VIEWPORT = { width: 1440, height: 900 };
@@ -198,8 +199,8 @@ async function runProfessionalWorkflow(browser, outputDir, appUrl, lifecycle) {
 
 const lifecycle = new E2ELifecycle();
 const signalHandlers = new Map([
-  ['SIGINT', () => { void lifecycle.abort(new Error('E2E interrupted by SIGINT')).finally(() => process.exit(130)); }],
-  ['SIGTERM', () => { void lifecycle.abort(new Error('E2E interrupted by SIGTERM')).finally(() => process.exit(143)); }]
+  ['SIGINT', createSignalAbortHandler(lifecycle, { signal: 'SIGINT', exitCode: 130 })],
+  ['SIGTERM', createSignalAbortHandler(lifecycle, { signal: 'SIGTERM', exitCode: 143 })]
 ]);
 for (const [signal, handler] of signalHandlers) process.once(signal, handler);
 
@@ -228,18 +229,12 @@ const run = async () => {
   await runProfessionalWorkflow(browser, outputDir, preview.url, lifecycle);
 };
 
-let timeoutId;
+let timeout;
 try {
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(async () => {
-      const error = new Error('E2E workflow timed out after 120 seconds');
-      await lifecycle.abort(error);
-      reject(error);
-    }, 120_000);
-  });
-  await Promise.race([run(), timeout]);
+  timeout = createAbortTimeout(lifecycle, 120_000);
+  await Promise.race([run(), timeout.promise]);
 } finally {
-  clearTimeout(timeoutId);
+  timeout?.cancel();
   for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
   await lifecycle.cleanup();
 }
