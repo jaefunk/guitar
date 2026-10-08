@@ -509,36 +509,42 @@ export function persistCurrentScoreMusicXml(xml) {
   return song.musicxml;
 }
 
-/** 검증된 외부 MusicXML을 새 곡으로 한 번에 추가하고 활성화한다. */
-export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode = 'musicxml-score', builtInId = '' }) {
+/** stable source identifier에 해당하는 내장곡이 있으면 원자적으로 선택한다. */
+export function selectBuiltInSong(builtInId) {
   const normalizedBuiltInId = typeof builtInId === 'string' ? builtInId.trim() : '';
   const existing = normalizedBuiltInId
     ? listSongs().find((song) => song.builtInId === normalizedBuiltInId)
     : null;
-  if (existing) {
-    flush();
-    const beforeDoc = toDoc();
-    const st = getStorage();
-    let beforeStored = null;
-    try { beforeStored = st?.getItem(KEY_V4) ?? null; } catch (error) {
-      throw new Error('MusicXML 저장소를 읽지 못했습니다', { cause: error });
-    }
-    try {
-      activate(existing.id);
-      state.viewMode = 'score';
-      save({ throwOnError: true });
-      return library.songs[existing.id];
-    } catch (error) {
-      applyDoc(sanitizeV4Doc(beforeDoc, Date.now(), false));
-      if (st) {
-        try {
-          if (beforeStored === null) st.removeItem?.(KEY_V4);
-          else st.setItem(KEY_V4, beforeStored);
-        } catch (restoreError) { /* setItem은 원자적이므로 일반적으로 기존 값이 그대로다. */ }
-      }
-      throw error;
-    }
+  if (!existing) return null;
+  flush();
+  const beforeDoc = toDoc();
+  const st = getStorage();
+  let beforeStored = null;
+  try { beforeStored = st?.getItem(KEY_V4) ?? null; } catch (error) {
+    throw new Error('MusicXML 저장소를 읽지 못했습니다', { cause: error });
   }
+  try {
+    activate(existing.id);
+    state.viewMode = 'score';
+    save({ throwOnError: true });
+    return library.songs[existing.id];
+  } catch (error) {
+    applyDoc(sanitizeV4Doc(beforeDoc, Date.now(), false));
+    if (st) {
+      try {
+        if (beforeStored === null) st.removeItem?.(KEY_V4);
+        else st.setItem(KEY_V4, beforeStored);
+      } catch (restoreError) { /* setItem은 원자적이므로 일반적으로 기존 값이 그대로다. */ }
+    }
+    throw error;
+  }
+}
+
+/** 검증된 외부 MusicXML을 새 곡으로 한 번에 추가하고 활성화한다. */
+export function importMusicXmlSong({ xml, selectedPartId, title = '', editorMode = 'musicxml-score', builtInId = '' }) {
+  const normalizedBuiltInId = typeof builtInId === 'string' ? builtInId.trim() : '';
+  const existing = selectBuiltInSong(normalizedBuiltInId);
+  if (existing) return existing;
   const doc = parseMusicXml(xml);
   const selectedPart = [...doc.documentElement.children]
     .find((node) => node.localName === 'part' && node.getAttribute('id') === selectedPartId);

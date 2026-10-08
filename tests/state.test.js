@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
   listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
-  KEY_V4, canEditCurrentSong, importMusicXmlSong, sanitizeV4Doc, toDoc
+  KEY_V4, canEditCurrentSong, importMusicXmlSong, selectBuiltInSong, sanitizeV4Doc, toDoc
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
@@ -514,6 +514,23 @@ describe('곡 관리', () => {
     expect(library.currentId).toBe(first.id);
     expect(state.viewMode).toBe('score');
     expect(listSongs().filter((song) => song.builtInId === 'nell-1-03-gt1')).toHaveLength(1);
+  });
+
+  it('selects an existing built-in song by stable source identifier without importing', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const builtIn = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    createSong('Other');
+
+    expect(selectBuiltInSong('missing')).toBeNull();
+    expect(selectBuiltInSong('nell-1-03-gt1')).toBe(builtIn);
+    expect(library.currentId).toBe(builtIn.id);
+    expect(state.viewMode).toBe('score');
   });
 
   it('rolls back current song and storage when selecting an existing built-in fails to persist', () => {

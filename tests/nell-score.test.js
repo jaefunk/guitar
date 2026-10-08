@@ -376,13 +376,28 @@ describe('1:03 Gt.1 reference score', () => {
     const importSong = vi.fn((value) => value);
     const fetchImpl = vi.fn(async () => ({ ok: true, text: async () => '<score-partwise version="4.0"/>' }));
 
-    const imported = await songs.loadBuiltInNellGt1({ fetchImpl, importSong });
+    const selectExisting = vi.fn(() => null);
+    const imported = await songs.loadBuiltInNellGt1({ fetchImpl, importSong, selectExisting });
 
+    expect(selectExisting).toHaveBeenCalledWith('nell-1-03-gt1');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(importSong).toHaveBeenCalledTimes(1);
     expect(imported).toMatchObject({
       builtInId: 'nell-1-03-gt1', selectedPartId: 'P1', title: '1:03', editorMode: 'musicxml-score'
     });
+  });
+
+  it('opens an existing built-in song before fetch, even when fetch would fail', async () => {
+    const existing = { id: 'existing-nell', title: '1:03', builtInId: 'nell-1-03-gt1' };
+    const selectExisting = vi.fn(() => existing);
+    const fetchImpl = vi.fn(async () => { throw new Error('offline'); });
+    const importSong = vi.fn();
+
+    await expect(songs.loadBuiltInNellGt1({ selectExisting, fetchImpl, importSong })).resolves.toBe(existing);
+
+    expect(selectExisting).toHaveBeenCalledWith('nell-1-03-gt1');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(importSong).not.toHaveBeenCalled();
   });
 
   it('shares one in-flight built-in load across concurrent explicit actions', async () => {
@@ -391,10 +406,12 @@ describe('1:03 Gt.1 reference score', () => {
     const imported = { id: 'nell', title: '1:03', builtInId: 'nell-1-03-gt1' };
     const importSong = vi.fn(() => imported);
 
-    const first = songs.loadBuiltInNellGt1({ fetchImpl, importSong });
-    const second = songs.loadBuiltInNellGt1({ fetchImpl, importSong });
+    const selectExisting = vi.fn(() => null);
+    const first = songs.loadBuiltInNellGt1({ fetchImpl, importSong, selectExisting });
+    const second = songs.loadBuiltInNellGt1({ fetchImpl, importSong, selectExisting });
 
     expect(second).toBe(first);
+    expect(selectExisting).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     resolveResponse({ ok: true, text: async () => '<score-partwise version="4.0"/>' });
     await expect(Promise.all([first, second])).resolves.toEqual([imported, imported]);

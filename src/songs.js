@@ -1,5 +1,5 @@
 // 곡 목록 시트(새 곡 / 열기 / 이름 바꾸기 / 복제 / 삭제).
-import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel, importMusicXmlSong } from './state.js';
+import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel, importMusicXmlSong, selectBuiltInSong } from './state.js';
 import { $, openMenu, ask, toast } from './ui.js';
 import { render, setSel } from './render.js';
 import { stopPlay } from './audio.js';
@@ -66,9 +66,15 @@ const BUILT_IN_NELL_GT1_ID = 'nell-1-03-gt1';
 let builtInNellGt1Promise = null;
 
 /** 사용자가 명시적으로 선택했을 때만 내장 Gt.1 MusicXML을 읽어 추가하거나 기존 곡을 연다. */
-export function loadBuiltInNellGt1({ fetchImpl = fetch, importSong = importMusicXmlSong } = {}) {
+export function loadBuiltInNellGt1({
+  fetchImpl = fetch,
+  importSong = importMusicXmlSong,
+  selectExisting = selectBuiltInSong
+} = {}) {
   if (builtInNellGt1Promise) return builtInNellGt1Promise;
   const loading = (async () => {
+    const existing = selectExisting(BUILT_IN_NELL_GT1_ID);
+    if (existing) return existing;
     const response = await fetchImpl(new URL('../songs/nell-1-03-gt1.musicxml', import.meta.url));
     if (!response?.ok) throw new Error('내장 1:03 악보를 읽지 못했습니다');
     const xml = await response.text();
