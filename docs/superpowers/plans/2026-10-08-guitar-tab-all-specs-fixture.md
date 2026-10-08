@@ -233,7 +233,7 @@ git commit -m "기타 TAB MusicXML fixture 계약 테스트 추가"
 | `FLOW-REPEAT` | forward/backward repeat, times, endings 1 and 2 |
 | `FLOW-NAVIGATION` | segno, coda, fine, dacapo, dalsegno, tocoda sound attributes |
 | `MEASURE-STYLES` | measure-repeat, beat-repeat, slash, multiple-rest |
-| `TAB-DROP-D` | staff 2 tuning change with line 6 changed from E2 to D2 |
+| `TAB-DROP-D` | staff 2 tuning change with line 1 changed from E2 to D2 |
 | `FINAL` | final barline and fermata |
 
 일반 TAB 음표는 다음 형태를 기준으로 pitch와 duration만 구간에 맞게 바꾼다.
@@ -399,4 +399,3 @@ Expected: `META-LAYOUT`에서 `FINAL`까지 테스트의 `expectedRehearsals`와
 git add tests/fixtures/guitar-tab-all-specs.musicxml tests/guitar-tab-fixture.test.js tests/validate-musicxml-schema.ps1 package.json package-lock.json
 git commit -m "기타 TAB MusicXML fixture 검증 보완"
 ```
-

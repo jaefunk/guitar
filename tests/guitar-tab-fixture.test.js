@@ -38,9 +38,9 @@ describe('Guitar/TAB MusicXML 4.0 comprehensive fixture', () => {
     expect(initialTab).not.toBeUndefined();
     expect(initialTab.querySelectorAll('staff-tuning')).toHaveLength(6);
     const dropD = [...doc.querySelectorAll('staff-details[number="2"]')]
-      .find((node) => node.querySelector('staff-tuning[line="6"] > tuning-step')?.textContent.trim() === 'D');
+      .find((node) => node.querySelector('staff-tuning[line="1"] > tuning-step')?.textContent.trim() === 'D');
     expect(dropD).not.toBeUndefined();
-    expect(dropD.querySelector('staff-tuning[line="6"] > tuning-octave')?.textContent.trim()).toBe('2');
+    expect(dropD.querySelector('staff-tuning[line="1"] > tuning-octave')?.textContent.trim()).toBe('2');
   });
 
   it('exposes every feature section through stable rehearsal labels', () => {
