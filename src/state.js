@@ -8,7 +8,7 @@ import {
   KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
-import { musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
+import { isLosslessV3GridMusicXml, musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
 import { parseMusicXml, serializeMusicXml } from './musicxml.js';
 
 export const KEY_V4 = 'gtab-editor-v4';
@@ -221,12 +221,19 @@ function sanitizeV4Song(value, id, now) {
     return null;
   }
   const timestamp = now ?? Date.now();
+  const editorMode = value.editorMode === 'grid-v3'
+    ? 'grid-v3'
+    : value.editorMode === 'musicxml-readonly'
+      ? 'musicxml-readonly'
+      : isLosslessV3GridMusicXml(value.musicxml, selectedPartId)
+        ? 'grid-v3'
+        : 'musicxml-readonly';
   const song = {
     id,
     title: projection.title || (typeof value.title === 'string' ? value.title : ''),
     musicxml: value.musicxml,
     selectedPartId,
-    editorMode: value.editorMode === 'grid-v3' ? 'grid-v3' : 'musicxml-readonly',
+    editorMode,
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : timestamp,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : timestamp
   };

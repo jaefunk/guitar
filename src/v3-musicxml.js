@@ -147,6 +147,33 @@ function localChild(element, name) {
   return localChildren(element, name)[0] || null;
 }
 
+function hasLegacyGridMarker(doc) {
+  const identification = localChild(doc.documentElement, 'identification');
+  const miscellaneous = identification && localChild(identification, 'miscellaneous');
+  return !!miscellaneous && localChildren(miscellaneous, 'miscellaneous-field').some((field) =>
+    field.getAttribute('name') === GRID_MARKER_NAME && field.textContent?.trim() === GRID_MARKER_VALUE);
+}
+
+function canonicalNode(node) {
+  if (node.nodeType === 1) {
+    const name = `${node.namespaceURI || ''}|${node.localName}`;
+    const attributes = [...node.attributes]
+      .map((attribute) => `${attribute.namespaceURI || ''}|${attribute.localName}=${JSON.stringify(attribute.value)}`)
+      .sort()
+      .join(';');
+    const children = [...node.childNodes]
+      .map(canonicalNode)
+      .filter((value) => value !== '')
+      .join('');
+    return `<${name} ${attributes}>${children}</${name}>`;
+  }
+  if (node.nodeType === 3) return node.data.trim() ? `#text:${JSON.stringify(node.data)}` : '';
+  if (node.nodeType === 4) return `#cdata:${JSON.stringify(node.data)}`;
+  if (node.nodeType === 8) return `#comment:${JSON.stringify(node.data)}`;
+  if (node.nodeType === 7) return `#pi:${node.target}:${JSON.stringify(node.data)}`;
+  return `#node:${node.nodeType}`;
+}
+
 function finiteTextNumber(element) {
   if (!element) return null;
   const value = Number(element.textContent?.trim());
@@ -251,4 +278,21 @@ export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
     measures,
     marks
   };
+}
+
+/**
+ * Conservative one-time upgrade check for v4 records written before editorMode existed.
+ * A marker is only a prerequisite; the complete MusicXML tree must also equal a fresh
+ * projection/regeneration so no unsupported content can be lost by quick-grid editing.
+ */
+export function isLosslessV3GridMusicXml(xml, selectedPartId = 'P1') {
+  try {
+    const doc = parseMusicXml(xml);
+    if (doc.doctype || !hasLegacyGridMarker(doc)) return false;
+    const projection = musicXmlToV3Song(xml, selectedPartId);
+    const regenerated = parseMusicXml(v3SongToMusicXml(projection));
+    return canonicalNode(doc.documentElement) === canonicalNode(regenerated.documentElement);
+  } catch (error) {
+    return false;
+  }
 }

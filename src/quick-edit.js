@@ -38,7 +38,8 @@ export function syncQuickEditability() {
     const element = document.getElementById(id);
     if (element) element.disabled = readOnly;
   }
-  document.querySelectorAll('#pad button').forEach((button) => { button.disabled = readOnly; });
+  document.querySelectorAll('#digits button, [data-mod], #del, #fretboard .fb-cell, #fbClear')
+    .forEach((button) => { button.disabled = readOnly; });
   const status = document.getElementById('readOnlyStatus');
   if (status) {
     status.hidden = !readOnly;

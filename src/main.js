@@ -79,10 +79,12 @@ function bind() {
   const syncMetro = () => { $('metroBtn').classList.toggle('on', state.metro); $('metroBtn').setAttribute('aria-pressed', String(state.metro)); };
   $('metroBtn').addEventListener('click', () => { state.metro = !state.metro; save(); syncMetro(); toast(state.metro ? '메트로놈 켬' : '메트로놈 끔'); });
   $('loop').addEventListener('change', function () { state.loop = this.value; save(); if (pb.playing) startPlay(); });
-  $('modeKeys').addEventListener('click', () => { setPadMode('keys'); });
-  $('modeFret').addEventListener('click', () => { setPadMode('fret'); });
+  $('modeKeys').addEventListener('click', () => { setPadMode('keys'); syncQuickEditability(); });
+  $('modeFret').addEventListener('click', () => { setPadMode('fret'); syncQuickEditability(); });
   $('collapseBtn').addEventListener('click', () => { setCollapsed(!state.collapsed); });
-  $('fbShift').addEventListener('click', () => { state.fretShift = state.fretShift ? 0 : 12; save(); buildFretboard(); });
+  $('fbShift').addEventListener('click', () => {
+    state.fretShift = state.fretShift ? 0 : 12; save(); buildFretboard(); syncQuickEditability();
+  });
   $('fbClear').addEventListener('click', clearColumn);
 
   document.addEventListener('keydown', (e) => {

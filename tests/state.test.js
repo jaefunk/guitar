@@ -284,7 +284,7 @@ describe('곡 관리', () => {
     expect(state.measures[0][0][1]).toBe('');
   });
 
-  it('editorMode가 없는 v4는 정확한 XML marker가 있어도 readonly로 취급한다', () => {
+  it('editorMode가 없는 기존 app-generated v4는 lossless 검증 후 grid-v3로 승격한다', () => {
     const imported = v3SongToMusicXml({ ...v2Blob(), id: 'imported' });
     const storage = memStorage({
       [KEY_V4]: JSON.stringify({
@@ -296,9 +296,29 @@ describe('곡 관리', () => {
     useStorage(storage);
     load();
 
+    expect(canEditCurrentSong()).toBe(true);
+    expect(currentSong().editorMode).toBe('grid-v3');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs.imported.editorMode).toBe('grid-v3');
+  });
+
+  it('legacy marker가 있어도 unsupported content가 추가된 v4는 readonly로 유지한다', () => {
+    const unsafe = v3SongToMusicXml({ ...v2Blob(), id: 'unsafe' })
+      .replace('<measure number="1">', '<measure number="1"><print new-system="yes"/><direction><direction-type><rehearsal>A</rehearsal></direction-type></direction>');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { unsafe: { id: 'unsafe', title: 'Unsafe', musicxml: unsafe, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['unsafe'], currentId: 'unsafe', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
     expect(canEditCurrentSong()).toBe(false);
     expect(currentSong().editorMode).toBe('musicxml-readonly');
-    expect(JSON.parse(storage.getItem(KEY_V4)).songs.imported.editorMode).toBe('musicxml-readonly');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs.unsafe).toMatchObject({
+      editorMode: 'musicxml-readonly', musicxml: unsafe
+    });
   });
 
   it('readonly 거부 시 제목 fallback, BPM, updatedAt과 quick state snapshot을 정확히 복원한다', () => {

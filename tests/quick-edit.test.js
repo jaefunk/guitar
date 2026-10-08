@@ -22,7 +22,20 @@ describe('quick edit controls', () => {
   beforeEach(() => {
     document.body.innerHTML = `
       <input id="title"><input id="bpm"><select id="tuning"></select>
-      <div id="readOnlyStatus" hidden></div><button id="undo"></button><div id="pad"><button></button></div>`;
+      <div id="readOnlyStatus" hidden></div>
+      <button id="undo"></button><button id="addLine"></button><button id="measureMenu"></button>
+      <button id="clearAll"></button><button id="chordBtn"></button><button id="markBtn"></button><button id="doImport"></button>
+      <div id="pad">
+        <button id="playBtn"></button><button id="restartBtn"></button><button id="metroBtn"></button>
+        <button id="collapseBtn"></button><button id="modeKeys"></button><button id="modeFret"></button>
+        <button id="fbShift"></button><button id="fbClear"></button>
+        <label><input id="autoAdv" type="checkbox"></label>
+        <select id="instr"></select><select id="loop"></select>
+        <div id="digits"><button data-digit="1"></button></div>
+        <button data-mod="h"></button><button id="del"></button>
+        <div id="fretboard"><button class="fb-cell"></button></div>
+        <button class="nav" data-move="1,0"></button>
+      </div>`;
     useStorage(readonlyStorage());
     load();
     document.querySelector('#title').value = state.title;
@@ -50,7 +63,14 @@ describe('quick edit controls', () => {
     expect(document.querySelector('#bpm').disabled).toBe(true);
     expect(document.querySelector('#tuning').disabled).toBe(true);
     expect(document.querySelector('#undo').disabled).toBe(true);
-    expect(document.querySelector('#pad button').disabled).toBe(true);
+    for (const selector of [
+      '#digits button', '[data-mod]', '#del', '.fb-cell', '#fbClear',
+      '#addLine', '#measureMenu', '#clearAll', '#chordBtn', '#markBtn', '#doImport'
+    ]) expect(document.querySelector(selector).disabled, selector).toBe(true);
+    for (const selector of [
+      '#playBtn', '#restartBtn', '#metroBtn', '#collapseBtn', '#modeKeys', '#modeFret',
+      '#fbShift', '.nav', '#autoAdv', '#instr', '#loop'
+    ]) expect(document.querySelector(selector).disabled, selector).toBe(false);
     expect(document.querySelector('#readOnlyStatus').hidden).toBe(false);
   });
 });
