@@ -331,6 +331,29 @@ describe('곡 관리', () => {
     });
   });
 
+  it('musicxml-score 소유권을 load/sanitize/duplicate에서 보존하고 빠른 격자는 readonly다', () => {
+    const xml = v3SongToMusicXml({ ...v2Blob(), id: 'score-owned' });
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { owned: {
+          id: 'owned', title: 'Score owned', musicxml: xml, selectedPartId: 'P1',
+          editorMode: 'musicxml-score', createdAt: 1, updatedAt: 2
+        } },
+        order: ['owned'], currentId: 'owned', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
+    expect(currentSong().editorMode).toBe('musicxml-score');
+    expect(canEditCurrentSong()).toBe(false);
+    expect(state.readOnly).toBe(true);
+    const copy = duplicateSong('owned');
+    expect(copy.editorMode).toBe('musicxml-score');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs[copy.id].editorMode).toBe('musicxml-score');
+  });
+
   it('readonly 거부 시 제목 fallback, BPM, updatedAt과 quick state snapshot을 정확히 복원한다', () => {
     const measure = emptyMeasure();
     measure[0][0] = '3';

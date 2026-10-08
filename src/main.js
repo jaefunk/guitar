@@ -255,9 +255,13 @@ function boot() {
   scoreEditor = createScoreEditorBindings({
     inspector: $('scoreInspector'),
     getSong: currentSong,
-    persistMusicXml: persistCurrentScoreMusicXml,
-    rerender: (measureIndices, selectedEventId) => {
-      scoreController?.renderMeasures(measureIndices, selectedEventId);
+    persistMusicXml: (xml) => {
+      const persisted = persistCurrentScoreMusicXml(xml);
+      syncQuickEditability();
+      return persisted;
+    },
+    rerender: (measureIndices, selectedEventId, selectedNoteIndex) => {
+      scoreController?.renderMeasures(measureIndices, selectedEventId, selectedNoteIndex);
     }
   });
   scoreController = createScoreWorkspaceController({

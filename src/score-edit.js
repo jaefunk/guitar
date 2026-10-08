@@ -16,6 +16,103 @@ function element(doc, name, text) {
   return node;
 }
 
+const NOTE_ORDER = [
+  'grace', 'cue', 'chord', 'pitch', 'unpitched', 'rest', 'duration', 'tie', 'instrument',
+  'footnote', 'level', 'voice', 'type', 'dot', 'accidental', 'time-modification', 'stem',
+  'notehead', 'notehead-text', 'staff', 'beam', 'notations', 'lyric', 'play', 'listen'
+];
+const BARLINE_ORDER = [
+  'bar-style', 'footnote', 'level', 'wavy-line', 'segno', 'coda', 'fermata', 'ending', 'repeat'
+];
+const PITCH_ORDER = ['step', 'alter', 'octave'];
+
+function orderFor(parent) {
+  if (parent.localName === 'note') return NOTE_ORDER;
+  if (parent.localName === 'barline') return BARLINE_ORDER;
+  if (parent.localName === 'pitch') return PITCH_ORDER;
+  return null;
+}
+
+function insertOrdered(parent, node) {
+  const order = orderFor(parent);
+  if (!order) {
+    parent.appendChild(node);
+    return node;
+  }
+  const rank = order.indexOf(node.localName);
+  if (rank < 0) {
+    parent.appendChild(node);
+    return node;
+  }
+  const anchor = [...parent.children].find((candidate) => {
+    const candidateRank = order.indexOf(candidate.localName);
+    return candidateRank >= 0 && candidateRank > rank;
+  });
+  parent.insertBefore(node, anchor || null);
+  return node;
+}
+
+const STEP_SEMITONES = Object.freeze({ C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 });
+const SHARP_PITCHES = Object.freeze([
+  ['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0],
+  ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]
+]);
+const STANDARD_LINE_MIDI = Object.freeze([40, 45, 50, 55, 59, 64]);
+
+function numericText(node, fallback = null) {
+  const value = Number(node?.textContent?.trim());
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function pitchMidi(pitch) {
+  const step = child(pitch, 'step')?.textContent?.trim();
+  const octave = numericText(child(pitch, 'octave'));
+  if (!(step in STEP_SEMITONES) || !Number.isInteger(octave)) return null;
+  return (octave + 1) * 12 + STEP_SEMITONES[step] + (numericText(child(pitch, 'alter'), 0) || 0);
+}
+
+function tuningAt(doc, partId, measureIndex) {
+  const lineMidi = [...STANDARD_LINE_MIDI];
+  let capo = 0;
+  const measures = children(directPart(doc, partId), 'measure');
+  for (let index = 0; index <= measureIndex; index += 1) {
+    for (const details of descendants(child(measures[index], 'attributes'), 'staff-details')) {
+      const capoValue = numericText(child(details, 'capo'));
+      if (Number.isInteger(capoValue)) capo = capoValue;
+      for (const tuning of children(details, 'staff-tuning')) {
+        const line = Number(tuning.getAttribute('line'));
+        const step = child(tuning, 'tuning-step')?.textContent?.trim();
+        const octave = numericText(child(tuning, 'tuning-octave'));
+        const alter = numericText(child(tuning, 'tuning-alter'), 0) || 0;
+        if (Number.isInteger(line) && line >= 1 && line <= 6 && step in STEP_SEMITONES && Number.isInteger(octave)) {
+          lineMidi[line - 1] = (octave + 1) * 12 + STEP_SEMITONES[step] + alter;
+        }
+      }
+    }
+  }
+  return { lineMidi, capo };
+}
+
+function midiForPosition(doc, partId, measureIndex, string, fret) {
+  const { lineMidi, capo } = tuningAt(doc, partId, measureIndex);
+  // MusicXML technical string 1 is the highest string; staff-tuning line 6 is highest.
+  // Pitch is stored as sounding pitch, so capo is added to the open-string pitch.
+  return lineMidi[6 - string] + capo + fret;
+}
+
+function setPitchMidi(doc, note, midi) {
+  let pitch = child(note, 'pitch');
+  if (!pitch) {
+    pitch = element(doc, 'pitch');
+    insertOrdered(note, pitch);
+  }
+  const [step, alter] = SHARP_PITCHES[((midi % 12) + 12) % 12];
+  setTextChild(doc, pitch, 'step', step);
+  if (alter) setTextChild(doc, pitch, 'alter', alter);
+  else child(pitch, 'alter')?.remove();
+  setTextChild(doc, pitch, 'octave', Math.floor(midi / 12) - 1);
+}
+
 function directPart(doc, partId) {
   const parts = children(doc.documentElement, 'part').filter((part) => part.getAttribute('id') === partId);
   if (parts.length !== 1) throw new Error(`Expected exactly one MusicXML part body for ${partId}`);
@@ -40,7 +137,8 @@ function resolveEvent(doc, partId, eventId) {
   const location = parseEventId(partId, eventId);
   const measure = measureAt(doc, partId, location.measureIndex);
   const first = children(measure, 'note')[location.sourcePosition];
-  if (!first || first.localName !== 'note' || child(first, 'chord')) {
+  const attachedChord = child(first, 'chord') && first?.previousElementSibling?.localName === 'note';
+  if (!first || first.localName !== 'note' || attachedChord) {
     throw new Error(`MusicXML event not found: ${eventId}`);
   }
   const notes = [first];
@@ -50,6 +148,10 @@ function resolveEvent(doc, partId, eventId) {
     cursor = cursor.nextElementSibling;
   }
   return { ...location, measure, notes, after: cursor };
+}
+
+export function resolveXmlEvent(doc, eventId, partId = String(eventId).split(':m')[0]) {
+  return resolveEvent(doc, partId, eventId);
 }
 
 function replaceMeasure(doc, partId, measureIndex, snapshot) {
@@ -101,7 +203,7 @@ function setTextChild(doc, parent, name, value) {
   let node = child(parent, name);
   if (!node) {
     node = element(doc, name);
-    parent.appendChild(node);
+    insertOrdered(parent, node);
   }
   node.textContent = String(value);
   return node;
@@ -111,7 +213,7 @@ function ensureChild(doc, parent, name) {
   let node = child(parent, name);
   if (!node) {
     node = element(doc, name);
-    parent.appendChild(node);
+    insertOrdered(parent, node);
   }
   return node;
 }
@@ -172,7 +274,10 @@ export function setFretCommand(doc, partId, eventId, fret, noteIndex = 0) {
   const location = selectedNote(doc, partId, eventId, noteIndex);
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const { note } = selectedNote(doc, partId, eventId, noteIndex);
-    setTextChild(doc, technicalFor(doc, note), 'fret', value);
+    const technical = technicalFor(doc, note);
+    setTextChild(doc, technical, 'fret', value);
+    const string = integer(numericText(child(technical, 'string')), 'string', 1, 6);
+    setPitchMidi(doc, note, midiForPosition(doc, partId, location.measureIndex, string, value));
   });
 }
 
@@ -181,46 +286,119 @@ export function setStringCommand(doc, partId, eventId, string, noteIndex = 0) {
   const location = selectedNote(doc, partId, eventId, noteIndex);
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const { note } = selectedNote(doc, partId, eventId, noteIndex);
-    setTextChild(doc, technicalFor(doc, note), 'string', value);
+    const technical = technicalFor(doc, note);
+    setTextChild(doc, technical, 'string', value);
+    const fret = integer(numericText(child(technical, 'fret')), 'fret', 0, 36);
+    setPitchMidi(doc, note, midiForPosition(doc, partId, location.measureIndex, value, fret));
   });
 }
 
-export function setRhythmCommand(doc, partId, eventId, values = {}) {
-  const location = resolveEvent(doc, partId, eventId);
-  const duration = values.duration === undefined ? undefined : integer(values.duration, 'duration', 1);
-  const dots = values.dots === undefined ? undefined : integer(values.dots, 'dots', 0, 4);
-  const type = values.type === undefined ? undefined : String(values.type).trim();
-  if (type !== undefined && !type) throw new Error('Invalid note type');
+const TYPE_QUARTERS = Object.freeze({
+  whole: 4, half: 2, quarter: 1, eighth: 1 / 2, '16th': 1 / 4,
+  '32nd': 1 / 8, '64th': 1 / 16, '128th': 1 / 32
+});
+
+function divisionsAt(doc, partId, measureIndex) {
+  let divisions = 1;
+  const measures = children(directPart(doc, partId), 'measure');
+  for (let index = 0; index <= measureIndex; index += 1) {
+    const value = numericText(child(child(measures[index], 'attributes'), 'divisions'));
+    if (Number.isInteger(value) && value > 0) divisions = value;
+  }
+  return divisions;
+}
+
+function rawDuration(note) {
+  return integer(numericText(child(note, 'duration')), 'duration', 1);
+}
+
+function durationFromNotation(type, dots, tuplet, divisions) {
+  const quarters = TYPE_QUARTERS[type];
+  if (!quarters) throw new Error(`Invalid note type: ${type}`);
+  let multiplier = 1;
+  for (let count = 1; count <= dots; count += 1) multiplier += 1 / (2 ** count);
+  const ratio = tuplet ? tuplet.normal / tuplet.actual : 1;
+  const duration = divisions * quarters * multiplier * ratio;
+  if (!Number.isInteger(duration) || duration <= 0) {
+    throw new Error('Notation duration must resolve to a positive integer at current divisions');
+  }
+  return duration;
+}
+
+function rhythmValues(note, values, divisions) {
+  const type = values.type === undefined
+    ? child(note, 'type')?.textContent?.trim() || 'quarter'
+    : String(values.type).trim();
+  if (!type) throw new Error('Invalid note type');
+  const dots = values.dots === undefined ? children(note, 'dot').length : integer(values.dots, 'dots', 0, 4);
   let tuplet;
-  if (values.tuplet !== undefined && values.tuplet !== null) {
+  if (values.tuplet === undefined) {
+    const modification = child(note, 'time-modification');
+    const actual = numericText(child(modification, 'actual-notes'));
+    const normal = numericText(child(modification, 'normal-notes'));
+    tuplet = actual > 0 && normal > 0 ? { actual, normal } : null;
+  } else if (values.tuplet === null) {
+    tuplet = null;
+  } else {
     tuplet = {
       actual: integer(values.tuplet.actual, 'tuplet actual notes', 1),
       normal: integer(values.tuplet.normal, 'tuplet normal notes', 1)
     };
-  } else if (values.tuplet === null) tuplet = null;
+  }
+  const duration = values.duration !== undefined && values.type === undefined
+    ? integer(values.duration, 'duration', 1)
+    : durationFromNotation(type, dots, tuplet, divisions);
+  return { type, dots, tuplet, duration };
+}
+
+function setNoteRhythm(doc, note, rhythm) {
+  setTextChild(doc, note, 'duration', rhythm.duration);
+  setTextChild(doc, note, 'type', rhythm.type);
+  children(note, 'dot').forEach((dot) => dot.remove());
+  for (let count = 0; count < rhythm.dots; count += 1) insertOrdered(note, element(doc, 'dot'));
+  child(note, 'time-modification')?.remove();
+  if (rhythm.tuplet) {
+    const modification = element(doc, 'time-modification');
+    modification.append(element(doc, 'actual-notes', rhythm.tuplet.actual), element(doc, 'normal-notes', rhythm.tuplet.normal));
+    insertOrdered(note, modification);
+  }
+}
+
+function findAdjustableRest(measure, excludedNotes, delta) {
+  return children(measure, 'note').find((note) => (
+    child(note, 'rest') && !excludedNotes.includes(note) && rawDuration(note) - delta >= 0
+  )) || null;
+}
+
+function adjustRestDuration(doc, rest, delta) {
+  const next = rawDuration(rest) - delta;
+  if (next < 0) throw new Error('Not enough rest duration to preserve the measure');
+  if (next === 0) rest.remove();
+  else setTextChild(doc, rest, 'duration', next);
+}
+
+function convertNoteToRest(doc, note) {
+  for (const name of [
+    'chord', 'pitch', 'unpitched', 'tie', 'instrument', 'accidental', 'stem',
+    'notehead', 'notehead-text', 'beam', 'notations', 'play', 'listen'
+  ]) children(note, name).forEach((node) => node.remove());
+  if (!child(note, 'rest')) insertOrdered(note, element(doc, 'rest'));
+}
+
+export function setRhythmCommand(doc, partId, eventId, values = {}) {
+  const location = resolveEvent(doc, partId, eventId);
+  const divisions = divisionsAt(doc, partId, location.measureIndex);
+  const nextRhythm = rhythmValues(location.notes[0], values, divisions);
+  const previousDuration = rawDuration(location.notes[0]);
+  const delta = nextRhythm.duration - previousDuration;
+  if (delta !== 0 && !findAdjustableRest(location.measure, location.notes, delta)) {
+    throw new Error('No rest can absorb the duration change without invalidating the measure');
+  }
 
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const resolved = resolveEvent(doc, partId, eventId);
-    for (const note of resolved.notes) {
-      if (duration !== undefined) setTextChild(doc, note, 'duration', duration);
-      if (type !== undefined) setTextChild(doc, note, 'type', type);
-      if (dots !== undefined) {
-        children(note, 'dot').forEach((dot) => dot.remove());
-        const anchor = child(note, 'type');
-        for (let count = 0; count < dots; count += 1) {
-          const dot = element(doc, 'dot');
-          anchor?.nextSibling ? note.insertBefore(dot, anchor.nextSibling) : note.appendChild(dot);
-        }
-      }
-      if (tuplet !== undefined) {
-        child(note, 'time-modification')?.remove();
-        if (tuplet) {
-          const modification = element(doc, 'time-modification');
-          modification.append(element(doc, 'actual-notes', tuplet.actual), element(doc, 'normal-notes', tuplet.normal));
-          note.appendChild(modification);
-        }
-      }
-    }
+    if (delta !== 0) adjustRestDuration(doc, findAdjustableRest(resolved.measure, resolved.notes, delta), delta);
+    for (const note of resolved.notes) setNoteRhythm(doc, note, nextRhythm);
   });
 }
 
@@ -231,23 +409,26 @@ export function setFlagsCommand(doc, partId, eventId, flags = {}) {
   }
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const resolved = resolveEvent(doc, partId, eventId);
-    for (const note of resolved.notes) {
-      if (flags.rest === true) {
-        child(note, 'pitch')?.remove();
-        if (!child(note, 'rest')) note.insertBefore(element(doc, 'rest'), note.firstChild);
-      } else if (flags.rest === false) {
-        child(note, 'rest')?.remove();
-        if (!child(note, 'pitch')) {
-          const pitch = element(doc, 'pitch');
-          pitch.append(element(doc, 'step', 'C'), element(doc, 'octave', 4));
-          note.insertBefore(pitch, note.firstChild);
-        }
-      }
+    if (flags.rest === true) {
+      const source = resolved.notes[0];
+      convertNoteToRest(doc, source);
+      resolved.notes.slice(1).forEach((note) => note.remove());
+      return;
+    }
+    if (flags.rest === false && child(resolved.notes[0], 'rest')) {
+      const note = resolved.notes[0];
+      child(note, 'rest').remove();
+      setPitchMidi(doc, note, midiForPosition(doc, partId, location.measureIndex, 1, 0));
+      const technical = technicalFor(doc, note);
+      technical.append(element(doc, 'string', 1), element(doc, 'fret', 0));
+    }
+    for (const note of resolveEvent(doc, partId, eventId).notes) {
+      if (child(note, 'rest')) continue;
       if (flags.dead !== undefined || flags.ghost !== undefined) {
         let notehead = child(note, 'notehead');
         if (!notehead && (flags.dead || flags.ghost)) {
           notehead = element(doc, 'notehead', 'normal');
-          note.appendChild(notehead);
+          insertOrdered(note, notehead);
         }
         if (flags.dead !== undefined && notehead) notehead.textContent = flags.dead ? 'x' : 'normal';
         if (flags.ghost !== undefined && notehead) {
@@ -260,12 +441,24 @@ export function setFlagsCommand(doc, partId, eventId, flags = {}) {
   });
 }
 
-function buildInsertedNotes(doc, spec) {
-  const duration = integer(spec.duration ?? 4, 'duration', 1);
-  const type = String(spec.type || 'quarter');
+function insertionRhythm(spec, divisions) {
+  const type = String(spec.type || 'quarter').trim();
+  const dots = integer(spec.dots ?? 0, 'dots', 0, 4);
+  const tuplet = spec.tuplet ? {
+    actual: integer(spec.tuplet.actual, 'tuplet actual notes', 1),
+    normal: integer(spec.tuplet.normal, 'tuplet normal notes', 1)
+  } : null;
+  const duration = spec.duration === undefined
+    ? durationFromNotation(type, dots, tuplet, divisions)
+    : integer(spec.duration, 'duration', 1);
+  return { duration, type, dots, tuplet };
+}
+
+function buildInsertedNotes(doc, partId, measureIndex, spec, rhythm) {
   if (spec.rest) {
     const note = element(doc, 'note');
-    note.append(element(doc, 'rest'), element(doc, 'duration', duration), element(doc, 'type', type));
+    insertOrdered(note, element(doc, 'rest'));
+    setNoteRhythm(doc, note, rhythm);
     return [note];
   }
   if (!Array.isArray(spec.notes) || spec.notes.length === 0) throw new Error('Inserted event requires notes');
@@ -273,10 +466,9 @@ function buildInsertedNotes(doc, spec) {
     const string = integer(value.string, 'string', 1, 6);
     const fret = integer(value.fret, 'fret', 0, 36);
     const note = element(doc, 'note');
-    if (index > 0) note.appendChild(element(doc, 'chord'));
-    const pitch = element(doc, 'pitch');
-    pitch.append(element(doc, 'step', 'C'), element(doc, 'octave', 4));
-    note.append(pitch, element(doc, 'duration', duration), element(doc, 'type', type));
+    if (index > 0) insertOrdered(note, element(doc, 'chord'));
+    setPitchMidi(doc, note, midiForPosition(doc, partId, measureIndex, string, fret));
+    setNoteRhythm(doc, note, rhythm);
     const technical = technicalFor(doc, note);
     technical.append(element(doc, 'string', string), element(doc, 'fret', fret));
     return note;
@@ -284,64 +476,122 @@ function buildInsertedNotes(doc, spec) {
 }
 
 export function insertEventCommand(doc, partId, { measureIndex, afterEventId = null, event: spec }) {
-  measureAt(doc, partId, measureIndex);
-  const preview = buildInsertedNotes(doc, spec || {});
+  const measure = measureAt(doc, partId, measureIndex);
+  const rhythm = insertionRhythm(spec || {}, divisionsAt(doc, partId, measureIndex));
+  const preview = buildInsertedNotes(doc, partId, measureIndex, spec || {}, rhythm);
   if (afterEventId && resolveEvent(doc, partId, afterEventId).measureIndex !== measureIndex) {
     throw new Error('Insertion anchor must be in the target measure');
   }
+  const rest = findAdjustableRest(measure, [], rhythm.duration);
+  if (!rest) throw new Error('Insertion requires enough rest duration in the measure');
   return measureCommand(doc, partId, [measureIndex], () => {
-    const measure = measureAt(doc, partId, measureIndex);
-    const anchor = afterEventId ? resolveEvent(doc, partId, afterEventId).after : null;
-    for (const note of preview.map((node) => node.cloneNode(true))) measure.insertBefore(note, anchor);
+    const target = measureAt(doc, partId, measureIndex);
+    const currentRest = findAdjustableRest(target, [], rhythm.duration);
+    const leading = new Set(['attributes', 'print', 'direction', 'harmony', 'barline']);
+    let anchor = afterEventId
+      ? resolveEvent(doc, partId, afterEventId).after
+      : [...target.children].find((node) => !leading.has(node.localName)) || null;
+    if (anchor === currentRest && rawDuration(currentRest) === rhythm.duration) anchor = currentRest.nextSibling;
+    adjustRestDuration(doc, currentRest, rhythm.duration);
+    for (const note of preview.map((node) => node.cloneNode(true))) target.insertBefore(note, anchor);
   });
 }
 
 export function deleteEventCommand(doc, partId, eventId) {
   const location = resolveEvent(doc, partId, eventId);
+  if (child(location.notes[0], 'rest')) throw new Error('Cannot delete a rest event');
   return measureCommand(doc, partId, [location.measureIndex], () => {
-    resolveEvent(doc, partId, eventId).notes.forEach((note) => note.remove());
+    const resolved = resolveEvent(doc, partId, eventId);
+    const source = resolved.notes[0];
+    convertNoteToRest(doc, source);
+    resolved.notes.slice(1).forEach((note) => note.remove());
   });
 }
 
-function removeTechnique(note, type, action) {
-  if (type === 'tie') {
-    children(note, 'tie').filter((node) => node.getAttribute('type') === action).forEach((node) => node.remove());
-    descendants(note, 'tied').filter((node) => node.getAttribute('type') === action).forEach((node) => node.remove());
-  } else {
-    descendants(note, type).filter((node) => node.getAttribute('type') === action).forEach((node) => node.remove());
+function numberedTechniqueNodes(note, type, action) {
+  const name = type === 'tie' ? 'tied' : type;
+  return descendants(note, name).filter((node) => node.getAttribute('type') === action);
+}
+
+function removeTechniqueNumber(note, type, action, number) {
+  const matches = numberedTechniqueNodes(note, type, action)
+    .filter((node) => (node.getAttribute('number') || '1') === number);
+  matches.forEach((node) => node.remove());
+  if (type === 'tie' && matches.length > 0) {
+    const direct = children(note, 'tie').find((node) => node.getAttribute('type') === action);
+    direct?.remove();
   }
 }
 
-function addTechnique(doc, note, type, action) {
+function addTechnique(doc, note, type, action, number) {
   if (type === 'tie') {
     const tie = element(doc, 'tie');
     tie.setAttribute('type', action);
-    note.appendChild(tie);
+    insertOrdered(note, tie);
     const tied = element(doc, 'tied');
     tied.setAttribute('type', action);
+    tied.setAttribute('number', number);
     ensureChild(doc, note, 'notations').appendChild(tied);
     return;
   }
   const node = element(doc, type, action === 'start' ? ({ 'hammer-on': 'H', 'pull-off': 'P' }[type] || '') : '');
   node.setAttribute('type', action);
-  node.setAttribute('number', '1');
+  node.setAttribute('number', number);
   const parent = type === 'slide' ? ensureChild(doc, note, 'notations') : technicalFor(doc, note);
   parent.appendChild(node);
 }
 
-export function setTechniquePairCommand(doc, partId, type, startEventId, endEventId, enabled, noteIndex = 0) {
+function usedTechniqueNumbers(part, type) {
+  const name = type === 'tie' ? 'tied' : type;
+  return new Set(descendants(part, name).map((node) => node.getAttribute('number') || '1'));
+}
+
+function nextTechniqueNumber(part, type) {
+  const used = usedTechniqueNumbers(part, type);
+  let number = 1;
+  while (used.has(String(number))) number += 1;
+  return String(number);
+}
+
+function exactPairNumber(startNote, endNote, type) {
+  const starts = new Set(numberedTechniqueNodes(startNote, type, 'start')
+    .map((node) => node.getAttribute('number') || '1'));
+  return numberedTechniqueNodes(endNote, type, 'stop')
+    .map((node) => node.getAttribute('number') || '1')
+    .find((number) => starts.has(number)) || null;
+}
+
+export function setTechniquePairCommand(
+  doc, partId, type, startEventId, endEventId, enabled, startNoteIndex = 0, endNoteIndex = startNoteIndex
+) {
   if (!['hammer-on', 'pull-off', 'slide', 'tie'].includes(type)) throw new Error('Invalid technique type');
   if (typeof enabled !== 'boolean') throw new Error('Invalid technique state');
-  const start = selectedNote(doc, partId, startEventId, noteIndex);
-  const end = selectedNote(doc, partId, endEventId, noteIndex);
+  const start = selectedNote(doc, partId, startEventId, startNoteIndex);
+  const end = selectedNote(doc, partId, endEventId, endNoteIndex);
+  if (start.measureIndex > end.measureIndex
+    || (start.measureIndex === end.measureIndex && start.sourcePosition >= end.sourcePosition)) {
+    throw new Error('Technique endpoints must be in temporal order');
+  }
+  const startString = numericText(child(descendants(start.note, 'technical')[0], 'string'));
+  const endString = numericText(child(descendants(end.note, 'technical')[0], 'string'));
+  if (['hammer-on', 'pull-off', 'slide'].includes(type) && startString !== endString) {
+    throw new Error(`${type} endpoints must use the same string`);
+  }
+  if (type === 'tie' && pitchMidi(child(start.note, 'pitch')) !== pitchMidi(child(end.note, 'pitch'))) {
+    throw new Error('Tie endpoints must have equal sounding pitch');
+  }
+  const existingNumber = exactPairNumber(start.note, end.note, type);
+  if (!enabled && !existingNumber) throw new Error('Technique pair not found');
+  const number = enabled ? nextTechniqueNumber(directPart(doc, partId), type) : existingNumber;
   return measureCommand(doc, partId, [start.measureIndex, end.measureIndex], () => {
-    const startNote = selectedNote(doc, partId, startEventId, noteIndex).note;
-    const endNote = selectedNote(doc, partId, endEventId, noteIndex).note;
-    removeTechnique(startNote, type, 'start');
-    removeTechnique(endNote, type, 'stop');
+    const startNote = selectedNote(doc, partId, startEventId, startNoteIndex).note;
+    const endNote = selectedNote(doc, partId, endEventId, endNoteIndex).note;
     if (enabled) {
-      addTechnique(doc, startNote, type, 'start');
-      addTechnique(doc, endNote, type, 'stop');
+      addTechnique(doc, startNote, type, 'start', number);
+      addTechnique(doc, endNote, type, 'stop', number);
+    } else {
+      removeTechniqueNumber(startNote, type, 'start', number);
+      removeTechniqueNumber(endNote, type, 'stop', number);
     }
   });
 }
@@ -351,7 +601,13 @@ function barlineAt(doc, measure, location) {
   if (!barline) {
     barline = element(doc, 'barline');
     barline.setAttribute('location', location);
-    location === 'left' ? measure.insertBefore(barline, measure.firstChild) : measure.appendChild(barline);
+    if (location === 'left') {
+      const leading = new Set(['attributes', 'print', 'direction', 'harmony']);
+      const anchor = [...measure.children].find((node) => !leading.has(node.localName)) || null;
+      measure.insertBefore(barline, anchor);
+    } else {
+      measure.appendChild(barline);
+    }
   }
   return barline;
 }
@@ -372,7 +628,7 @@ export function setRepeatCommand(doc, partId, measureIndex, direction, enabled) 
     if (enabled) {
       const repeat = element(doc, 'repeat');
       repeat.setAttribute('direction', direction);
-      barline.appendChild(repeat);
+      insertOrdered(barline, repeat);
     }
     removeEmptyBarline(barline);
   });
@@ -396,7 +652,7 @@ export function setEndingCommand(doc, partId, startMeasureIndex, endMeasureIndex
         const ending = element(doc, 'ending');
         ending.setAttribute('number', label);
         ending.setAttribute('type', type);
-        barline.appendChild(ending);
+        insertOrdered(barline, ending);
       }
       removeEmptyBarline(barline);
     }

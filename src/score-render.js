@@ -89,7 +89,7 @@ function eventAriaLabel(event, measureNumber) {
   return `${prefix} ${notes || '음표'}`;
 }
 
-function drawEvents(groups, layout, selectedEventId) {
+function drawEvents(groups, layout, selectedEventId, selectedNoteIndex = 0) {
   const eventInfo = new Map();
   for (const event of layout.events) {
     const measureNumber = layout.measures[event.measureIndex]?.number ?? event.measureIndex + 1;
@@ -114,13 +114,17 @@ function drawEvents(groups, layout, selectedEventId) {
       });
       append(group, 'text', { class: 'score-rest', x: event.x, y: event.y + 4 }, event.label);
     }
-    for (const note of event.notes) {
+    for (const [noteIndex, note] of event.notes.entries()) {
       const width = Math.max(11, String(note.label).length * 7 + 4);
       append(group, 'rect', {
-        class: 'score-fret-background', x: note.x - width / 2, y: note.y - 6,
+        class: `score-fret-background${selected && noteIndex === selectedNoteIndex ? ' selected-note' : ''}`,
+        'data-note-index': noteIndex, x: note.x - width / 2, y: note.y - 6,
         width, height: 12, rx: 2
       });
-      append(group, 'text', { class: 'score-fret', x: note.x, y: note.y + 4 }, note.label);
+      append(group, 'text', {
+        class: `score-fret${selected && noteIndex === selectedNoteIndex ? ' selected-note' : ''}`,
+        'data-note-index': noteIndex, x: note.x, y: note.y + 4
+      }, note.label);
       if (note.bend) {
         const bend = append(group, 'g', { class: 'score-bend' });
         const top = note.y - 25;
@@ -207,7 +211,7 @@ function drawTechniques(groups, layout) {
   }
 }
 
-function selectRenderedEvent(svg, eventId, eventInfo, onSelect, focus = false) {
+function selectRenderedEvent(svg, eventId, eventInfo, onSelect, focus = false, noteIndex = 0) {
   const groups = [...svg.querySelectorAll('[data-event-id]')];
   const target = groups.find((group) => group.dataset.eventId === eventId);
   if (!target) return null;
@@ -217,19 +221,23 @@ function selectRenderedEvent(svg, eventId, eventInfo, onSelect, focus = false) {
     group.setAttribute('aria-pressed', String(selected));
     group.setAttribute('tabindex', selected ? '0' : '-1');
   }
+  for (const note of svg.querySelectorAll('[data-note-index]')) note.classList.remove('selected-note');
+  target.querySelectorAll(`[data-note-index="${noteIndex}"]`).forEach((note) => note.classList.add('selected-note'));
   if (focus) target.focus();
   const selected = eventInfo.get(eventId);
-  if (selected) onSelect?.(selected);
-  return selected || null;
+  const payload = selected ? { ...selected, noteIndex } : null;
+  if (payload) onSelect?.(payload);
+  return payload;
 }
 
 function bindEventSelection(svg, eventInfo, onSelect) {
   scoreInteraction.set(svg, { eventInfo, onSelect });
   svg.addEventListener('click', (domEvent) => {
     const group = domEvent.target.closest?.('[data-event-id]');
+    const noteIndex = Number(domEvent.target.closest?.('[data-note-index]')?.dataset.noteIndex || 0);
     const interaction = scoreInteraction.get(svg);
     if (group && svg.contains(group)) {
-      selectRenderedEvent(svg, group.dataset.eventId, interaction.eventInfo, interaction.onSelect);
+      selectRenderedEvent(svg, group.dataset.eventId, interaction.eventInfo, interaction.onSelect, false, noteIndex);
     }
   });
   svg.addEventListener('keydown', (domEvent) => {
@@ -267,7 +275,7 @@ function buildScoreSvg(index, options = {}) {
   const groups = drawStaff(svg, layout);
   drawMeasures(groups, layout);
   drawBarlines(groups, layout);
-  const eventInfo = drawEvents(groups, layout, selectedEventId);
+  const eventInfo = drawEvents(groups, layout, selectedEventId, options.selectedNoteIndex || 0);
   drawRhythm(groups, layout);
   drawTechniques(groups, layout);
   bindEventSelection(svg, eventInfo, options.onSelect);
@@ -425,6 +433,7 @@ export function createScoreWorkspaceController({
   let renderedKey = null;
   let renderedWidth = null;
   let selectedEventId = null;
+  let selectedNoteIndex = 0;
   let frameId = null;
   let printing = false;
   let lastResult = null;
@@ -432,7 +441,7 @@ export function createScoreWorkspaceController({
   const readIndex = () => {
     const song = getSong();
     if (!song || typeof song.musicxml !== 'string') throw new Error('현재 MusicXML 곡이 없습니다');
-    const key = `${song.selectedPartId || ''}\u0000${song.musicxml}`;
+    const key = `${song.id || ''}\u0000${song.selectedPartId || ''}\u0000${song.musicxml}`;
     if (key !== cachedKey) {
       cachedDoc = parse(song.musicxml);
       cachedIndex = buildIndex(cachedDoc, song.selectedPartId);
@@ -440,6 +449,7 @@ export function createScoreWorkspaceController({
       renderedKey = null;
       if (!cachedIndex.measures.some((measure) => measure.events.some((event) => event.id === selectedEventId))) {
         selectedEventId = null;
+        selectedNoteIndex = 0;
       }
     }
     return { doc: cachedDoc, index: cachedIndex, key };
@@ -474,8 +484,10 @@ export function createScoreWorkspaceController({
         options: {
           width,
           selectedEventId,
+          selectedNoteIndex,
           onSelect: (event) => {
             selectedEventId = event.id;
+            selectedNoteIndex = event.noteIndex || 0;
             renderInspector(inspector, event);
           }
         }
@@ -487,6 +499,7 @@ export function createScoreWorkspaceController({
           const measureNumber = layout.measures[layoutEvent.measureIndex]?.number ?? layoutEvent.measureIndex + 1;
           selectedEvent = {
             ...layoutEvent,
+            noteIndex: selectedNoteIndex,
             measureNumber,
             ariaLabel: eventAriaLabel(layoutEvent, measureNumber)
           };
@@ -516,9 +529,10 @@ export function createScoreWorkspaceController({
   };
 
   const renderScreen = (force = false) => renderAt(getScreenWidth(), force);
-  const renderMeasures = (measureIndices, eventId = selectedEventId) => {
+  const renderMeasures = (measureIndices, eventId = selectedEventId, noteIndex = selectedNoteIndex) => {
     if (printing) return lastResult;
     selectedEventId = eventId || selectedEventId;
+    selectedNoteIndex = Number.isInteger(noteIndex) ? noteIndex : selectedNoteIndex;
     return renderAt(getScreenWidth(), true, false, measureIndices);
   };
   const scheduleScreenRender = () => {
@@ -550,12 +564,16 @@ export function createScoreWorkspaceController({
   windowTarget.addEventListener('beforeprint', beforePrint);
   windowTarget.addEventListener('afterprint', afterPrint);
 
-  const setSelectedEventId = (eventId) => { selectedEventId = eventId || null; };
+  const setSelectedEventId = (eventId, noteIndex = 0) => {
+    selectedEventId = eventId || null;
+    selectedNoteIndex = Number.isInteger(noteIndex) ? noteIndex : 0;
+  };
   const getSelectedEventId = () => selectedEventId;
+  const getSelectedNoteIndex = () => selectedNoteIndex;
   const getLastResult = () => lastResult;
   return {
     renderScreen, scheduleScreenRender, beforePrint, afterPrint, destroy,
-    renderMeasures, setSelectedEventId, getSelectedEventId, getLastResult
+    renderMeasures, setSelectedEventId, getSelectedEventId, getSelectedNoteIndex, getLastResult
   };
 }
 

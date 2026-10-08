@@ -43,7 +43,7 @@ export function syncQuickEditability() {
   const status = document.getElementById('readOnlyStatus');
   if (status) {
     status.hidden = !readOnly;
-    status.textContent = readOnly ? '읽기 전용 MusicXML' : '';
+    status.textContent = readOnly ? '빠른 격자 읽기 전용 · 전문 TAB 편집 가능' : '';
   }
   return !readOnly;
 }

@@ -72,5 +72,6 @@ describe('quick edit controls', () => {
       '#fbShift', '.nav', '#autoAdv', '#instr', '#loop'
     ]) expect(document.querySelector(selector).disabled, selector).toBe(false);
     expect(document.querySelector('#readOnlyStatus').hidden).toBe(false);
+    expect(document.querySelector('#readOnlyStatus').textContent).toMatch(/빠른 격자.*전문 TAB 편집 가능/);
   });
 });

@@ -137,6 +137,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .score-event-rest-target{fill:transparent;stroke:transparent;stroke-width:2;vector-effect:non-scaling-stroke}
 .score-event-rest:focus .score-event-rest-target,.score-event-rest:hover .score-event-rest-target,.score-event-rest.selected .score-event-rest-target{fill:#dce6ff;stroke:#2457d6}
 .score-fret-background{fill:#fff}
+.score-fret-background.selected-note{fill:#b8ccff}
 .score-fret,.score-rest,.score-chord,.score-measure-number,.score-technique text,.score-ending text,.score-tuplet text{text-anchor:middle;fill:currentColor}
 .score-fret{font-size:11px;font-weight:700}
 .score-rest{font-size:14px}

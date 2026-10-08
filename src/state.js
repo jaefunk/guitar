@@ -46,7 +46,7 @@ function attachLegacyProjection(song, legacy) {
     marks: legacy.marks
   };
   Object.defineProperty(song, '_legacy', { value: projection, writable: true, configurable: true });
-  if (song.editorMode === 'musicxml-readonly') {
+  if (song.editorMode !== 'grid-v3') {
     Object.defineProperty(song, '_readonlySnapshot', {
       value: {
         title: song.title,
@@ -224,11 +224,13 @@ function sanitizeV4Song(value, id, now) {
   const timestamp = now ?? Date.now();
   const editorMode = value.editorMode === 'grid-v3'
     ? 'grid-v3'
-    : value.editorMode === 'musicxml-readonly'
-      ? 'musicxml-readonly'
-      : isLosslessV3GridMusicXml(value.musicxml, selectedPartId)
-        ? 'grid-v3'
-        : 'musicxml-readonly';
+    : value.editorMode === 'musicxml-score'
+      ? 'musicxml-score'
+      : value.editorMode === 'musicxml-readonly'
+        ? 'musicxml-readonly'
+        : isLosslessV3GridMusicXml(value.musicxml, selectedPartId)
+          ? 'grid-v3'
+          : 'musicxml-readonly';
   const song = {
     id,
     title: projection.title || (typeof value.title === 'string' ? value.title : ''),
@@ -467,8 +469,26 @@ export function persistCurrentScoreMusicXml(xml) {
   const selectedPart = [...doc.documentElement.children]
     .find((node) => node.localName === 'part' && node.getAttribute('id') === song.selectedPartId);
   if (!selectedPart) throw new Error(`Selected MusicXML part is missing: ${song.selectedPartId}`);
-  song.musicxml = serializeMusicXml(doc);
+  const nextXml = serializeMusicXml(doc);
+  if (!song._readonlySnapshot) {
+    Object.defineProperty(song, '_readonlySnapshot', {
+      value: {
+        title: song.title,
+        tuning: song.tuning,
+        bpm: song.bpm,
+        measures: cloneMeasures(song.measures),
+        marks: { ...song.marks },
+        updatedAt: song.updatedAt
+      },
+      writable: true,
+      configurable: true
+    });
+  }
+  song.musicxml = nextXml;
+  song.editorMode = 'musicxml-score';
   song.updatedAt = Date.now();
+  song._readonlySnapshot.updatedAt = song.updatedAt;
+  state.readOnly = true;
   const st = getStorage();
   if (st) {
     try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (error) { /* 저장 실패 시 메모리 편집은 유지 */ }
