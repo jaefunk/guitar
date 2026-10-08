@@ -392,6 +392,55 @@ describe('layoutScore geometry', () => {
     expect(first).toEqual(second);
   });
 
+  it('reuses one lane for touching endings but separates overlapping endings', () => {
+    const measures = [1, 2].map((number) => measure(number, [rest(`r${number}`, r(0), r(4))]));
+    measures[0].endings = [
+      { number: '1', type: 'start' }, { number: '1', type: 'stop' },
+      { number: '3', type: 'start' }
+    ];
+    measures[1].endings = [
+      { number: '2', type: 'start' }, { number: '2', type: 'stop' },
+      { number: '3', type: 'stop' }
+    ];
+
+    const layout = layoutScore({ partId: 'P1', measures, links: [] }, { width: 360 });
+    const endings = layout.measures.flatMap((item) => item.endings);
+    const first = endings.find((ending) => ending.number === '1');
+    const second = endings.find((ending) => ending.number === '2');
+    const overlapping = endings.find((ending) => ending.number === '3');
+
+    expect([first.x1, first.x2, second.x1, second.x2]).toEqual([0, 180, 180, 360]);
+    expect(second.lane).toBe(first.lane);
+    expect(second.y).toBe(first.y);
+    expect(overlapping.lane).not.toBe(first.lane);
+  });
+
+  it('preserves malformed ending markers with source values and position', () => {
+    const badMeasure = measure(7, [rest('r7', r(0), r(4))], {
+      endings: [
+        { number: '', type: 'start' },
+        { number: '3', type: 'mystery' }
+      ]
+    });
+    const index = { partId: 'P1', measures: [badMeasure], links: [] };
+
+    const first = layoutScore(index, { width: 360 });
+    const second = layoutScore(index, { width: 360 });
+
+    expect(first.measures[0].endings).toEqual([
+      expect.objectContaining({
+        malformed: 'missing-number', originalNumber: '', originalType: 'start',
+        startMeasureIndex: 0, endMeasureIndex: 0, x1: 0, x2: 180
+      }),
+      expect.objectContaining({
+        malformed: 'unknown-type', originalNumber: '3', originalType: 'mystery',
+        startMeasureIndex: 0, endMeasureIndex: 0, x1: 0, x2: 180
+      })
+    ]);
+    expect(Number.isFinite(first.totalHeight)).toBe(true);
+    expect(first).toEqual(second);
+  });
+
   it('shares collision-free annotation lanes and grows system geometry dynamically', () => {
     const annotatedEvents = [
       event('a', r(0), r(1, 2), [{ string: 2, fret: 5 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 }, fermata: true, chordSymbol: 'Fm' }),

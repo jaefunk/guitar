@@ -129,12 +129,38 @@ function measureEndingMarkers(measure) {
     ...(measure.barlines || []).flatMap((barline) => barline.ending ? [barline.ending] : [])
   ];
   const seen = new Set();
-  return markers.flatMap((marker) => endingNumbers(marker.number).flatMap((number) => {
-    const key = `${number}:${marker.type}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ number, type: marker.type }];
-  }));
+  return markers.flatMap((marker) => {
+    const originalNumber = String(marker.number ?? '');
+    const originalType = String(marker.type ?? '');
+    const numbers = endingNumbers(originalNumber);
+    if (numbers.length === 0) {
+      const key = `raw:${originalNumber}:${originalType}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{
+        number: originalNumber,
+        type: originalType,
+        originalNumber,
+        originalType,
+        malformed: 'missing-number'
+      }];
+    }
+    return numbers.flatMap((number) => {
+      const key = `${number}:${originalType}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      if (!['start', 'stop', 'discontinue'].includes(originalType)) {
+        return [{
+          number,
+          type: originalType,
+          originalNumber,
+          originalType,
+          malformed: 'unknown-type'
+        }];
+      }
+      return [{ number, type: originalType }];
+    });
+  });
 }
 
 function pairEndingSpans(sourceMeasures) {
@@ -143,6 +169,15 @@ function pairEndingSpans(sourceMeasures) {
   let order = 0;
   sourceMeasures.forEach((measure, measureIndex) => {
     for (const marker of measureEndingMarkers(measure)) {
+      if (marker.malformed) {
+        spans.push({
+          ...marker,
+          startMeasureIndex: measureIndex,
+          endMeasureIndex: measureIndex,
+          order: order += 1
+        });
+        continue;
+      }
       const stack = active.get(marker.number) || [];
       if (marker.type === 'start') {
         stack.push({ number: marker.number, startMeasureIndex: measureIndex, order: order += 1 });
@@ -207,7 +242,11 @@ function endingSegments(sourceMeasures, measures, systems) {
         continuationStart: !first,
         continuationEnd: !last,
         ...(span.open ? { open: true } : {}),
-        ...(span.malformed ? { malformed: span.malformed } : {})
+        ...(span.malformed ? {
+          malformed: span.malformed,
+          originalNumber: span.originalNumber ?? span.number,
+          originalType: span.originalType ?? span.type
+        } : {})
       };
       measures[startMeasureIndex].endings.push(segment);
       segments.push(segment);
@@ -512,7 +551,8 @@ function techniqueLinkRecords(sourceLinks, events, systems) {
   return records;
 }
 
-function intervalsOverlap(a, b, margin = 4) {
+function intervalsOverlap(a, b) {
+  const margin = a.annotationKind === 'ending' && b.annotationKind === 'ending' ? 0 : 4;
   return a.x1 < b.x2 + margin && b.x1 < a.x2 + margin;
 }
 
@@ -529,7 +569,11 @@ function allocateAnnotationLanes(candidates, systemCount) {
     let lane = 0;
     while ((lanes[lane] || []).some((interval) => intervalsOverlap(candidate, interval))) lane += 1;
     if (!lanes[lane]) lanes[lane] = [];
-    lanes[lane].push({ x1: candidate.x1, x2: candidate.x2 });
+    lanes[lane].push({
+      x1: candidate.x1,
+      x2: candidate.x2,
+      annotationKind: candidate.annotationKind
+    });
     candidate.lane = lane;
   }
   return laneIntervals.map((lanes) => lanes.length);
