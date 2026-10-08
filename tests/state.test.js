@@ -1,10 +1,15 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
-  listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch
+  listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
+  KEY_V4
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
+import { parseMusicXml } from '../src/musicxml.js';
+import { buildScoreIndex } from '../src/score-index.js';
 
 function memStorage(init) {
   const m = Object.assign({}, init || {});
@@ -90,17 +95,142 @@ describe('곡 관리', () => {
     expect(state.zoom).toBe('l');
     expect(ed.sel).toEqual({ m: 0, s: 0, i: 0 });
   });
-  it('save는 v3 키에 쓰고, 다시 읽으면 같은 곡이 나온다', () => {
+  it('save는 v4 키에 MusicXML 정본을 쓰고, 다시 읽으면 같은 곡이 나온다', () => {
     state.measures[1][1][1] = '7'; touch();
     save();
-    const d = JSON.parse(st.dump()[KEY]);
-    expect(d.v).toBe(3);
-    expect(d.songs[d.currentId].measures[1][1][1]).toBe('7');
+    const d = JSON.parse(st.dump()[KEY_V4]);
+    expect(d.v).toBe(4);
+    expect(Object.keys(d.songs[d.currentId]).sort()).toEqual([
+      'createdAt', 'id', 'musicxml', 'selectedPartId', 'title', 'updatedAt'
+    ]);
+    const index = buildScoreIndex(parseMusicXml(d.songs[d.currentId].musicxml), 'P1');
+    expect(index.measures[1].events[1].notes[0]).toMatchObject({ string: 2, fret: 7 });
     expect(d.settings.zoom).toBe('l');
     // 옛 키는 건드리지 않는다
     expect(st.dump()['gtab-editor-v2']).toBeTruthy();
     load();
     expect(state.measures[1][1][1]).toBe('7');
+  });
+
+  it('v3에서 v4를 만들 때 v3 키를 그대로 두고 ID와 메타데이터를 보존한다', () => {
+    const legacy = v2Blob();
+    const v3Song = { ...legacy, id: 'kept-id', createdAt: 123, updatedAt: 456 };
+    const v3 = {
+      v: 3,
+      songs: { 'kept-id': v3Song },
+      order: ['kept-id'],
+      currentId: 'kept-id',
+      settings: { zoom: 'l' }
+    };
+    st = memStorage({ [KEY]: JSON.stringify(v3) });
+    useStorage(st);
+
+    load();
+
+    expect(st.getItem(KEY)).toBe(JSON.stringify(v3));
+    const migrated = JSON.parse(st.getItem(KEY_V4));
+    expect(migrated.currentId).toBe('kept-id');
+    expect(migrated.order).toEqual(['kept-id']);
+    expect(migrated.songs['kept-id']).toMatchObject({
+      id: 'kept-id', title: '옛 곡', selectedPartId: 'P1', createdAt: 123, updatedAt: 456
+    });
+    expect(parseMusicXml(migrated.songs['kept-id'].musicxml)).toBeTruthy();
+  });
+
+  it('v4가 있으면 변경된 v3보다 v4를 우선하며 마이그레이션은 멱등적이다', () => {
+    const firstStorage = memStorage({ [KEY]: JSON.stringify({
+      v: 3,
+      songs: { a: { ...v2Blob(), id: 'a', title: 'v4가 될 제목' } },
+      order: ['a'], currentId: 'a', settings: {}
+    }) });
+    useStorage(firstStorage);
+    load();
+    const firstV4 = firstStorage.getItem(KEY_V4);
+    firstStorage.setItem(KEY, JSON.stringify({ ...v2Blob(), title: '무시할 v3' }));
+
+    load();
+
+    expect(state.title).toBe('v4가 될 제목');
+    expect(firstStorage.getItem(KEY_V4)).toBe(firstV4);
+  });
+
+  it('손상된 v4 JSON은 유효한 v3로 복구하고, 모두 손상되면 새 v4 문서를 만든다', () => {
+    const fromV3 = readDoc(memStorage({
+      [KEY_V4]: '{broken',
+      [KEY]: JSON.stringify({ v: 3, songs: { a: { ...v2Blob(), id: 'a' } }, order: ['a'], currentId: 'a' })
+    }), 77);
+    expect(fromV3.v).toBe(4);
+    expect(fromV3.songs.a.title).toBe('옛 곡');
+
+    const empty = readDoc(memStorage({ [KEY_V4]: '{broken', [KEY]: 'null' }), 77);
+    expect(empty.v).toBe(4);
+    expect(empty.order).toHaveLength(1);
+    expect(parseMusicXml(empty.songs[empty.currentId].musicxml)).toBeTruthy();
+  });
+
+  it('생성·이름 변경·복제·삭제와 설정 변경을 v4 문서에 반영한다', () => {
+    const first = currentSong().id;
+    const second = createSong('둘째');
+    renameSong(second.id, '바뀐 & 제목');
+    const copy = duplicateSong(second.id);
+    state.theme = 'light';
+    save();
+    deleteSong(first);
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(persisted.order).toEqual([second.id, copy.id]);
+    expect(persisted.songs[first]).toBeUndefined();
+    expect(persisted.songs[second.id].title).toBe('바뀐 & 제목');
+    expect(parseMusicXml(persisted.songs[second.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('바뀐 & 제목');
+    expect(persisted.songs[copy.id].title).toBe('바뀐 & 제목 사본');
+    expect(persisted.settings.theme).toBe('light');
+  });
+
+  it('현재 곡이 아닌 곡의 이름도 해당 MusicXML 제목에 반영한다', () => {
+    const first = currentSong().id;
+    const second = createSong('둘째');
+    switchSong(first);
+
+    renameSong(second.id, '백그라운드 곡');
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(parseMusicXml(persisted.songs[second.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('백그라운드 곡');
+  });
+
+  it('이름 변경과 복제는 MusicXML의 지원하지 않는 요소를 보존한다', () => {
+    const first = currentSong().id;
+    library.songs[first].musicxml = library.songs[first].musicxml.replace(
+      '<part-list>',
+      '<credit><credit-words>keep me</credit-words></credit><part-list>'
+    );
+    createSong('현재 곡');
+
+    renameSong(first, '보존된 곡');
+    const copy = duplicateSong(first);
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(persisted.songs[first].musicxml).toContain('<credit-words>keep me</credit-words>');
+    expect(persisted.songs[copy.id].musicxml).toContain('<credit-words>keep me</credit-words>');
+    expect(parseMusicXml(persisted.songs[copy.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('보존된 곡 사본');
+  });
+
+  it('빠른 격자 수정은 선택하지 않은 MusicXML 파트를 보존한다', () => {
+    const first = currentSong().id;
+    library.songs[first].musicxml = library.songs[first].musicxml
+      .replace('</part-list>', '<score-part id="P2"><part-name>Keep</part-name></score-part></part-list>')
+      .replace('</score-partwise>', '<part id="P2"><measure number="1"><note><rest/><duration>4</duration></note></measure></part></score-partwise>');
+    state.measures[0][0][1] = '9';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    const doc = parseMusicXml(persisted.songs[first].musicxml);
+    expect(doc.querySelector('part[id="P2"] note rest')).not.toBeNull();
+    expect(buildScoreIndex(doc, 'P1').measures[0].events[1].notes[0]).toMatchObject({ string: 1, fret: 9 });
   });
   it('새 곡을 만들면 현재 곡이 바뀌고 이전 곡은 보존된다', () => {
     const first = currentSong().id;

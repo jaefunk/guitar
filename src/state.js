@@ -8,6 +8,10 @@ import {
   KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
+import { musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
+import { parseMusicXml, serializeMusicXml } from './musicxml.js';
+
+export const KEY_V4 = 'gtab-editor-v4';
 
 export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'measures', 'marks'];
 export const SETTING_FIELDS = [
@@ -32,6 +36,90 @@ export function defaultSong(now) {
   for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure());
   const t = now || Date.now();
   return { id: newId(), title: '', tuning: 'standard', bpm: 90, measures: ms, marks: {}, createdAt: t, updatedAt: t };
+}
+
+function attachLegacyProjection(song, legacy) {
+  const projection = {
+    tuning: legacy.tuning,
+    bpm: legacy.bpm,
+    measures: legacy.measures,
+    marks: legacy.marks
+  };
+  Object.defineProperty(song, '_legacy', { value: projection, writable: true, configurable: true });
+  for (const field of ['tuning', 'bpm', 'measures', 'marks']) {
+    Object.defineProperty(song, field, {
+      configurable: true,
+      get() { return this._legacy[field]; },
+      set(value) { this._legacy[field] = value; }
+    });
+  }
+  return song;
+}
+
+function v4SongFromLegacy(legacySong, now) {
+  const legacy = sanitizeSong(legacySong, now);
+  const song = {
+    id: legacy.id,
+    title: legacy.title,
+    musicxml: v3SongToMusicXml(legacy),
+    selectedPartId: 'P1',
+    createdAt: legacy.createdAt,
+    updatedAt: legacy.updatedAt
+  };
+  return attachLegacyProjection(song, legacy);
+}
+
+function defaultV4Song(now) {
+  return v4SongFromLegacy(defaultSong(now), now);
+}
+
+function refreshSongMusicXml(song) {
+  const generatedXml = v3SongToMusicXml({
+    id: song.id,
+    title: song.title,
+    tuning: song.tuning,
+    bpm: song.bpm,
+    measures: song.measures,
+    marks: song.marks,
+    createdAt: song.createdAt,
+    updatedAt: song.updatedAt
+  });
+  try {
+    const currentDoc = parseMusicXml(song.musicxml);
+    const generatedDoc = parseMusicXml(generatedXml);
+    const selectedPart = [...currentDoc.documentElement.children]
+      .find((element) => element.localName === 'part' && element.getAttribute('id') === song.selectedPartId);
+    const generatedPart = [...generatedDoc.documentElement.children]
+      .find((element) => element.localName === 'part' && element.getAttribute('id') === 'P1');
+    if (!selectedPart || !generatedPart) throw new Error('Selected MusicXML part is missing');
+    selectedPart.replaceChildren(...[...generatedPart.children].map((element) => currentDoc.importNode(element, true)));
+    setDocumentTitle(currentDoc, song.title);
+    song.musicxml = serializeMusicXml(currentDoc);
+  } catch (error) {
+    song.musicxml = generatedXml;
+    song.selectedPartId = 'P1';
+  }
+}
+
+function setDocumentTitle(doc, title) {
+  const root = doc.documentElement;
+  let work = [...root.children].find((element) => element.localName === 'work');
+  if (!work) {
+    work = doc.createElementNS(root.namespaceURI, 'work');
+    root.insertBefore(work, root.firstElementChild);
+  }
+  let workTitle = [...work.children].find((element) => element.localName === 'work-title');
+  if (!workTitle) {
+    workTitle = doc.createElementNS(root.namespaceURI, 'work-title');
+    work.appendChild(workTitle);
+  }
+  workTitle.textContent = title;
+}
+
+function musicXmlWithTitle(xml, title) {
+  const doc = parseMusicXml(xml);
+  setDocumentTitle(doc, title);
+  return serializeMusicXml(doc);
 }
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
@@ -108,24 +196,98 @@ export function sanitizeDoc(d, now) {
   return doc;
 }
 
+function sanitizeV4Song(value, id, now) {
+  if (!value || typeof value !== 'object' || typeof value.musicxml !== 'string') return null;
+  const selectedPartId = typeof value.selectedPartId === 'string' && value.selectedPartId ? value.selectedPartId : 'P1';
+  let projection;
+  try {
+    projection = musicXmlToV3Song(value.musicxml, selectedPartId);
+  } catch (error) {
+    return null;
+  }
+  const timestamp = now ?? Date.now();
+  const song = {
+    id,
+    title: projection.title || (typeof value.title === 'string' ? value.title : ''),
+    musicxml: value.musicxml,
+    selectedPartId,
+    createdAt: Number.isFinite(value.createdAt) ? value.createdAt : timestamp,
+    updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : timestamp
+  };
+  projection.title = song.title;
+  return attachLegacyProjection(song, sanitizeSong({ ...projection, id, createdAt: song.createdAt, updatedAt: song.updatedAt }, now));
+}
+
+export function sanitizeV4Doc(value, now) {
+  const doc = { v: 4, songs: {}, order: [], currentId: null, settings: sanitizeSettings(value?.settings) };
+  if (value?.songs && typeof value.songs === 'object') {
+    const orderedIds = Array.isArray(value.order)
+      ? value.order.filter((id) => typeof id === 'string' && value.songs[id])
+      : [];
+    Object.keys(value.songs).forEach((id) => { if (!orderedIds.includes(id)) orderedIds.push(id); });
+    for (const id of orderedIds) {
+      const song = sanitizeV4Song(value.songs[id], id, now);
+      if (!song) continue;
+      doc.songs[id] = song;
+      doc.order.push(id);
+    }
+  }
+  if (!doc.order.length) {
+    const song = defaultV4Song(now);
+    doc.songs[song.id] = song;
+    doc.order.push(song.id);
+  }
+  doc.currentId = typeof value?.currentId === 'string' && doc.songs[value.currentId]
+    ? value.currentId
+    : doc.order[0];
+  return doc;
+}
+
+export function migrateV3Doc(value, now) {
+  const source = sanitizeDoc(value, now);
+  const songs = {};
+  for (const id of source.order) songs[id] = v4SongFromLegacy(source.songs[id], now);
+  return {
+    v: 4,
+    songs,
+    order: source.order.slice(),
+    currentId: source.currentId,
+    settings: source.settings
+  };
+}
+
 /** 저장소에서 읽어 문서를 만든다(순수: storage를 주입). */
 export function readDoc(storage, now) {
+  let rawV4 = null;
+  try {
+    rawV4 = storage.getItem(KEY_V4);
+  } catch (e) { /* 저장소 접근 불가 */ }
+  if (rawV4) {
+    try {
+      const value = JSON.parse(rawV4);
+      if (value && value.v === 4 && typeof value === 'object') return sanitizeV4Doc(value, now);
+    } catch (e) { /* 손상된 v4는 보존된 v3/legacy에서 복구 */ }
+  }
+
   let raw = null;
-  let legacy = false;
+  let singleSongLegacy = false;
   try {
     raw = storage.getItem(KEY);
     if (!raw) {
       for (let i = 0; i < LEGACY_KEYS.length && !raw; i++) raw = storage.getItem(LEGACY_KEYS[i]);
-      legacy = !!raw;
+      singleSongLegacy = !!raw;
     }
   } catch (e) { /* 저장소 접근 불가 */ }
   if (raw) {
     try {
-      const d = JSON.parse(raw);
-      if (d && typeof d === 'object') return legacy ? migrateLegacy(d, now) : sanitizeDoc(d, now);
+      const value = JSON.parse(raw);
+      if (value && typeof value === 'object') {
+        const v3 = singleSongLegacy ? migrateLegacy(value, now) : sanitizeDoc(value, now);
+        return migrateV3Doc(v3, now);
+      }
     } catch (e) { /* 깨진 JSON은 새로 시작 */ }
   }
-  return sanitizeDoc(null, now);
+  return sanitizeV4Doc(null, now);
 }
 
 /* ---------- 책장 ↔ 책상 ---------- */
@@ -160,14 +322,29 @@ export function flush() {
   if (!song) return;
   let changed = dirty;
   SONG_FIELDS.forEach((k) => { if (song[k] !== state[k]) { song[k] = state[k]; changed = true; } });
-  if (changed) song.updatedAt = Date.now();
+  if (changed) {
+    refreshSongMusicXml(song);
+    song.updatedAt = Date.now();
+  }
   dirty = false;
 }
 
 export function toDoc() {
   const settings = {};
   SETTING_FIELDS.forEach((k) => { settings[k] = state[k]; });
-  return { v: 3, songs: library.songs, order: library.order, currentId: library.currentId, settings };
+  const songs = {};
+  library.order.forEach((id) => {
+    const song = library.songs[id];
+    songs[id] = {
+      id: song.id,
+      title: song.title,
+      musicxml: song.musicxml,
+      selectedPartId: song.selectedPartId,
+      createdAt: song.createdAt,
+      updatedAt: song.updatedAt
+    };
+  });
+  return { v: 4, songs, order: library.order.slice(), currentId: library.currentId, settings };
 }
 
 let storage = null;
@@ -182,6 +359,9 @@ function getStorage() {
 export function load() {
   const st = getStorage();
   applyDoc(readDoc(st || { getItem() { return null; } }));
+  if (st) {
+    try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (e) { /* 용량 초과 등 */ }
+  }
 }
 
 /** 변경이 있을 때마다 호출. 비싸지 않다(JSON 직렬화 한 번). */
@@ -189,7 +369,7 @@ export function save() {
   flush();
   const st = getStorage();
   if (!st) return;
-  try { st.setItem(KEY, JSON.stringify(toDoc())); } catch (e) { /* 용량 초과 등 */ }
+  try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (e) { /* 용량 초과 등 */ }
 }
 
 /* ---------- 곡 관리(데이터만; UI 갱신은 songs.js) ---------- */
@@ -199,8 +379,11 @@ export function listSongs() {
 
 export function createSong(title) {
   flush();
-  const s = defaultSong();
+  const s = defaultV4Song();
   if (title) s.title = title;
+  if (title) {
+    refreshSongMusicXml(s);
+  }
   library.songs[s.id] = s;
   library.order.push(s.id);
   activate(s.id);
@@ -222,6 +405,7 @@ export function renameSong(id, title) {
   s.title = title;
   if (id === library.currentId) state.title = title;
   s.updatedAt = Date.now();
+  s.musicxml = musicXmlWithTitle(s.musicxml, title);
   save();
 }
 
@@ -229,8 +413,24 @@ export function duplicateSong(id) {
   const src = library.songs[id];
   if (!src) return null;
   flush();
-  const copy = sanitizeSong(Object.assign({}, src, { id: undefined, createdAt: undefined, updatedAt: undefined }));
-  copy.title = (src.title || '제목 없음') + ' 사본';
+  const timestamp = Date.now();
+  const copyLegacy = sanitizeSong({
+    title: (src.title || '제목 없음') + ' 사본',
+    tuning: src.tuning,
+    bpm: src.bpm,
+    measures: cloneMeasures(src.measures),
+    marks: { ...src.marks },
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }, timestamp);
+  const copy = attachLegacyProjection({
+    id: copyLegacy.id,
+    title: copyLegacy.title,
+    musicxml: musicXmlWithTitle(src.musicxml, copyLegacy.title),
+    selectedPartId: src.selectedPartId,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }, copyLegacy);
   library.songs[copy.id] = copy;
   library.order.splice(library.order.indexOf(id) + 1, 0, copy.id);
   save();
@@ -245,7 +445,7 @@ export function deleteSong(id) {
   delete library.songs[id];
   library.order.splice(idx, 1);
   if (!library.order.length) {
-    const s = defaultSong();
+    const s = defaultV4Song();
     library.songs[s.id] = s;
     library.order.push(s.id);
   }
