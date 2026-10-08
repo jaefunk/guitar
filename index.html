@@ -15,21 +15,41 @@
   <div class="title-row">
     <button class="icon-btn" id="songsBtn" type="button" aria-label="곡 목록" title="곡 목록">≡</button>
     <input id="title" class="title" type="text" placeholder="곡 제목" autocomplete="off">
+    <span id="readOnlyStatus" hidden role="status">빠른 격자 읽기 전용 · 전문 TAB 편집 가능</span>
     <button class="icon-btn" id="helpBtn" type="button" aria-label="도움말" title="도움말">?</button>
   </div>
   <div class="toolbar">
+    <div class="seg view-mode" role="group" aria-label="악보 보기 방식">
+      <button type="button" id="modeGrid" class="on" aria-pressed="true">빠른 격자</button>
+      <button type="button" id="modeScore" aria-pressed="false">전문 TAB</button>
+    </div>
     <button class="btn primary" id="addLine" type="button">+ 줄 추가</button>
     <button class="btn" id="measureMenu" type="button">마디 <span class="caret">▼</span></button>
     <button class="btn" id="chordBtn" type="button">코드 넣기</button>
     <button class="btn" id="markBtn" type="button">메모</button>
     <button class="btn" id="exportMenu" type="button">내보내기 <span class="caret">▼</span></button>
+    <input id="musicXmlFile" type="file" accept=".musicxml,.xml,.mxl" hidden>
     <button class="btn" id="settingsBtn" type="button">설정</button>
   </div>
 </header>
 
-<main>
+<main id="gridWorkspace">
   <div class="sheet-wrap" id="sheetWrap"><div class="sheet" id="sheet"></div></div>
 </main>
+
+<section id="scoreWorkspace" class="score-workspace" aria-label="전문 TAB 악보" hidden>
+  <nav id="measureNav" class="score-panel measure-nav" aria-label="마디 탐색">
+    <h2>마디</h2>
+    <div class="measure-nav-list"></div>
+  </nav>
+  <div id="scoreCanvas" class="score-canvas" aria-live="polite"></div>
+  <aside id="scoreInspector" class="score-panel score-inspector" aria-label="악보 속성">
+    <h2>속성</h2>
+    <p>음표를 선택하면 세부 속성을 편집할 수 있습니다.</p>
+  </aside>
+  <aside id="scoreDiagnostics" class="score-panel score-diagnostics" aria-label="악보 진단"></aside>
+  <p id="scorePlaybackStatus" class="score-playback-status" role="status" aria-live="polite"></p>
+</section>
 
 <div class="pad" id="pad">
   <div class="pad-inner">
@@ -150,6 +170,21 @@
     <div class="row">
       <button class="btn" id="closeImport" type="button">닫기</button>
       <button class="btn primary" id="doImport" type="button">불러오기</button>
+    </div>
+  </div>
+</div>
+
+<!-- MusicXML 파트 선택 -->
+<div class="modal" id="musicXmlImportModal" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="musicXmlImportTitle">
+    <div class="grip"></div>
+    <h2 id="musicXmlImportTitle">TAB 파트 선택</h2>
+    <p>불러와서 편집할 TAB 파트를 선택하세요. 확인하기 전에는 보관함이 바뀌지 않습니다.</p>
+    <div id="musicXmlPartChoices" class="musicxml-part-choices" role="radiogroup" aria-label="TAB 파트"></div>
+    <p id="musicXmlImportStatus" role="status" aria-live="polite"></p>
+    <div class="row">
+      <button class="btn" id="cancelMusicXmlImport" type="button">취소</button>
+      <button class="btn primary" id="confirmMusicXmlImport" type="button">불러오기</button>
     </div>
   </div>
 </div>

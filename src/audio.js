@@ -4,6 +4,9 @@ import { state, ed } from './state.js';
 import { parse, nextNoteOnString } from './tab.js';
 import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
+import {
+  buildPlaybackPlan, createLookaheadPlaybackController, createScoreHighlighter
+} from './score-audio.js';
 
 const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
 let actx = null, master = null, comp = null, revBus = null;
@@ -11,6 +14,8 @@ const chains = {};
 const bufCache = {};
 let active = [], playTimer = null, hlTimers = [], playPos = 0, nextTime = 0, loopA = 0, loopB = 0, loopOn = false;
 let previewVoices = [];
+let scorePlayback = null;
+let scoreCountInClicks = [];
 
 /** 재생 상태(다른 모듈이 읽기만 함) */
 export const pb = { playing: false, lastHL: null };
@@ -112,8 +117,16 @@ function playNote(midi, t, o) {
   const muted = !!o.muted, src = actx.createBufferSource();
   src.buffer = noteBuffer(midi, !!o.soft, muted);
   const g = actx.createGain(), vel = (o.vel || 0.7) * (0.94 + Math.random() * 0.12);
-  g.gain.setValueAtTime(vel, t); src.connect(g); g.connect(getChain(state.instr).input);
-  if (o.mod === 'b') { src.playbackRate.setValueAtTime(1, t); src.playbackRate.linearRampToValueAtTime(Math.pow(2, 1 / 12), t + 0.16); }
+  if (o.attack === 'legato') {
+    g.gain.setValueAtTime(vel * 0.35, t);
+    g.gain.linearRampToValueAtTime(vel, t + 0.025);
+  } else g.gain.setValueAtTime(vel, t);
+  src.connect(g); g.connect(getChain(state.instr).input);
+  if (o.mod === 'b' || o.bendSemitones) {
+    const semitones = o.bendSemitones || 1;
+    src.playbackRate.setValueAtTime(1, t);
+    src.playbackRate.linearRampToValueAtTime(Math.pow(2, semitones / 12), t + Math.min(0.16, o.durationSeconds || 0.16));
+  }
   else if (o.mod === '~') {
     const lfo = actx.createOscillator(); lfo.frequency.value = 5.5;
     const lg = actx.createGain(); lg.gain.value = 0.012;
@@ -127,12 +140,58 @@ function stopVoice(v, t) {
   v.g.gain.setTargetAtTime(0, t, 0.012);
   try { v.src.stop(t + 0.15); } catch (e) { /* 이미 멈춤 */ }
 }
+
+/** Score playback에 신시사이저 내부를 노출하지 않는 최소 voice adapter. */
+export function createScoreVoiceAdapter({ play = playNote, stop = stopVoice } = {}) {
+  return {
+    schedule(entry, at) {
+      const slide = entry.legato?.find((item) => item.type === 'slide' && Number.isFinite(item.targetMidi));
+      const options = {
+        muted: Boolean(entry.muted),
+        soft: Boolean(entry.ghost || entry.attack === 'legato'),
+        attack: entry.attack || 'normal',
+        vel: entry.velocity,
+        bendSemitones: entry.bendSemitones || 0,
+        durationSeconds: entry.durationSeconds
+      };
+      if (slide) {
+        options.slideRatio = Math.pow(2, (slide.targetMidi - entry.midi) / 12);
+        options.slideFrom = at;
+        options.slideTo = at + entry.durationSeconds;
+      }
+      const handle = play(entry.midi, at, options);
+      if (handle?.g?.gain && handle?.src && Number.isFinite(entry.durationSeconds)) {
+        const releaseAt = at + entry.durationSeconds;
+        handle.g.gain.setTargetAtTime(0, releaseAt, 0.012);
+        try { handle.src.stop(releaseAt + 0.15); } catch (error) { /* 이미 정지됨 */ }
+      }
+      return handle;
+    },
+    stop(handle, at) { stop(handle, at); }
+  };
+}
 function slotDur() { return 60 / state.bpm / 4; }
 function click(t, accent) {
   const o = actx.createOscillator(); o.type = 'sine';
   o.frequency.setValueAtTime(accent ? 2300 : 1700, t); o.frequency.exponentialRampToValueAtTime(accent ? 1500 : 1100, t + 0.03);
   const g = actx.createGain(); g.gain.setValueAtTime(accent ? 0.55 : 0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.08);
+  return { oscillator: o };
+}
+function stopClick(handle, t) {
+  try { handle?.oscillator?.stop(t); } catch (error) { /* 이미 종료됨 */ }
+}
+
+export function createScoreClickAdapter({ schedule = click, stop = stopClick } = {}) {
+  return {
+    schedule(at, accent) { return schedule(at, accent); },
+    stop(handle, at) { try { stop(handle, at); } catch (error) { /* 이미 종료됨 */ } }
+  };
+}
+
+function stopCountInClicks(t) {
+  for (const handle of scoreCountInClicks) stopClick(handle, t);
+  scoreCountInClicks = [];
 }
 function scheduleSlot(pos, t) {
   const m = Math.floor(pos / SLOTS), i = pos % SLOTS, meas = state.measures[m];
@@ -220,6 +279,62 @@ export function startPlay(fromPos) {
   } else nextTime = t0;
   tick();
 }
+
+function scoreLoopMeasures(index, loopMode, selectedEventId) {
+  if (loopMode === 'none' || loopMode === 'all') return undefined;
+  const selectedMeasure = index.measures.findIndex((measure) =>
+    measure.events.some((event) => event.id === selectedEventId));
+  const start = selectedMeasure >= 0 ? selectedMeasure : 0;
+  if (loopMode === 'measure') return [start];
+  const lineStart = Math.floor(start / PER_LINE) * PER_LINE;
+  return index.measures.slice(lineStart, lineStart + PER_LINE).map((_, offset) => lineStart + offset);
+}
+
+/** 전문 TAB ScoreIndex 재생. 빠른 격자 재생기와 상태/UI만 공유한다. */
+export function startScorePlay(index, { selectedEventId = null, canvas = $('scoreCanvas') } = {}) {
+  if (!index) { toast('재생할 전문 TAB 악보가 없습니다'); return false; }
+  if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return false; }
+  stopPlay();
+  const playbackMeasures = scoreLoopMeasures(index, state.loop, selectedEventId);
+  const plan = buildPlaybackPlan(index, {
+    bpm: state.bpm,
+    playbackMeasures,
+    metronome: state.metro
+  });
+  const highlighter = createScoreHighlighter(canvas, { status: $('scorePlaybackStatus') });
+  const scoreClickAdapter = createScoreClickAdapter();
+  scorePlayback = createLookaheadPlaybackController({
+    plan,
+    clock: () => actx.currentTime,
+    voiceAdapter: createScoreVoiceAdapter(),
+    clickAdapter: scoreClickAdapter,
+    loop: state.loop !== 'none',
+    onHighlight: highlighter.highlight,
+    onClearHighlight: highlighter.clear,
+    onEnd: () => {
+      stopCountInClicks(actx.currentTime);
+      scorePlayback = null;
+      pb.playing = false;
+      $('playBtn').textContent = '▶';
+      $('playBtn').setAttribute('aria-label', '재생');
+      updateInfo();
+    }
+  });
+  pb.playing = true;
+  $('playBtn').textContent = '■';
+  $('playBtn').setAttribute('aria-label', '정지');
+  let delaySeconds = 0.1;
+  if (state.countIn) {
+    const beat = 60 / state.bpm;
+    const start = actx.currentTime + delaySeconds;
+    for (let beatIndex = 0; beatIndex < 4; beatIndex += 1) {
+      scoreCountInClicks.push(scoreClickAdapter.schedule(start + beatIndex * beat, beatIndex === 0));
+    }
+    delaySeconds += 4 * beat;
+  }
+  scorePlayback.start({ delaySeconds });
+  return true;
+}
 function tick() {
   const dur = slotDur();
   while (nextTime < actx.currentTime + 0.25) {
@@ -237,6 +352,12 @@ function tick() {
   playTimer = setTimeout(tick, 70);
 }
 export function stopPlay() {
+  if (actx) stopCountInClicks(actx.currentTime);
+  if (scorePlayback) {
+    const controller = scorePlayback;
+    scorePlayback = null;
+    controller.stop();
+  }
   clearTimeout(playTimer); playTimer = null;
   hlTimers.forEach(clearTimeout); hlTimers = [];
   if (actx) { const t = actx.currentTime; active.forEach((a) => { stopVoice(a, t); }); }

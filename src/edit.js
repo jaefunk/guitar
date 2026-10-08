@@ -1,6 +1,6 @@
 // 편집 동작. 모든 변경은 pushUndo() → state 변경 → save() 순서.
 import { STRINGS, SLOTS, PER_LINE, DEFAULT_MEASURES } from './constants.js';
-import { state, ed, save, touch } from './state.js';
+import { state, ed, save, touch, canEditCurrentSong } from './state.js';
 import {
   parse, nextDigit, applyMod, prevPos, emptyMeasure, cloneMeasure, hasContent,
   measureMarks, shiftMarks, padMeasures
@@ -12,18 +12,22 @@ import { updateFretboard } from './fretboard.js';
 
 function snapshot() { return JSON.stringify({ measures: state.measures, marks: state.marks }); }
 export function pushUndo() {
+  if (!canEditCurrentSong()) return false;
   ed.undoStack.push(snapshot());
   if (ed.undoStack.length > 120) ed.undoStack.shift();
   touch();
+  return true;
 }
 export function getVal(p) { return state.measures[p.m][p.s][p.i]; }
 export function setVal(p, v) {
+  if (!canEditCurrentSong()) return false;
   if (getVal(p) === v) return;
   pushUndo();
   state.measures[p.m][p.s][p.i] = v;
   paintCell(cellAt(p), v);
   save();
   updateFretboard();
+  return true;
 }
 export function move(di, ds) {
   const sel = ed.sel;
@@ -43,6 +47,7 @@ export function buzz() {
 }
 
 export function inputDigit(d) {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const sel = ed.sel;
   const r = nextDigit(getVal(sel), d, ed.pending);
@@ -51,6 +56,7 @@ export function inputDigit(d) {
   if (state.autoAdv && !r.pending) move(1, 0); else setPending(r.pending);
 }
 export function inputMod(ch) {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const sel = ed.sel;
   const pv = prevPos(sel);
@@ -61,6 +67,7 @@ export function inputMod(ch) {
   if (r.advance && state.autoAdv) move(1, 0);
 }
 export function del(forward) {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   if (getVal(ed.sel)) { setVal(ed.sel, ''); setPending(false); return; }
   if (!forward) {
@@ -70,6 +77,7 @@ export function del(forward) {
 }
 /** 선택한 칸의 6줄을 모두 비운다(프렛보드의 "이 칸 전체 지움"). */
 export function clearColumn() {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const sel = ed.sel;
   let any = false;
@@ -83,6 +91,7 @@ export function clearColumn() {
   save(); updateFretboard();
 }
 export function doUndo() {
+  if (!canEditCurrentSong()) return;
   if (!ed.undoStack.length) { toast('되돌릴 작업이 없어요'); return; }
   const d = JSON.parse(ed.undoStack.pop());
   state.measures = d.measures; state.marks = d.marks || {};
@@ -90,12 +99,14 @@ export function doUndo() {
 }
 
 export function addLine() {
+  if (!canEditCurrentSong()) return;
   pushUndo();
   for (let k = 0; k < PER_LINE; k++) state.measures.push(emptyMeasure());
   save(); render();
   toast('마디 ' + (state.measures.length - 3) + '~' + state.measures.length + ' 추가됨');
 }
 export function delLine() {
+  if (!canEditCurrentSong()) return;
   if (state.measures.length <= PER_LINE) { toast('마지막 한 줄은 남겨 둡니다'); return; }
   const last = state.measures.slice(-PER_LINE);
   const from = state.measures.length - PER_LINE;
@@ -103,7 +114,7 @@ export function delLine() {
     ? ask({ title: '마지막 줄 삭제', msg: '마지막 줄에 입력된 음이 있어요. 삭제할까요?', ok: '삭제' })
     : Promise.resolve(true);
   go.then((ok) => {
-    if (!ok) return;
+    if (!ok || !canEditCurrentSong()) return;
     pushUndo();
     state.measures.splice(-PER_LINE, PER_LINE);
     state.marks = shiftMarks(state.marks, from, -PER_LINE);
@@ -112,6 +123,7 @@ export function delLine() {
   });
 }
 export function insertMeasure(after) {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const at = ed.sel.m + (after ? 1 : 0);
   pushUndo();
@@ -122,13 +134,14 @@ export function insertMeasure(after) {
   save(); render(); toast('마디 ' + (at + 1) + '에 빈 마디 삽입');
 }
 export function deleteMeasure() {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const m = ed.sel.m;
   const go = hasContent([state.measures[m]])
     ? ask({ title: '마디 삭제', msg: '마디 ' + (m + 1) + '을 삭제하고 뒤 마디를 당길까요?', ok: '삭제' })
     : Promise.resolve(true);
   go.then((ok) => {
-    if (!ok) return;
+    if (!ok || !canEditCurrentSong()) return;
     pushUndo();
     state.measures.splice(m, 1);
     state.marks = shiftMarks(state.marks, m, -1);
@@ -144,6 +157,7 @@ export function copyMeasure() {
   toast('마디 ' + (ed.sel.m + 1) + ' 복사됨');
 }
 export function pasteMeasure() {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   if (!ed.clip) { toast('복사한 마디가 없어요'); return; }
   const m = ed.sel.m;
@@ -154,6 +168,7 @@ export function pasteMeasure() {
   save(); render(); toast('마디 ' + (m + 1) + '에 붙여넣음');
 }
 export function clearMeasure() {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   if (!hasContent([state.measures[ed.sel.m]])) { toast('이미 비어 있는 마디예요'); return; }
   pushUndo();
@@ -161,11 +176,12 @@ export function clearMeasure() {
   save(); render(); toast('마디 ' + (ed.sel.m + 1) + ' 비움');
 }
 export function clearAll() {
+  if (!canEditCurrentSong()) return;
   const go = hasContent(state.measures)
     ? ask({ title: '전체 지우기', msg: '이 곡의 모든 음과 메모를 지우고 2줄(8마디)로 되돌릴까요?', ok: '지우기' })
     : Promise.resolve(true);
   go.then((ok) => {
-    if (!ok) return;
+    if (!ok || !canEditCurrentSong()) return;
     pushUndo();
     state.measures = [];
     for (let k = 0; k < DEFAULT_MEASURES; k++) state.measures.push(emptyMeasure());
@@ -175,12 +191,13 @@ export function clearAll() {
   });
 }
 export function editMark(m, i) {
+  if (!canEditCurrentSong()) return;
   const k = m + ':' + i;
   ask({
     title: '메모 (마디 ' + (m + 1) + ', ' + (Math.floor(i / 4) + 1) + '박)',
     msg: '코드 이름, 가사, 구간 이름 등', input: true, value: state.marks[k] || '', placeholder: '예: Am, Chorus', ok: '저장'
   }).then((v) => {
-    if (v === null) return;
+    if (v === null || !canEditCurrentSong()) return;
     v = v.trim();
     if ((state.marks[k] || '') === v) return;
     pushUndo();
@@ -189,6 +206,7 @@ export function editMark(m, i) {
   });
 }
 export function insertChord(name, fing) {
+  if (!canEditCurrentSong()) return;
   if (!needSel()) return;
   const sel = ed.sel;
   pushUndo();

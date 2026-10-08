@@ -33,6 +33,10 @@ body{
   padding-bottom:calc(var(--padH) + 16px + env(safe-area-inset-bottom,0px));
   -webkit-tap-highlight-color:transparent;
 }
+body.score-mode #padBody{display:none}
+body.score-mode .collapse{display:none}
+body.score-mode .transport .seg{display:none}
+body.score-mode .pad-inner{max-width:1120px}
 button,select,input{font-family:inherit}
 button{touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:pointer}
 button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -47,6 +51,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 }
 .title::placeholder{color:var(--muted);font-weight:500}
 .title:focus{border-bottom-color:var(--accent)}
+#readOnlyStatus{flex:0 0 auto;color:var(--muted);font:700 11px/1 var(--sans);white-space:nowrap}
 .icon-btn{flex:0 0 auto;width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:transparent;color:var(--muted);font:700 15px/1 var(--mono);display:flex;align-items:center;justify-content:center}
 .icon-btn:active{background:var(--key)}
 .toolbar{display:flex;gap:6px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:none}
@@ -60,6 +65,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .btn.danger{color:var(--danger)}
 .btn .caret{font-size:9px;color:var(--muted)}
 .btn.primary .caret{color:var(--accent-ink)}
+.view-mode{height:34px}
+.view-mode button{padding:0 12px}
 
 /* ---------- 악보 ---------- */
 .sheet-wrap{overflow-x:auto;padding:2px 0 8px;-webkit-overflow-scrolling:touch}
@@ -106,6 +113,71 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .cell .v .mod{color:var(--mod);font-weight:500}
 .cell.pending .v::after{content:'';display:inline-block;width:2px;height:.95em;background:var(--accent);margin-left:1px;vertical-align:-1px;animation:blink 1s steps(2,start) infinite}
 @keyframes blink{to{visibility:hidden}}
+
+/* ---------- 전문 TAB ---------- */
+.score-workspace{padding:10px 14px 30px;gap:12px;max-width:1500px;margin:0 auto}
+.score-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;min-width:0}
+.score-panel h2{margin:0 0 10px;font:700 13px/1.2 var(--sans)}
+.score-panel p{margin:0;color:var(--muted);font-size:12px}
+.measure-nav{grid-area:measure-nav;overflow:auto}
+.measure-nav-list{display:flex;gap:5px;flex-wrap:wrap}
+.measure-nav-list button{min-width:36px;height:30px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--ink);font:700 11px/1 var(--mono)}
+.score-canvas{grid-area:score-canvas;background:#fff;color:#171717;border:1px solid #d8d8d3;border-radius:8px;overflow:auto;padding:20px;min-height:420px}
+.score-inspector{grid-area:score-inspector}
+.score-diagnostics{grid-area:score-diagnostics;overflow:auto}
+.score-diagnostics ul{margin:0;padding-left:18px}
+.score-playback-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.score-diagnostic{font-size:12px;margin:0 0 6px;color:var(--muted)}
+.score-diagnostic button{border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:2px 0;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px}
+.score-diagnostic-error{color:var(--danger)}
+.score-empty{margin:0;padding:64px 20px;text-align:center;color:#656565}
+.professional-score{display:block;max-width:none;background:#fff;color:#171717;font-family:var(--mono)}
+.score-staff-line,.score-barline-stroke,.score-stem,.score-technique path,.score-bend path,.score-ending line,.score-tuplet line{stroke:currentColor;fill:none;vector-effect:non-scaling-stroke}
+.score-staff-line{stroke-width:1}
+.score-measure-target{pointer-events:none}
+.score-measure-number{font-size:10px;fill:#656565}
+.score-event{cursor:pointer;outline:none}
+.score-event.play .score-fret-background{fill:#ffd66b;stroke:#9a6500;stroke-width:1.5}
+.score-event-rest.play .score-event-rest-target{fill:#fff0bd;stroke:#9a6500}
+.score-event:focus .score-fret-background,.score-event:hover .score-fret-background,.score-event.selected .score-fret-background{fill:#dce6ff}
+.score-event-rest-target{fill:transparent;stroke:transparent;stroke-width:2;vector-effect:non-scaling-stroke}
+.score-event-rest:focus .score-event-rest-target,.score-event-rest:hover .score-event-rest-target,.score-event-rest.selected .score-event-rest-target{fill:#dce6ff;stroke:#2457d6}
+.score-fret-background{fill:#fff}
+.score-fret-background.selected-note{fill:#b8ccff}
+.score-fret,.score-rest,.score-chord,.score-measure-number,.score-technique text,.score-ending text,.score-tuplet text{text-anchor:middle;fill:currentColor}
+.score-fret{font-size:11px;font-weight:700}
+.score-rest{font-size:14px}
+.score-chord{font-size:12px;font-weight:700}
+.score-stem{stroke-width:1.2}
+.score-dot,.score-repeat-dot,.score-fermata-dot{fill:currentColor}
+.score-beam{stroke:currentColor;stroke-width:4;stroke-linecap:butt}
+.score-tuplet line{stroke-width:1}
+.score-tuplet text{font-size:9px;paint-order:stroke;stroke:#fff;stroke-width:4px}
+.score-technique path{stroke-width:1}
+.score-technique text,.score-bend text,.score-ending text{font-size:9px;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px}
+.score-bend path{stroke-width:1.2}
+.score-ending line{stroke-width:1.2}
+.score-fermata{stroke:currentColor;stroke-width:1.4;fill:none}
+
+@media (min-width:1024px){
+  .top{max-width:none}
+  .score-workspace{
+    display:grid;
+    grid-template-columns:150px minmax(0,1fr) 260px;
+    grid-template-rows:auto minmax(180px,1fr);
+    grid-template-areas:"measure-nav score-canvas score-inspector" "measure-nav score-canvas score-diagnostics";
+    align-items:stretch;
+  }
+}
+
+@media print{
+  @page{size:A4 portrait;margin:12mm}
+  body{padding:0;background:#fff;color:#000}
+  .top,.pad,#gridWorkspace,.measure-nav,.score-inspector,.score-diagnostics,.toast,.modal{display:none !important}
+  #scoreWorkspace{display:block !important;width:186mm;max-width:186mm;margin:0;padding:0}
+  .score-canvas{border:0;border-radius:0;padding:0;overflow:visible;width:186mm;min-height:0}
+  .professional-score{width:186mm;height:auto}
+}
 
 /* ---------- 입력 패드 ---------- */
 .pad{
@@ -170,6 +242,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 
 /* ---------- 모달 / 시트 ---------- */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.musicxml-part-choices{display:grid;gap:8px;margin:14px 0}.musicxml-part-choice{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
 /* 메뉴와 범용 대화상자는 다른 시트(곡 목록 등) 위에서 열리므로 더 위에 둔다 */
 #menuModal{z-index:22}
 #dlg{z-index:24}

@@ -1,10 +1,16 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
-  listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch
+  listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
+  KEY_V4, canEditCurrentSong, importMusicXmlSong, selectBuiltInSong, sanitizeV4Doc, toDoc
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
+import { parseMusicXml } from '../src/musicxml.js';
+import { buildScoreIndex } from '../src/score-index.js';
+import { v3SongToMusicXml } from '../src/v3-musicxml.js';
 
 function memStorage(init) {
   const m = Object.assign({}, init || {});
@@ -40,7 +46,8 @@ describe('마이그레이션 (v2 → v3)', () => {
     expect(doc.currentId).toBe(s.id);
     expect(doc.settings).toEqual({
       zoom: 'l', theme: 'dark', autoAdv: false, metro: true, loop: 'measure', padMode: 'fret', fretShift: 12,
-      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false
+      haptic: false, collapsed: true, seen: true, instr: 'nylon', volume: 0.5, reverb: 0.1, countIn: true, preview: false,
+      viewMode: 'grid'
     });
   });
   it('v3 키가 없으면 v2 키를, 그것도 없으면 v1 키를 읽는다', () => {
@@ -90,17 +97,301 @@ describe('곡 관리', () => {
     expect(state.zoom).toBe('l');
     expect(ed.sel).toEqual({ m: 0, s: 0, i: 0 });
   });
-  it('save는 v3 키에 쓰고, 다시 읽으면 같은 곡이 나온다', () => {
+  it('save는 v4 키에 MusicXML 정본을 쓰고, 다시 읽으면 같은 곡이 나온다', () => {
     state.measures[1][1][1] = '7'; touch();
     save();
-    const d = JSON.parse(st.dump()[KEY]);
-    expect(d.v).toBe(3);
-    expect(d.songs[d.currentId].measures[1][1][1]).toBe('7');
+    const d = JSON.parse(st.dump()[KEY_V4]);
+    expect(d.v).toBe(4);
+    expect(Object.keys(d.songs[d.currentId]).sort()).toEqual([
+      'createdAt', 'editorMode', 'id', 'musicxml', 'selectedPartId', 'title', 'updatedAt'
+    ]);
+    expect(d.songs[d.currentId].editorMode).toBe('grid-v3');
+    const index = buildScoreIndex(parseMusicXml(d.songs[d.currentId].musicxml), 'P1');
+    expect(index.measures[1].events[1].notes[0]).toMatchObject({ string: 2, fret: 7 });
     expect(d.settings.zoom).toBe('l');
     // 옛 키는 건드리지 않는다
     expect(st.dump()['gtab-editor-v2']).toBeTruthy();
     load();
     expect(state.measures[1][1][1]).toBe('7');
+  });
+  it('전문 악보 화면 모드는 곡 editorMode와 별도 설정으로 저장된다', () => {
+    state.viewMode = 'score';
+
+    save();
+
+    const stored = JSON.parse(st.dump()[KEY_V4]);
+    expect(stored.settings.viewMode).toBe('score');
+    expect(stored.songs[stored.currentId].editorMode).toBe('grid-v3');
+  });
+
+  it('v3에서 v4를 만들 때 v3 키를 그대로 두고 ID와 메타데이터를 보존한다', () => {
+    const legacy = v2Blob();
+    const v3Song = { ...legacy, id: 'kept-id', createdAt: 123, updatedAt: 456 };
+    const v3 = {
+      v: 3,
+      songs: { 'kept-id': v3Song },
+      order: ['kept-id'],
+      currentId: 'kept-id',
+      settings: { zoom: 'l' }
+    };
+    st = memStorage({ [KEY]: JSON.stringify(v3) });
+    useStorage(st);
+
+    load();
+
+    expect(st.getItem(KEY)).toBe(JSON.stringify(v3));
+    const migrated = JSON.parse(st.getItem(KEY_V4));
+    expect(migrated.currentId).toBe('kept-id');
+    expect(migrated.order).toEqual(['kept-id']);
+    expect(migrated.songs['kept-id']).toMatchObject({
+      id: 'kept-id', title: '옛 곡', selectedPartId: 'P1', editorMode: 'grid-v3', createdAt: 123, updatedAt: 456
+    });
+    expect(parseMusicXml(migrated.songs['kept-id'].musicxml)).toBeTruthy();
+  });
+
+  it('v4가 있으면 변경된 v3보다 v4를 우선하며 마이그레이션은 멱등적이다', () => {
+    const firstStorage = memStorage({ [KEY]: JSON.stringify({
+      v: 3,
+      songs: { a: { ...v2Blob(), id: 'a', title: 'v4가 될 제목' } },
+      order: ['a'], currentId: 'a', settings: {}
+    }) });
+    useStorage(firstStorage);
+    load();
+    const firstV4 = firstStorage.getItem(KEY_V4);
+    firstStorage.setItem(KEY, JSON.stringify({ ...v2Blob(), title: '무시할 v3' }));
+
+    load();
+
+    expect(state.title).toBe('v4가 될 제목');
+    expect(firstStorage.getItem(KEY_V4)).toBe(firstV4);
+  });
+
+  it('손상된 v4 JSON은 유효한 v3로 복구하고, 모두 손상되면 새 v4 문서를 만든다', () => {
+    const fromV3 = readDoc(memStorage({
+      [KEY_V4]: '{broken',
+      [KEY]: JSON.stringify({ v: 3, songs: { a: { ...v2Blob(), id: 'a' } }, order: ['a'], currentId: 'a' })
+    }), 77);
+    expect(fromV3.v).toBe(4);
+    expect(fromV3.songs.a.title).toBe('옛 곡');
+
+    const empty = readDoc(memStorage({ [KEY_V4]: '{broken', [KEY]: 'null' }), 77);
+    expect(empty.v).toBe(4);
+    expect(empty.order).toHaveLength(1);
+    expect(parseMusicXml(empty.songs[empty.currentId].musicxml)).toBeTruthy();
+  });
+
+  it('v4 JSON에 유효한 MusicXML 곡이 없으면 보존된 v3로 복구한다', () => {
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { broken: {
+          id: 'broken',
+          musicxml: '<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Broken</part-name></score-part></part-list><part id="P1"/></score-partwise>',
+          selectedPartId: 'P1'
+        } },
+        order: ['broken'], currentId: 'broken', settings: {}
+      }),
+      [KEY]: JSON.stringify({
+        v: 3,
+        songs: { fallback: { ...v2Blob(), id: 'fallback', title: 'fallback v3' } },
+        order: ['fallback'], currentId: 'fallback', settings: {}
+      })
+    });
+
+    const recovered = readDoc(storage, 77);
+
+    expect(recovered.order).toEqual(['fallback']);
+    expect(recovered.songs.fallback.title).toBe('fallback v3');
+  });
+
+  it('생성·이름 변경·복제·삭제와 설정 변경을 v4 문서에 반영한다', () => {
+    const first = currentSong().id;
+    const second = createSong('둘째');
+    renameSong(second.id, '바뀐 & 제목');
+    const copy = duplicateSong(second.id);
+    state.theme = 'light';
+    save();
+    deleteSong(first);
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(persisted.order).toEqual([second.id, copy.id]);
+    expect(persisted.songs[first]).toBeUndefined();
+    expect(persisted.songs[second.id].title).toBe('바뀐 & 제목');
+    expect(parseMusicXml(persisted.songs[second.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('바뀐 & 제목');
+    expect(persisted.songs[copy.id].title).toBe('바뀐 & 제목 사본');
+    expect(persisted.settings.theme).toBe('light');
+  });
+
+  it('현재 곡이 아닌 곡의 이름도 해당 MusicXML 제목에 반영한다', () => {
+    const first = currentSong().id;
+    const second = createSong('둘째');
+    switchSong(first);
+
+    renameSong(second.id, '백그라운드 곡');
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(parseMusicXml(persisted.songs[second.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('백그라운드 곡');
+  });
+
+  it('이름 변경과 복제는 MusicXML의 지원하지 않는 요소를 보존한다', () => {
+    const first = currentSong().id;
+    library.songs[first].musicxml = library.songs[first].musicxml.replace(
+      '<part-list>',
+      '<credit><credit-words>keep me</credit-words></credit><part-list>'
+    );
+    createSong('현재 곡');
+
+    renameSong(first, '보존된 곡');
+    const copy = duplicateSong(first);
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    expect(persisted.songs[first].musicxml).toContain('<credit-words>keep me</credit-words>');
+    expect(persisted.songs[copy.id].musicxml).toContain('<credit-words>keep me</credit-words>');
+    expect(parseMusicXml(persisted.songs[copy.id].musicxml).querySelector('work-title')?.textContent)
+      .toBe('보존된 곡 사본');
+  });
+
+  it('빠른 격자 수정은 선택하지 않은 MusicXML 파트를 보존한다', () => {
+    const first = currentSong().id;
+    library.songs[first].musicxml = library.songs[first].musicxml
+      .replace('</part-list>', '<score-part id="P2"><part-name>Keep</part-name></score-part></part-list>')
+      .replace('</score-partwise>', '<part id="P2"><measure number="1"><note><rest/><duration>4</duration></note></measure></part></score-partwise>');
+    state.measures[0][0][1] = '9';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(st.getItem(KEY_V4));
+    const doc = parseMusicXml(persisted.songs[first].musicxml);
+    expect(doc.querySelector('part[id="P2"] note rest')).not.toBeNull();
+    expect(buildScoreIndex(doc, 'P1').measures[0].events[1].notes[0]).toMatchObject({ string: 1, fret: 9 });
+  });
+
+  it('marker가 없는 imported MusicXML은 빠른 격자 저장에서 문자열 그대로 보존한다', () => {
+    const imported = v3SongToMusicXml({ ...v2Blob(), id: 'imported' })
+      .replace(/<identification>[\s\S]*?<\/identification>/, '')
+      .replace('<part-list>', '<credit><miscellaneous-field name="gtab-editor-source">v3-grid-v1</miscellaneous-field></credit><part-list>')
+      .replace('<measure number="1">', '<measure number="1"><print new-system="yes"/><barline location="left"><repeat direction="forward"/></barline>');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { imported: { id: 'imported', title: 'Imported', musicxml: imported, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['imported'], currentId: 'imported', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+    state.measures[0][0][1] = '9';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(storage.getItem(KEY_V4)).songs.imported;
+    expect(persisted.musicxml).toBe(imported);
+    expect(persisted.updatedAt).toBe(2);
+    expect(state.measures[0][0][1]).toBe('');
+  });
+
+  it('editorMode가 없는 기존 app-generated v4는 lossless 검증 후 grid-v3로 승격한다', () => {
+    const imported = v3SongToMusicXml({ ...v2Blob(), id: 'imported' });
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { imported: { id: 'imported', title: 'Imported', musicxml: imported, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['imported'], currentId: 'imported', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
+    expect(canEditCurrentSong()).toBe(true);
+    expect(currentSong().editorMode).toBe('grid-v3');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs.imported.editorMode).toBe('grid-v3');
+  });
+
+  it('legacy marker가 있어도 unsupported content가 추가된 v4는 readonly로 유지한다', () => {
+    const unsafe = v3SongToMusicXml({ ...v2Blob(), id: 'unsafe' })
+      .replace('<measure number="1">', '<measure number="1"><print new-system="yes"/><direction><direction-type><rehearsal>A</rehearsal></direction-type></direction>');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { unsafe: { id: 'unsafe', title: 'Unsafe', musicxml: unsafe, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['unsafe'], currentId: 'unsafe', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
+    expect(canEditCurrentSong()).toBe(false);
+    expect(currentSong().editorMode).toBe('musicxml-readonly');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs.unsafe).toMatchObject({
+      editorMode: 'musicxml-readonly', musicxml: unsafe
+    });
+  });
+
+  it('musicxml-score 소유권을 load/sanitize/duplicate에서 보존하고 빠른 격자는 readonly다', () => {
+    const xml = v3SongToMusicXml({ ...v2Blob(), id: 'score-owned' });
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { owned: {
+          id: 'owned', title: 'Score owned', musicxml: xml, selectedPartId: 'P1',
+          editorMode: 'musicxml-score', createdAt: 1, updatedAt: 2
+        } },
+        order: ['owned'], currentId: 'owned', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
+    expect(currentSong().editorMode).toBe('musicxml-score');
+    expect(canEditCurrentSong()).toBe(false);
+    expect(state.readOnly).toBe(true);
+    const copy = duplicateSong('owned');
+    expect(copy.editorMode).toBe('musicxml-score');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs[copy.id].editorMode).toBe('musicxml-score');
+  });
+
+  it('readonly 거부 시 제목 fallback, BPM, updatedAt과 quick state snapshot을 정확히 복원한다', () => {
+    const measure = emptyMeasure();
+    measure[0][0] = '3';
+    const withoutTitle = v3SongToMusicXml({
+      id: 'readonly', title: '', tuning: 'dropd', bpm: 72, measures: [measure], marks: {}
+    }).replace(/<identification>[\s\S]*?<\/identification>/, '');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { readonly: {
+          id: 'readonly', title: 'Fallback title', musicxml: withoutTitle,
+          selectedPartId: 'P1', editorMode: 'musicxml-readonly', createdAt: 1, updatedAt: 2
+        } },
+        order: ['readonly'], currentId: 'readonly', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+    expect(state.title).toBe('Fallback title');
+    expect(state.bpm).toBe(72);
+    expect(state.tuning).toBe('dropd');
+    state.title = 'Mutated';
+    state.bpm = 200;
+    state.measures[0][0][0] = '19';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(storage.getItem(KEY_V4)).songs.readonly;
+    expect(persisted.musicxml).toBe(withoutTitle);
+    expect(persisted.title).toBe('Fallback title');
+    expect(persisted.updatedAt).toBe(2);
+    expect(state).toMatchObject({ title: 'Fallback title', bpm: 72, tuning: 'dropd' });
+    expect(state.measures[0][0][0]).toBe('3');
+    expect(state.readOnly).toBe(true);
+    expect(renameSong('readonly', 'Renamed')).toBe(false);
+    expect(currentSong().title).toBe('Fallback title');
+    expect(currentSong().musicxml).toBe(withoutTitle);
   });
   it('새 곡을 만들면 현재 곡이 바뀌고 이전 곡은 보존된다', () => {
     const first = currentSong().id;
@@ -152,5 +443,146 @@ describe('곡 관리', () => {
     expect(state.title).toBe('');
     expect(state.measures.length).toBe(8);
     expect(deleteSong('nope')).toBe(false);
+  });
+
+  it('편집한 v3 곡의 사본과 현재 선택을 v4에서 다시 불러온다', () => {
+    const original = currentSong().id;
+    const changed = state.measures.map((measure) => measure.map((row) => row.slice()));
+    changed[1][1][0] = '12h';
+    changed[1][1][1] = '5';
+    state.measures = changed;
+    save();
+    const copy = duplicateSong(original);
+    expect(deleteSong(original)).toBe(true);
+    expect(currentSong().id).toBe(copy.id);
+
+    load();
+
+    expect(currentSong().id).toBe(copy.id);
+    expect(state.title).toBe('옛 곡 사본');
+    expect(state.measures[1][1][0]).toBe('12h');
+  });
+
+  it('MusicXML import storage failure rolls back library, current state, and persisted v4', () => {
+    const backing = {};
+    let failWrites = false;
+    const storage = {
+      getItem(key) { return backing[key] ?? null; },
+      setItem(key, value) {
+        if (failWrites) throw new DOMException('quota', 'QuotaExceededError');
+        backing[key] = String(value);
+      },
+      removeItem(key) { delete backing[key]; }
+    };
+    useStorage(storage);
+    load();
+    const beforeDoc = JSON.stringify(toDoc());
+    const beforeStored = backing[KEY_V4];
+    const beforeCurrent = library.currentId;
+    const xml = v3SongToMusicXml({
+      id: 'incoming', title: 'Incoming', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    failWrites = true;
+
+    expect(() => importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Incoming', editorMode: 'musicxml-score'
+    })).toThrow(/저장|storage/i);
+    expect(JSON.stringify(toDoc())).toBe(beforeDoc);
+    expect(library.currentId).toBe(beforeCurrent);
+    expect(backing[KEY_V4]).toBe(beforeStored);
+  });
+
+  it('persists and sanitizes a stable built-in source identifier', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const song = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    expect(song.builtInId).toBe('nell-1-03-gt1');
+    expect(JSON.parse(st.getItem(KEY_V4)).songs[song.id].builtInId).toBe('nell-1-03-gt1');
+
+    const valid = toDoc();
+    valid.songs[song.id].builtInId = 42;
+    expect(sanitizeV4Doc(valid, 1).songs[song.id].builtInId).toBeUndefined();
+  });
+
+  it('selects an existing built-in song instead of importing a sequential duplicate', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const first = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    createSong('Other');
+    const countBefore = library.order.length;
+
+    const second = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+
+    expect(second).toBe(first);
+    expect(library.order).toHaveLength(countBefore);
+    expect(library.currentId).toBe(first.id);
+    expect(state.viewMode).toBe('score');
+    expect(listSongs().filter((song) => song.builtInId === 'nell-1-03-gt1')).toHaveLength(1);
+  });
+
+  it('selects an existing built-in song by stable source identifier without importing', () => {
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    const builtIn = importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    createSong('Other');
+
+    expect(selectBuiltInSong('missing')).toBeNull();
+    expect(selectBuiltInSong('nell-1-03-gt1')).toBe(builtIn);
+    expect(library.currentId).toBe(builtIn.id);
+    expect(state.viewMode).toBe('score');
+  });
+
+  it('rolls back current song and storage when selecting an existing built-in fails to persist', () => {
+    const backing = {};
+    let failWrites = false;
+    const storage = {
+      getItem(key) { return backing[key] ?? null; },
+      setItem(key, value) {
+        if (failWrites) throw new DOMException('quota', 'QuotaExceededError');
+        backing[key] = String(value);
+      },
+      removeItem(key) { delete backing[key]; }
+    };
+    useStorage(storage);
+    load();
+    const xml = v3SongToMusicXml({
+      id: 'built-in', title: 'Built in', tuning: state.tuning, bpm: state.bpm,
+      measures: state.measures, marks: state.marks
+    });
+    importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    });
+    const other = createSong('Other');
+    const beforeDoc = JSON.stringify(toDoc());
+    const beforeStored = backing[KEY_V4];
+    failWrites = true;
+
+    expect(() => importMusicXmlSong({
+      xml, selectedPartId: 'P1', title: 'Built in', editorMode: 'musicxml-score',
+      builtInId: 'nell-1-03-gt1'
+    })).toThrow(/저장|storage/i);
+    expect(library.currentId).toBe(other.id);
+    expect(JSON.stringify(toDoc())).toBe(beforeDoc);
+    expect(backing[KEY_V4]).toBe(beforeStored);
   });
 });

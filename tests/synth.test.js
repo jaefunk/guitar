@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { synthSamples } from '../src/audio.js';
+import { createScoreClickAdapter, createScoreVoiceAdapter, synthSamples } from '../src/audio.js';
 import { INSTR } from '../src/constants.js';
 
 /**
@@ -52,5 +52,74 @@ describe('Karplus-Strong 피치', () => {
     expect(peak).toBeGreaterThan(0.5);
     expect(Math.abs(data[0])).toBe(0);
     expect(Math.abs(data[data.length - 1])).toBe(0);
+  });
+});
+
+describe('score voice adapter', () => {
+  it('maps score plan technique data to the existing synth voice and exposes stop only', () => {
+    const calls = [];
+    const voice = { id: 'voice' };
+    const adapter = createScoreVoiceAdapter({
+      play: (midi, at, options) => { calls.push(['play', midi, at, options]); return voice; },
+      stop: (handle, at) => { calls.push(['stop', handle, at]); }
+    });
+
+    const handle = adapter.schedule({
+      midi: 57, velocity: 0.42, muted: false, bendSemitones: 0.5,
+      legato: [{ type: 'slide', targetMidi: 60 }], durationSeconds: 1
+    }, 12);
+    adapter.stop(handle, 12.5);
+
+    expect(handle).toBe(voice);
+    expect(calls[0]).toEqual(['play', 57, 12, expect.objectContaining({
+      vel: 0.42, bendSemitones: 0.5, slideRatio: Math.pow(2, 3 / 12), slideFrom: 12, slideTo: 13
+    })]);
+    expect(calls[1]).toEqual(['stop', voice, 12.5]);
+    expect(Object.keys(adapter)).toEqual(['schedule', 'stop']);
+  });
+
+  it('maps an incoming legato target to a softened attack instead of softening its source', () => {
+    const calls = [];
+    const adapter = createScoreVoiceAdapter({
+      play: (midi, at, options) => { calls.push({ midi, at, options }); return {}; },
+      stop: () => {}
+    });
+
+    adapter.schedule({
+      midi: 60, velocity: 0.72, attack: 'normal', legato: [{ type: 'hammer-on', targetMidi: 62 }],
+      durationSeconds: 1
+    }, 1);
+    adapter.schedule({
+      midi: 62, velocity: 0.4, attack: 'legato', legatoFrom: [{ type: 'hammer-on' }],
+      durationSeconds: 1
+    }, 2);
+
+    expect(calls[0].options).toMatchObject({ soft: false, attack: 'normal', vel: 0.72 });
+    expect(calls[1].options).toMatchObject({ soft: true, attack: 'legato', vel: 0.4 });
+  });
+});
+
+describe('score click adapter', () => {
+  it('returns an opaque click handle and stops it without exposing oscillator internals', () => {
+    const calls = [];
+    const handle = { id: 'click' };
+    const adapter = createScoreClickAdapter({
+      schedule: (at, accent) => { calls.push(['schedule', at, accent]); return handle; },
+      stop: (value, at) => { calls.push(['stop', value, at]); }
+    });
+
+    expect(adapter.schedule(4, true)).toBe(handle);
+    adapter.stop(handle, 3);
+    expect(calls).toEqual([['schedule', 4, true], ['stop', handle, 3]]);
+    expect(Object.keys(adapter)).toEqual(['schedule', 'stop']);
+  });
+
+  it('ignores stop errors from an already-ended click handle', () => {
+    const adapter = createScoreClickAdapter({
+      schedule: () => ({}),
+      stop: () => { throw new Error('already ended'); }
+    });
+
+    expect(() => adapter.stop({}, 5)).not.toThrow();
   });
 });
