@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { parseMusicXml, readScoreMetadata } from '../src/musicxml.js';
 import { buildScoreIndex } from '../src/score-index.js';
+import { buildPlaybackPlan } from '../src/score-audio.js';
 import * as songs from '../src/songs.js';
 
 const scorePath = join(process.cwd(), 'songs', 'nell-1-03-gt1.musicxml');
@@ -44,6 +45,19 @@ function linkedFrets(number, type) {
   });
 }
 
+function divisions(value) {
+  return value.n * 24 / value.d;
+}
+
+function orderedTabFingerprint(number) {
+  return measure(number).events.flatMap((event) => event.kind === 'notes'
+    ? event.notes.filter((note) => note.fret !== undefined).map((note) => ({
+      onset: divisions(event.onset), duration: divisions(event.duration),
+      fret: note.fret, string: note.string, grace: event.duration.n === 0
+    }))
+    : [{ onset: divisions(event.onset), duration: divisions(event.duration), rest: true }]);
+}
+
 describe('1:03 Gt.1 reference score', () => {
   it('ships the transcribed score as a repository asset', () => {
     expect(scoreExists).toBe(true);
@@ -68,7 +82,7 @@ describe('1:03 Gt.1 reference score', () => {
 
   it.runIf(scoreExists)('keeps page and system anchors instead of placeholder measures', () => {
     expect(tabFrets(1).slice(0, 6)).toEqual([3, 3, 0, 2, 2, 0]);
-    expect(tabFrets(5)).toEqual([8, 7, 8, 7, 8, 10, 10, 7, 10, 7, 7]);
+    expect(tabFrets(5)).toEqual([8, 7, 8, 7, 8, 8, 10, 10, 7, 10, 7, 7]);
     expect(measure(13).events).toHaveLength(1);
     expect(measure(13).events[0]).toMatchObject({ kind: 'notes', duration: { n: 4, d: 1 } });
     expect(tabFrets(21)).toEqual(expect.arrayContaining([5, 7]));
@@ -96,10 +110,10 @@ describe('1:03 Gt.1 reference score', () => {
     expect(tabFrets(58)).toEqual([10]);
     expect(tabFrets(60)).toEqual(tabFrets(52));
     expect(tabFrets(67).slice(0, 6)).toEqual([3, 3, 0, 2, 2, 0]);
-    expect(tabFrets(71).slice(0, 8)).toEqual([12, 13, 12, 15, 12, 13, 12, 15]);
-    expect(tabStrings(71)).toEqual([...Array(13).fill(1), 2]);
-    expect(tabFrets(75)).toEqual([12, 13, 12, 15, 12, 13, 12, 13, 13, 13, 12, 12]);
-    expect(tabStrings(75)).toEqual([...Array(11).fill(1), 2]);
+    expect(tabFrets(71).slice(0, 9)).toEqual([12, 13, 12, 15, 15, 12, 13, 12, 15]);
+    expect(tabStrings(71)).toEqual([...Array(14).fill(1), 2]);
+    expect(tabFrets(75)).toEqual([12, 13, 12, 15, 15, 12, 13, 12, 13, 13, 13, 12, 12]);
+    expect(tabStrings(75)).toEqual([...Array(12).fill(1), 2]);
     expect(tabFrets(76)).toEqual(tabFrets(75));
     expect(tabFrets(77)).toEqual([12]);
   });
@@ -123,10 +137,10 @@ describe('1:03 Gt.1 reference score', () => {
   });
 
   it.runIf(scoreExists)('uses zero-time grace notes and explicit 3:2 timing', () => {
-    const durations = (number) => measure(number).events.map((event) => event.duration.n * 24 / event.duration.d);
-    expect(durations(71)).toEqual([6, 6, 6, 6, 6, 6, 6, 0, 8, 8, 8, 12, 6, 12]);
-    expect(durations(72)).toEqual([6, 6, 6, 6, 6, 6, 6, 0, 12, 12, 12, 6, 12]);
-    expect(durations(73)).toEqual(durations(71));
+    const durations = (number) => measure(number).events.map((event) => divisions(event.duration));
+    expect(durations(71)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 0, 12, 12, 4, 4, 4, 12]);
+    expect(durations(72)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 0, 12, 12, 6, 6, 12]);
+    expect(durations(73)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 0, 12, 12, 4, 4, 4, 12]);
     for (const number of [71, 72, 73]) {
       const grace = doc.querySelector(`measure[number="${number}"] note:has(> grace)`);
       expect(grace).not.toBeNull();
@@ -135,7 +149,7 @@ describe('1:03 Gt.1 reference score', () => {
       expect(grace.querySelector('string')?.textContent).toBe('1');
       const graceEvent = measure(number).events.find((event) => event.notes?.some((note) => note.fret === 15) && event.duration.n === 0);
       const following = measure(number).events[measure(number).events.indexOf(graceEvent) + 1];
-      expect(graceEvent.onset).toEqual({ n: 7, d: 4 });
+      expect(graceEvent.onset).toEqual({ n: 2, d: 1 });
       expect(following.onset).toEqual(graceEvent.onset);
     }
     const irregular = Array.from(doc.querySelectorAll('note')).filter((entry) => ['4', '8'].includes(entry.querySelector(':scope > duration')?.textContent));
@@ -144,6 +158,83 @@ describe('1:03 Gt.1 reference score', () => {
       entry.querySelector(':scope > time-modification > actual-notes')?.textContent === '3'
       && entry.querySelector(':scope > time-modification > normal-notes')?.textContent === '2'
     )).toBe(true);
+  });
+
+  it.runIf(scoreExists)('matches every printed attack, continuation, and rhythm in measures 5/7/9/11/33/35', () => {
+    const expected = [
+      [0, 12, 8], [12, 12, 7], [24, 12, 8], [36, 6, 7], [42, 6, 8], [48, 6, 8],
+      [54, 6, 10], [60, 6, 10], [66, 6, 7], [72, 12, 10], [84, 6, 7], [90, 6, 7]
+    ].map(([onset, duration, fret]) => ({ onset, duration, fret, string: 2, grace: false }));
+    for (const number of [5, 7, 9, 11, 33, 35]) {
+      expect(orderedTabFingerprint(number), `measure ${number}`).toEqual(expected);
+      expect(linkedFrets(number, 'tie')).toEqual([[8, 8, 2, 2]]);
+      expect(doc.querySelectorAll(`measure[number="${number}"] note > tie[type="start"]`)).toHaveLength(1);
+      expect(doc.querySelectorAll(`measure[number="${number}"] note > tie[type="stop"]`)).toHaveLength(1);
+      expect(doc.querySelectorAll(`measure[number="${number}"] note tied[type="start"]`)).toHaveLength(1);
+      expect(doc.querySelectorAll(`measure[number="${number}"] note tied[type="stop"]`)).toHaveLength(1);
+    }
+  });
+
+  it.runIf(scoreExists)('matches the independently printed event fingerprints in measures 71 through 76', () => {
+    const note = (onset, duration, fret, string = 1, grace = false) => ({ onset, duration, fret, string, grace });
+    const expected = {
+      71: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 6, 15), note(30, 6, 12), note(36, 6, 13), note(42, 6, 12),
+        note(48, 0, 15, 1, true), note(48, 12, 17), note(60, 12, 17),
+        note(72, 4, 17), note(76, 4, 15), note(80, 4, 14), note(84, 12, 15, 2)
+      ],
+      72: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 6, 15), note(30, 6, 12), note(36, 6, 13), note(42, 6, 12),
+        note(48, 0, 15, 1, true), note(48, 12, 17), note(60, 12, 17),
+        note(72, 6, 15), note(78, 6, 14), note(84, 12, 15, 2)
+      ],
+      73: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 6, 15), note(30, 6, 12), note(36, 6, 13), note(42, 6, 12),
+        note(48, 0, 15, 1, true), note(48, 12, 17), note(60, 12, 17),
+        note(72, 4, 17), note(76, 4, 15), note(80, 4, 14), note(84, 12, 15, 2)
+      ],
+      74: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 6, 15), note(30, 6, 12), note(36, 6, 13), note(42, 6, 12),
+        note(48, 6, 13), note(54, 6, 13), note(60, 6, 13), note(66, 6, 12), note(72, 24, 12, 2)
+      ],
+      75: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 12, 15), note(36, 6, 12), note(42, 6, 13), note(48, 6, 12),
+        note(54, 12, 13), note(66, 6, 13), note(72, 6, 13), note(78, 6, 12), note(84, 12, 12, 2)
+      ],
+      76: [
+        note(0, 6, 12), note(6, 6, 13), note(12, 6, 12), note(18, 6, 15),
+        note(24, 12, 15), note(36, 6, 12), note(42, 6, 13), note(48, 6, 12),
+        note(54, 12, 13), note(66, 6, 13), note(72, 6, 13), note(78, 6, 12), note(84, 12, 12, 2)
+      ]
+    };
+    for (const number of [71, 72, 73, 74, 75, 76]) {
+      expect(orderedTabFingerprint(number), `measure ${number}`).toEqual(expected[number]);
+      expect(linkedFrets(number, 'tie')).toEqual([[15, 15, 1, 1]]);
+    }
+    for (const number of [74, 75, 76]) {
+      expect(doc.querySelector(`measure[number="${number}"] grace`)).toBeNull();
+      expect(doc.querySelector(`measure[number="${number}"] time-modification`)).toBeNull();
+    }
+  });
+
+  it.runIf(scoreExists)('extends tied continuations without scheduling a second attack', () => {
+    for (const number of [5, 7, 9, 11, 33, 35, 71, 72, 73, 74, 75, 76]) {
+      const tie = index.links.find((link) => link.type === 'tie'
+        && measure(number).events.some((event) => event.id === link.startEventId));
+      expect(tie, `measure ${number}`).toBeTruthy();
+      const plan = buildPlaybackPlan(index, { playbackMeasures: [index.measures.indexOf(measure(number))] });
+      const attack = plan.notes.find((entry) => entry.eventId === tie.startEventId);
+      expect(attack).toBeTruthy();
+      expect(plan.notes.some((entry) => entry.eventId === tie.endEventId)).toBe(false);
+      const startEvent = measure(number).events.find((event) => event.id === tie.startEventId);
+      const endEvent = measure(number).events.find((event) => event.id === tie.endEventId);
+      expect(attack.durationQuarter).toBe(divisions(startEvent.duration) / 24 + divisions(endEvent.duration) / 24);
+    }
   });
 
   it.runIf(scoreExists)('encodes the printed techniques, endings, repeats, and final fermata', () => {
@@ -204,7 +295,7 @@ describe('1:03 Gt.1 reference score', () => {
       [5, 9, 33], [6, 10, 34], [7, 11, 35], [8, 12, 36],
       [21, 23, 45, 47], [22, 46],
       [25, 29, 67], [26, 30, 68], [27, 31, 69], [28, 32, 70],
-      [49, 53], [51, 55, 59], [52, 56, 60], [71, 73], [74, 75, 76]
+      [49, 53], [51, 55, 59], [52, 56, 60]
     ]) {
       for (const candidate of group.slice(1)) expect(fingerprint(candidate)).toEqual(fingerprint(group[0]));
     }
