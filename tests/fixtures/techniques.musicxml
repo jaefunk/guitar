@@ -23,8 +23,8 @@
       <note><pitch><step>B</step><octave>3</octave></pitch><duration>6</duration><tie type="stop"/><notations><technical><string>2</string><fret>0</fret></technical></notations></note>
     </measure>
     <measure number="3">
-      <note><pitch><step>A</step><octave>4</octave></pitch><duration>6</duration><notations><technical><string>1</string><fret>5</fret><bend><bend-alter>0.5</bend-alter></bend></technical></notations></note>
-      <note><pitch><step>G</step><octave>4</octave></pitch><duration>6</duration><notehead>x</notehead><notations><technical><string>1</string><fret>3</fret></technical></notations></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>9</duration><dot/><notations><technical><string>1</string><fret>5</fret><bend><bend-alter>0.5</bend-alter></bend></technical></notations></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>3</duration><notehead>x</notehead><notations><technical><string>1</string><fret>3</fret></technical></notations></note>
       <note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
       <note><pitch><step>F</step><octave>4</octave></pitch><duration>2</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
       <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>

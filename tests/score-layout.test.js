@@ -1,5 +1,13 @@
+// @vitest-environment jsdom
+
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parseMusicXml } from '../src/musicxml.js';
+import { buildScoreIndex } from '../src/score-index.js';
 import { layoutScore } from '../src/score-layout.js';
+
+const moduleUrl = import.meta.url;
+const techniquesFixture = readFileSync(new URL('./fixtures/techniques.musicxml', moduleUrl), 'utf8');
 
 const r = (n, d = 1) => ({ n, d });
 
@@ -63,14 +71,14 @@ describe('layoutScore geometry', () => {
     expect(layout.systems.every((system) => system.width <= 520)).toBe(true);
   });
 
-  it('fits a single measure when width is narrower than minMeasureWidth', () => {
+  it('keeps the exact minimum measure width when the viewport is narrower', () => {
     const layout = layoutScore(
       { partId: 'P1', measures: [dense], links: [], playbackMeasures: [0] },
       { width: 120, minMeasureWidth: 180 }
     );
 
-    expect(layout.measures[0].width).toBe(120);
-    expect(layout.systems[0].width).toBe(120);
+    expect(layout.measures[0].width).toBe(240);
+    expect(layout.systems[0].width).toBe(240);
   });
 
   it('places six TAB strings, fret labels, chords, and rests', () => {
@@ -183,6 +191,21 @@ describe('layoutScore geometry', () => {
     expect(layout.measures[1].endings).toEqual([
       expect.objectContaining({ number: '1', type: 'start', y: expect.any(Number) })
     ]);
+  });
+
+  it('lays out repeats, endings, and dots from a real MusicXML index', () => {
+    const index = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+    const layout = layoutScore(index, { width: 720 });
+
+    expect(layout.barlines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ measureIndex: 0, repeat: 'forward' }),
+      expect.objectContaining({ measureIndex: 3, repeat: 'backward' })
+    ]));
+    expect(layout.measures[3].endings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ number: '1', type: 'start' }),
+      expect.objectContaining({ number: '1', type: 'stop' })
+    ]));
+    expect(layout.events.find((item) => item.id === index.measures[2].events[0].id).dots).toHaveLength(1);
   });
 
   it('is deterministic and does not mutate its input', () => {

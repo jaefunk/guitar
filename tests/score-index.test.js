@@ -296,6 +296,35 @@ describe('ScoreIndex techniques and playback', () => {
     expect(index.measures[5].events.at(-1).fermata).toBe(true);
   });
 
+  it('normalizes repeat barlines, endings, and MusicXML dots', () => {
+    const index = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
+
+    expect(index.measures[0].barlines).toEqual([
+      { location: 'left', style: 'regular', repeat: 'forward' }
+    ]);
+    expect(index.measures[3]).toMatchObject({
+      endings: [{ number: '1', type: 'start' }, { number: '1', type: 'stop' }],
+      barlines: [
+        expect.objectContaining({ location: 'left', ending: { number: '1', type: 'start' } }),
+        expect.objectContaining({ location: 'right', repeat: 'backward', ending: { number: '1', type: 'stop' } })
+      ]
+    });
+    expect(index.measures[2].events[0]).toMatchObject({ dots: 1, notes: [expect.objectContaining({ dots: 1 })] });
+  });
+
+  it('counts multiple dot elements', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes><divisions>4</divisions></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>7</duration><dot/><dot/></note>
+      <note><rest/><duration>9</duration><dot/></note>
+    </measure>`);
+
+    const events = buildScoreIndex(doc, 'P1').measures[0].events;
+
+    expect(events[0]).toMatchObject({ dots: 2, notes: [expect.objectContaining({ dots: 2 })] });
+    expect(events[1]).toMatchObject({ kind: 'rest', dots: 1 });
+  });
+
   it('expands repeats and first and second endings without cloning measures', () => {
     const index = buildScoreIndex(parseMusicXml(techniquesFixture), 'P1');
 

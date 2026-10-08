@@ -49,10 +49,7 @@ function measureWidths(measures, options) {
       options.minMeasureWidth,
       options.leftPadding + columns * options.columnWidth + options.rightPadding
     );
-    return {
-      columns,
-      width: Math.min(desired, options.width)
-    };
+    return { columns, width: desired };
   });
 }
 

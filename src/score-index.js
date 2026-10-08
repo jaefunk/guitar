@@ -81,10 +81,12 @@ function readNote(noteElement) {
   const otherTechnical = descendantElements(noteElement, 'other-technical')
     .some((element) => element.textContent?.trim().toLowerCase() === 'dead');
   const pitch = readPitch(noteElement);
+  const dots = childElements(noteElement, 'dot').length;
   if (string !== null) note.string = string;
   if (fret !== null) note.fret = fret;
   if (bendAlter !== null) note.bend = rational(bendAlter);
   if (notehead === 'x' || otherTechnical) note.dead = true;
+  if (dots > 0) note.dots = dots;
   if (pitch) note.pitch = pitch;
   return note;
 }
@@ -237,9 +239,11 @@ function indexMeasure(
     const note = childElement(element, 'rest') ? null : readNote(element);
     const tuplet = readTuplet(element);
     const fermata = Boolean(descendantElement(element, 'fermata'));
+    const dots = childElements(element, 'dot').length;
 
     if (childElement(element, 'rest')) {
       const event = { id: eventId, kind: 'rest', onset, duration };
+      if (dots > 0) event.dots = dots;
       if (tuplet) event.tuplet = tuplet;
       if (fermata) event.fermata = true;
       events.push(event);
@@ -248,6 +252,7 @@ function indexMeasure(
       if (tuplet) note.tuplet = tuplet;
       if (fermata) note.fermata = true;
       previousNotesEvent.notes.push(note);
+      if (dots > (previousNotesEvent.dots || 0)) previousNotesEvent.dots = dots;
       if (tuplet && !previousNotesEvent.tuplet) previousNotesEvent.tuplet = tuplet;
       if (fermata) previousNotesEvent.fermata = true;
     } else {
@@ -262,6 +267,7 @@ function indexMeasure(
         note.tuplet = tuplet;
         previousNotesEvent.tuplet = tuplet;
       }
+      if (dots > 0) previousNotesEvent.dots = dots;
       if (fermata) {
         note.fermata = true;
         previousNotesEvent.fermata = true;
@@ -309,30 +315,52 @@ function indexMeasure(
     divisions: context.divisions,
     beats: context.beats,
     beatType: context.beatType,
-    events: orderedEvents
+    events: orderedEvents,
+    ...readMeasureBarlines(measureElement)
   };
 }
 
-function endingNumbers(endingElement) {
-  return (endingElement.getAttribute('number') || '')
+function readMeasureBarlines(measureElement) {
+  const barlines = childElements(measureElement, 'barline').map((barlineElement) => {
+    const repeat = childElement(barlineElement, 'repeat')?.getAttribute('direction');
+    const endingElement = childElement(barlineElement, 'ending');
+    const record = {
+      location: barlineElement.getAttribute('location') || 'right',
+      style: childElement(barlineElement, 'bar-style')?.textContent?.trim() || 'regular'
+    };
+    if (repeat) record.repeat = repeat;
+    if (endingElement) {
+      record.ending = {
+        number: endingElement.getAttribute('number') || '',
+        type: endingElement.getAttribute('type') || ''
+      };
+    }
+    return record;
+  });
+  const endings = barlines.flatMap((barline) => barline.ending ? [{ ...barline.ending }] : []);
+  return { barlines, endings };
+}
+
+function endingNumbers(ending) {
+  return (ending.number || '')
     .split(/[\s,]+/)
     .map(Number)
     .filter(Number.isInteger);
 }
 
-function endingMemberships(measureElements) {
+function endingMemberships(measures) {
   const activeEndings = new Set();
-  return measureElements.map((measure) => {
-    const endings = descendantElements(measure, 'ending');
+  return measures.map((measure) => {
+    const endings = measure.endings || [];
     for (const ending of endings) {
-      if (ending.getAttribute('type') === 'start') {
+      if (ending.type === 'start') {
         for (const number of endingNumbers(ending)) activeEndings.add(number);
       }
     }
 
     const membership = new Set(activeEndings);
     for (const ending of endings) {
-      if (['stop', 'discontinue'].includes(ending.getAttribute('type'))) {
+      if (['stop', 'discontinue'].includes(ending.type)) {
         for (const number of endingNumbers(ending)) activeEndings.delete(number);
       }
     }
@@ -340,29 +368,28 @@ function endingMemberships(measureElements) {
   });
 }
 
-function hasRepeat(measureElement, direction) {
-  return descendantElements(measureElement, 'repeat')
-    .some((element) => element.getAttribute('direction') === direction);
+function hasRepeat(measure, direction) {
+  return (measure.barlines || []).some((barline) => barline.repeat === direction);
 }
 
-function expandPlaybackMeasures(measureElements) {
-  if (!measureElements.some((measure) => descendantElements(measure, 'repeat').length > 0)) {
-    return measureElements.map((_, index) => index);
+function expandPlaybackMeasures(measures) {
+  if (!measures.some((measure) => (measure.barlines || []).some((barline) => barline.repeat))) {
+    return measures.map((_, index) => index);
   }
 
   const playback = [];
-  const endingsByMeasure = endingMemberships(measureElements);
+  const endingsByMeasure = endingMemberships(measures);
   const repeatedBackward = new Set();
   const repeatPassByStart = new Map();
   let repeatStart = 0;
   let pass = 1;
   let index = 0;
   let steps = 0;
-  const maxSteps = Math.max(1, measureElements.length * 4);
+  const maxSteps = Math.max(1, measures.length * 4);
 
-  while (index < measureElements.length && steps < maxSteps) {
+  while (index < measures.length && steps < maxSteps) {
     steps += 1;
-    const measure = measureElements[index];
+    const measure = measures[index];
     if (hasRepeat(measure, 'forward')) {
       repeatStart = index;
       pass = repeatPassByStart.get(repeatStart) || 1;
@@ -426,6 +453,6 @@ export function buildScoreIndex(doc, partId) {
     measures,
     links,
     diagnostics,
-    playbackMeasures: expandPlaybackMeasures(measureElements)
+    playbackMeasures: expandPlaybackMeasures(measures)
   };
 }
