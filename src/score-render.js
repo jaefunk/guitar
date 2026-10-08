@@ -4,6 +4,7 @@ import { layoutScore } from './score-layout.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 export const PRINT_LAYOUT_WIDTH = 703;
+const scoreInteraction = new WeakMap();
 
 function svgEl(name, attributes = {}, text) {
   const element = document.createElementNS(SVG_NS, name);
@@ -21,19 +22,22 @@ function append(parent, name, attributes, text) {
 }
 
 function drawStaff(svg, layout) {
+  const groups = new Map();
   for (const system of layout.systems) {
     const group = append(svg, 'g', { class: 'score-system', 'data-system-index': system.index });
+    groups.set(system.index, group);
     for (const line of system.staffLines) {
       append(group, 'line', {
         class: 'score-staff-line', x1: line.x1, x2: line.x2, y1: line.y, y2: line.y
       });
     }
   }
+  return groups;
 }
 
-function drawMeasures(svg, layout) {
+function drawMeasures(groups, layout) {
   for (const measure of layout.measures) {
-    const group = append(svg, 'g', {
+    const group = append(groups.get(measure.systemIndex), 'g', {
       class: 'score-measure', 'data-measure-number': measure.number,
       'data-measure-index': measure.index
     });
@@ -54,9 +58,9 @@ function drawBarlineStroke(group, barline, x, width = 1.25) {
   });
 }
 
-function drawBarlines(svg, layout) {
+function drawBarlines(groups, layout) {
   for (const barline of layout.barlines) {
-    const group = append(svg, 'g', {
+    const group = append(groups.get(barline.systemIndex), 'g', {
       class: 'score-barline', 'data-measure-index': barline.measureIndex,
       'data-location': barline.location
     });
@@ -85,12 +89,12 @@ function eventAriaLabel(event, measureNumber) {
   return `${prefix} ${notes || '음표'}`;
 }
 
-function drawEvents(svg, layout, selectedEventId) {
+function drawEvents(groups, layout, selectedEventId) {
   const eventInfo = new Map();
   for (const event of layout.events) {
     const measureNumber = layout.measures[event.measureIndex]?.number ?? event.measureIndex + 1;
     const selected = event.id === selectedEventId;
-    const group = append(svg, 'g', {
+    const group = append(groups.get(event.systemIndex), 'g', {
       class: `score-event score-event-${event.kind}${selected ? ' selected' : ''}`,
       'data-event-id': event.id,
       'data-measure-index': event.measureIndex,
@@ -153,7 +157,7 @@ function drawEvents(svg, layout, selectedEventId) {
   return eventInfo;
 }
 
-function drawRhythm(svg, layout) {
+function drawRhythm(groups, layout) {
   const byId = new Map(layout.events.map((event) => [event.id, event]));
   for (const beam of layout.beams) {
     let x1 = beam.x1;
@@ -163,13 +167,13 @@ function drawRhythm(svg, layout) {
       x1 = event?.x ?? x1;
       x2 = x1 + (beam.direction === 'backward' ? -12 : 12);
     }
-    append(svg, 'line', {
+    append(groups.get(beam.systemIndex), 'line', {
       class: `score-beam${beam.kind === 'hook' ? ' score-beam-hook' : ''}`,
       x1, x2, y1: beam.y, y2: beam.y, 'data-beam-level': beam.level
     });
   }
   for (const tuplet of layout.tuplets) {
-    const group = append(svg, 'g', { class: 'score-tuplet' });
+    const group = append(groups.get(tuplet.systemIndex), 'g', { class: 'score-tuplet' });
     append(group, 'line', { x1: tuplet.x1, x2: tuplet.x2, y1: tuplet.y, y2: tuplet.y });
     append(group, 'text', { x: (tuplet.x1 + tuplet.x2) / 2, y: tuplet.y + 4 }, tuplet.label);
   }
@@ -179,9 +183,9 @@ function techniqueLabel(type) {
   return ({ 'hammer-on': 'H', 'pull-off': 'P', slide: 'S', tie: 'T' })[type] || type;
 }
 
-function drawTechniques(svg, layout) {
+function drawTechniques(groups, layout) {
   for (const link of layout.links) {
-    const group = append(svg, 'g', {
+    const group = append(groups.get(link.systemIndex), 'g', {
       class: `score-technique score-technique-${link.type}`,
       'data-start-event-id': link.startEventId,
       'data-end-event-id': link.endEventId
@@ -195,7 +199,7 @@ function drawTechniques(svg, layout) {
   }
 
   for (const ending of layout.measures.flatMap((measure) => measure.endings || [])) {
-    const group = append(svg, 'g', { class: 'score-ending', 'data-ending-number': ending.number });
+    const group = append(groups.get(ending.systemIndex), 'g', { class: 'score-ending', 'data-ending-number': ending.number });
     append(group, 'line', { x1: ending.x1, x2: ending.x2, y1: ending.y, y2: ending.y });
     if (ending.startCap) append(group, 'line', { x1: ending.x1, x2: ending.x1, y1: ending.y, y2: ending.y + 9 });
     if (ending.stopCap) append(group, 'line', { x1: ending.x2, x2: ending.x2, y1: ending.y, y2: ending.y + 9 });
@@ -220,9 +224,13 @@ function selectRenderedEvent(svg, eventId, eventInfo, onSelect, focus = false) {
 }
 
 function bindEventSelection(svg, eventInfo, onSelect) {
+  scoreInteraction.set(svg, { eventInfo, onSelect });
   svg.addEventListener('click', (domEvent) => {
     const group = domEvent.target.closest?.('[data-event-id]');
-    if (group && svg.contains(group)) selectRenderedEvent(svg, group.dataset.eventId, eventInfo, onSelect);
+    const interaction = scoreInteraction.get(svg);
+    if (group && svg.contains(group)) {
+      selectRenderedEvent(svg, group.dataset.eventId, interaction.eventInfo, interaction.onSelect);
+    }
   });
   svg.addEventListener('keydown', (domEvent) => {
     const group = domEvent.target.closest?.('[data-event-id]');
@@ -230,7 +238,8 @@ function bindEventSelection(svg, eventInfo, onSelect) {
     if (domEvent.key === 'Enter' || domEvent.key === ' ') {
       domEvent.preventDefault();
       domEvent.stopPropagation();
-      selectRenderedEvent(svg, group.dataset.eventId, eventInfo, onSelect);
+      const interaction = scoreInteraction.get(svg);
+      selectRenderedEvent(svg, group.dataset.eventId, interaction.eventInfo, interaction.onSelect);
       return;
     }
     const direction = ({ ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 })[domEvent.key];
@@ -240,11 +249,12 @@ function bindEventSelection(svg, eventInfo, onSelect) {
     const groups = [...svg.querySelectorAll('[data-event-id]')];
     const current = groups.indexOf(group);
     const next = Math.max(0, Math.min(groups.length - 1, current + direction));
-    selectRenderedEvent(svg, groups[next].dataset.eventId, eventInfo, onSelect, true);
+    const interaction = scoreInteraction.get(svg);
+    selectRenderedEvent(svg, groups[next].dataset.eventId, interaction.eventInfo, interaction.onSelect, true);
   });
 }
 
-export function renderScoreSvg(host, index, options = {}) {
+function buildScoreSvg(index, options = {}) {
   const width = Number.isFinite(options.width) && options.width > 0 ? options.width : 1120;
   const layout = layoutScore(index, { ...options, width });
   const selectedEventId = layout.events.some((event) => event.id === options.selectedEventId)
@@ -254,13 +264,18 @@ export function renderScoreSvg(host, index, options = {}) {
     class: 'professional-score', viewBox: `0 0 ${width} ${layout.totalHeight}`,
     width, height: layout.totalHeight, role: 'group', 'aria-label': '전문 기타 TAB 악보'
   });
-  drawStaff(svg, layout);
-  drawMeasures(svg, layout);
-  drawBarlines(svg, layout);
-  const eventInfo = drawEvents(svg, layout, selectedEventId);
-  drawRhythm(svg, layout);
-  drawTechniques(svg, layout);
+  const groups = drawStaff(svg, layout);
+  drawMeasures(groups, layout);
+  drawBarlines(groups, layout);
+  const eventInfo = drawEvents(groups, layout, selectedEventId);
+  drawRhythm(groups, layout);
+  drawTechniques(groups, layout);
   bindEventSelection(svg, eventInfo, options.onSelect);
+  return { svg, layout, eventInfo };
+}
+
+export function renderScoreSvg(host, index, options = {}) {
+  const { svg, layout } = buildScoreSvg(index, options);
   host.replaceChildren(svg);
   return layout;
 }
@@ -326,6 +341,49 @@ function renderIndexedScore({ canvas, diagnostics, index, options = {}, onMeasur
   }
   renderScoreDiagnostics(diagnostics, index.diagnostics, { onMeasure });
   return layout;
+}
+
+function systemsForMeasures(layout, measureIndices) {
+  const systems = new Set();
+  for (const measureIndex of measureIndices || []) {
+    const systemIndex = layout?.measures?.[measureIndex]?.systemIndex;
+    if (systemIndex !== undefined) systems.add(systemIndex);
+  }
+  return systems;
+}
+
+function patchScoreSvg(liveSvg, stagedSvg, previousLayout, nextLayout, affectedMeasures) {
+  const focusedEventId = liveSvg.contains(document.activeElement)
+    ? document.activeElement.closest?.('[data-event-id]')?.dataset.eventId
+    : null;
+  const forcedSystems = systemsForMeasures(previousLayout, affectedMeasures);
+  for (const systemIndex of systemsForMeasures(nextLayout, affectedMeasures)) forcedSystems.add(systemIndex);
+  const liveGroups = new Map([...liveSvg.querySelectorAll(':scope > [data-system-index]')]
+    .map((group) => [Number(group.dataset.systemIndex), group]));
+  const stagedGroups = new Map([...stagedSvg.querySelectorAll(':scope > [data-system-index]')]
+    .map((group) => [Number(group.dataset.systemIndex), group]));
+  const count = Math.max(liveGroups.size, stagedGroups.size);
+
+  for (let systemIndex = 0; systemIndex < count; systemIndex += 1) {
+    const current = liveGroups.get(systemIndex);
+    const replacement = stagedGroups.get(systemIndex);
+    if (!replacement) {
+      current?.remove();
+    } else if (!current) {
+      liveSvg.appendChild(replacement);
+    } else if (forcedSystems.has(systemIndex) || current.outerHTML !== replacement.outerHTML) {
+      current.replaceWith(replacement);
+    }
+  }
+  for (const attribute of [...liveSvg.attributes]) liveSvg.removeAttribute(attribute.name);
+  for (const attribute of [...stagedSvg.attributes]) liveSvg.setAttribute(attribute.name, attribute.value);
+  const interaction = scoreInteraction.get(stagedSvg);
+  if (interaction) scoreInteraction.set(liveSvg, interaction);
+  if (focusedEventId) {
+    [...liveSvg.querySelectorAll('[data-event-id]')]
+      .find((event) => event.dataset.eventId === focusedEventId)
+      ?.focus();
+  }
 }
 
 export function renderScoreDocument({ canvas, diagnostics, musicxml, partId, options = {} }) {
@@ -401,7 +459,7 @@ export function createScoreWorkspaceController({
     return null;
   };
 
-  const renderAt = (width, force = false, preserveOnError = false) => {
+  const renderAt = (width, force = false, preserveOnError = false, affectedMeasures = null) => {
     try {
       const { doc, index, key } = readIndex();
       if (!force && key === renderedKey && width === renderedWidth) return lastResult;
@@ -434,7 +492,15 @@ export function createScoreWorkspaceController({
           };
         }
       }
-      canvas.replaceChildren(...stagedCanvas.childNodes);
+      const liveSvg = canvas.querySelector(':scope > svg.professional-score');
+      const stagedSvg = stagedCanvas.querySelector(':scope > svg.professional-score');
+      const canPatch = Array.isArray(affectedMeasures)
+        && liveSvg && stagedSvg && renderedWidth === width && lastResult?.layout;
+      if (canPatch) {
+        patchScoreSvg(liveSvg, stagedSvg, lastResult.layout, layout, affectedMeasures);
+      } else {
+        canvas.replaceChildren(...stagedCanvas.childNodes);
+      }
       diagnostics.replaceChildren(...stagedDiagnostics.childNodes);
       diagnostics.removeAttribute('role');
       renderInspector(inspector, selectedEvent);
@@ -450,6 +516,11 @@ export function createScoreWorkspaceController({
   };
 
   const renderScreen = (force = false) => renderAt(getScreenWidth(), force);
+  const renderMeasures = (measureIndices, eventId = selectedEventId) => {
+    if (printing) return lastResult;
+    selectedEventId = eventId || selectedEventId;
+    return renderAt(getScreenWidth(), true, false, measureIndices);
+  };
   const scheduleScreenRender = () => {
     if (printing || frameId !== null) return;
     frameId = requestFrame(() => {
@@ -481,9 +552,10 @@ export function createScoreWorkspaceController({
 
   const setSelectedEventId = (eventId) => { selectedEventId = eventId || null; };
   const getSelectedEventId = () => selectedEventId;
+  const getLastResult = () => lastResult;
   return {
     renderScreen, scheduleScreenRender, beforePrint, afterPrint, destroy,
-    setSelectedEventId, getSelectedEventId
+    renderMeasures, setSelectedEventId, getSelectedEventId, getLastResult
   };
 }
 

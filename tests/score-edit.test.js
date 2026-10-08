@@ -46,6 +46,14 @@ function scoreXml() {
   </score-partwise>`;
 }
 
+function multiSystemXml(measureCount = 5) {
+  const measures = Array.from({ length: measureCount }, (_, index) => `<measure number="${index + 1}">
+    ${index === 0 ? '<attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>' : ''}
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>${index}</fret></technical></notations></note>
+  </measure>`).join('');
+  return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1">${measures}</part></score-partwise>`;
+}
+
 function setup() {
   const doc = parseMusicXml(scoreXml());
   const index = buildScoreIndex(doc, 'P1');
@@ -254,6 +262,78 @@ describe('score inspector and persistence', () => {
     expect(controller.getSelectedEventId()).toBe(second);
     expect(document.querySelector('#canvas .selected')?.dataset.eventId).toBe(second);
     expect(selected.at(-1)).toBe(second);
+    controller.destroy();
+  });
+
+  it('patches only the affected system for fret edits and undo/redo', () => {
+    document.body.innerHTML = '<div id="canvas"></div><aside id="diagnostics"></aside><aside id="inspector"></aside>';
+    const song = { musicxml: multiSystemXml(), selectedPartId: 'P1' };
+    const controller = createScoreWorkspaceController({
+      canvas: document.querySelector('#canvas'), diagnostics: document.querySelector('#diagnostics'),
+      inspector: document.querySelector('#inspector'), getSong: () => song, getScreenWidth: () => 400
+    });
+    controller.renderScreen();
+    const canvas = document.querySelector('#canvas');
+    const initialFirst = canvas.querySelector('[data-system-index="0"]');
+    const originalSecond = canvas.querySelector('[data-system-index="1"]');
+    const doc = parseMusicXml(song.musicxml);
+    const eventId = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    controller.renderMeasures([0], eventId);
+    const originalFirst = canvas.querySelector('[data-system-index="0"]');
+    expect(originalFirst).not.toBe(initialFirst);
+    expect(canvas.querySelector('[data-system-index="1"]')).toBe(originalSecond);
+    canvas.querySelector(`[data-event-id="${eventId}"]`).focus();
+    const history = createHistory((measures) => {
+      song.musicxml = serializeMusicXml(doc);
+      controller.renderMeasures(measures, eventId);
+    });
+
+    history.execute(setFretCommand(doc, 'P1', eventId, 9));
+    const editedFirst = canvas.querySelector('[data-system-index="0"]');
+    const untouchedSecond = canvas.querySelector('[data-system-index="1"]');
+    expect(editedFirst).not.toBe(originalFirst);
+    expect(untouchedSecond).toBe(originalSecond);
+    expect(editedFirst.querySelector('.score-fret').textContent).toBe('9');
+    expect(document.activeElement.dataset.eventId).toBe(eventId);
+
+    history.undo();
+    expect(canvas.querySelector('[data-system-index="0"]')).not.toBe(editedFirst);
+    expect(canvas.querySelector('[data-system-index="1"]')).toBe(originalSecond);
+    history.redo();
+    expect(canvas.querySelector('[data-system-index="1"]')).toBe(originalSecond);
+    expect(controller.getSelectedEventId()).toBe(eventId);
+    controller.destroy();
+  });
+
+  it('patches downstream systems when inserted events change system reflow', () => {
+    document.body.innerHTML = '<div id="canvas"></div><aside id="diagnostics"></aside><aside id="inspector"></aside>';
+    const song = { musicxml: multiSystemXml(6), selectedPartId: 'P1' };
+    const controller = createScoreWorkspaceController({
+      canvas: document.querySelector('#canvas'), diagnostics: document.querySelector('#diagnostics'),
+      inspector: document.querySelector('#inspector'), getSong: () => song, getScreenWidth: () => 400
+    });
+    controller.renderScreen();
+    const canvas = document.querySelector('#canvas');
+    const originalSystems = [...canvas.querySelectorAll('[data-system-index]')];
+    const doc = parseMusicXml(song.musicxml);
+    let anchor = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const history = createHistory((measures) => {
+      song.musicxml = serializeMusicXml(doc);
+      controller.renderMeasures(measures, anchor);
+    });
+    for (let offset = 0; offset < 6; offset += 1) {
+      history.execute(insertEventCommand(doc, 'P1', {
+        measureIndex: 0, afterEventId: anchor,
+        event: { duration: 4, type: 'quarter', notes: [{ string: 1, fret: offset + 10 }] }
+      }));
+      anchor = buildScoreIndex(doc, 'P1').measures[0].events.at(-1).id;
+    }
+
+    const nextSystems = [...canvas.querySelectorAll('[data-system-index]')];
+    expect(nextSystems.length).toBeGreaterThan(originalSystems.length);
+    expect(nextSystems[0]).not.toBe(originalSystems[0]);
+    expect(nextSystems.slice(1).some((system, index) => system === originalSystems[index + 1])).toBe(false);
+    expect(canvas.querySelector('svg').getAttribute('viewBox')).toMatch(`0 0 400 ${controller.getLastResult().layout.totalHeight}`);
     controller.destroy();
   });
 });

@@ -256,9 +256,8 @@ function boot() {
     inspector: $('scoreInspector'),
     getSong: currentSong,
     persistMusicXml: persistCurrentScoreMusicXml,
-    rerender: (_measureIndices, selectedEventId) => {
-      scoreController?.setSelectedEventId(selectedEventId);
-      scoreController?.renderScreen(true);
+    rerender: (measureIndices, selectedEventId) => {
+      scoreController?.renderMeasures(measureIndices, selectedEventId);
     }
   });
   scoreController = createScoreWorkspaceController({
