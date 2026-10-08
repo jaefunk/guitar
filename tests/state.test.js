@@ -10,6 +10,7 @@ import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
 import { parseMusicXml } from '../src/musicxml.js';
 import { buildScoreIndex } from '../src/score-index.js';
+import { v3SongToMusicXml } from '../src/v3-musicxml.js';
 
 function memStorage(init) {
   const m = Object.assign({}, init || {});
@@ -168,6 +169,30 @@ describe('곡 관리', () => {
     expect(parseMusicXml(empty.songs[empty.currentId].musicxml)).toBeTruthy();
   });
 
+  it('v4 JSON에 유효한 MusicXML 곡이 없으면 보존된 v3로 복구한다', () => {
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { broken: {
+          id: 'broken',
+          musicxml: '<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Broken</part-name></score-part></part-list><part id="P1"/></score-partwise>',
+          selectedPartId: 'P1'
+        } },
+        order: ['broken'], currentId: 'broken', settings: {}
+      }),
+      [KEY]: JSON.stringify({
+        v: 3,
+        songs: { fallback: { ...v2Blob(), id: 'fallback', title: 'fallback v3' } },
+        order: ['fallback'], currentId: 'fallback', settings: {}
+      })
+    });
+
+    const recovered = readDoc(storage, 77);
+
+    expect(recovered.order).toEqual(['fallback']);
+    expect(recovered.songs.fallback.title).toBe('fallback v3');
+  });
+
   it('생성·이름 변경·복제·삭제와 설정 변경을 v4 문서에 반영한다', () => {
     const first = currentSong().id;
     const second = createSong('둘째');
@@ -231,6 +256,31 @@ describe('곡 관리', () => {
     const doc = parseMusicXml(persisted.songs[first].musicxml);
     expect(doc.querySelector('part[id="P2"] note rest')).not.toBeNull();
     expect(buildScoreIndex(doc, 'P1').measures[0].events[1].notes[0]).toMatchObject({ string: 1, fret: 9 });
+  });
+
+  it('marker가 없는 imported MusicXML은 빠른 격자 저장에서 문자열 그대로 보존한다', () => {
+    const imported = v3SongToMusicXml({ ...v2Blob(), id: 'imported' })
+      .replace(/<identification>[\s\S]*?<\/identification>/, '')
+      .replace('<part-list>', '<credit><miscellaneous-field name="gtab-editor-source">v3-grid-v1</miscellaneous-field></credit><part-list>')
+      .replace('<measure number="1">', '<measure number="1"><print new-system="yes"/><barline location="left"><repeat direction="forward"/></barline>');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { imported: { id: 'imported', title: 'Imported', musicxml: imported, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['imported'], currentId: 'imported', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+    state.measures[0][0][1] = '9';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(storage.getItem(KEY_V4)).songs.imported;
+    expect(persisted.musicxml).toBe(imported);
+    expect(persisted.updatedAt).toBe(2);
+    expect(state.measures[0][0][1]).toBe('');
   });
   it('새 곡을 만들면 현재 곡이 바뀌고 이전 곡은 보존된다', () => {
     const first = currentSong().id;

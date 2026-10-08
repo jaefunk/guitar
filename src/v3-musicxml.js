@@ -1,7 +1,9 @@
 import { TUNINGS } from './constants.js';
 import { emptyMeasure, parse, validMeasures } from './tab.js';
 import { parseMusicXml, readScoreMetadata } from './musicxml.js';
-import { buildScoreIndex } from './score-index.js';
+
+const GRID_MARKER_NAME = 'gtab-editor-source';
+const GRID_MARKER_VALUE = 'v3-grid-v1';
 
 const PITCHES = [
   ['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0],
@@ -68,7 +70,10 @@ function notationXml(value, stringNumber, fret, stopTypes) {
   }
   if (modifiers.has('h')) technical.push('<hammer-on type="start" number="1">H</hammer-on>');
   if (modifiers.has('p')) technical.push('<pull-off type="start" number="1">P</pull-off>');
-  if (modifiers.has('/') || modifiers.has('\\')) direct.push('<slide type="start" number="1"/>');
+  if (modifiers.has('/') || modifiers.has('\\')) {
+    direct.push('<slide type="start" number="1"/>');
+    technical.push(`<other-technical>${modifiers.has('\\') ? 'gtab-slide-down' : 'gtab-slide-up'}</other-technical>`);
+  }
   if (modifiers.has('b')) technical.push('<bend><bend-alter>1</bend-alter></bend>');
   if (modifiers.has('~')) technical.push('<other-technical>vibrato</other-technical>');
   if (modifiers.has('x')) technical.push('<other-technical>dead</other-technical>');
@@ -84,8 +89,8 @@ function noteXml(value, stringIndex, chord, stopTypes, tuningMidi) {
     `${dead ? '<notehead>x</notehead>' : ''}${notationXml(value, stringIndex + 1, fret, stopTypes)}</note>`;
 }
 
-function attributesXml() {
-  const tunings = [40, 45, 50, 55, 59, 64].map((midi, index) => {
+function attributesXml(tuningMidi) {
+  const tunings = tuningMidi.slice().reverse().map((midi, index) => {
     const [step, alter] = PITCHES[midi % 12];
     const octave = Math.floor(midi / 12) - 1;
     return `<staff-tuning line="${index + 1}"><tuning-step>${step}</tuning-step>` +
@@ -102,11 +107,12 @@ export function v3SongToMusicXml(song) {
   const title = typeof song.title === 'string' ? song.title : '';
   const bpm = Number.isFinite(song.bpm) && song.bpm > 0 ? song.bpm : 90;
   const stops = pairedTechniqueStops(song.measures);
-  const tuningMidi = TUNINGS.standard.midi;
+  const tuningId = TUNINGS[song.tuning] ? song.tuning : 'standard';
+  const tuningMidi = TUNINGS[tuningId].midi;
   const measures = song.measures.map((measure, measureIndex) => {
     const body = [];
     if (measureIndex === 0) {
-      body.push(attributesXml());
+      body.push(attributesXml(tuningMidi));
       body.push(`<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
     }
     for (let slot = 0; slot < 16; slot += 1) {
@@ -128,6 +134,7 @@ export function v3SongToMusicXml(song) {
   return '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<score-partwise version="4.0">' +
     `<work><work-title>${escapeXml(title)}</work-title></work>` +
+    `<identification><miscellaneous><miscellaneous-field name="${GRID_MARKER_NAME}">${GRID_MARKER_VALUE}</miscellaneous-field></miscellaneous></identification>` +
     '<part-list><score-part id="P1"><part-name>Guitar</part-name><part-abbreviation>Gt.</part-abbreviation></score-part></part-list>' +
     `<part id="P1">${measures}</part></score-partwise>`;
 }
@@ -136,63 +143,116 @@ function localChildren(element, name) {
   return [...element.children].filter((child) => child.localName === name);
 }
 
+function localChild(element, name) {
+  return localChildren(element, name)[0] || null;
+}
+
+function finiteTextNumber(element) {
+  if (!element) return null;
+  const value = Number(element.textContent?.trim());
+  return Number.isFinite(value) ? value : null;
+}
+
+function slotAt(quarterPosition) {
+  return Math.max(0, Math.min(15, Math.round(quarterPosition * 4)));
+}
+
+function tuningMidiFromPart(part) {
+  const byLine = new Map();
+  for (const tuning of part.querySelectorAll('staff-tuning')) {
+    const line = Number(tuning.getAttribute('line'));
+    const step = localChild(tuning, 'tuning-step')?.textContent?.trim();
+    const alter = finiteTextNumber(localChild(tuning, 'tuning-alter')) || 0;
+    const octave = finiteTextNumber(localChild(tuning, 'tuning-octave'));
+    const pitchClass = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[step];
+    if (Number.isInteger(line) && pitchClass !== undefined && octave !== null) {
+      byLine.set(line, (octave + 1) * 12 + pitchClass + alter);
+    }
+  }
+  if (byLine.size !== 6) return null;
+  return [6, 5, 4, 3, 2, 1].map((line) => byLine.get(line));
+}
+
+function tuningIdFromPart(part) {
+  const midi = tuningMidiFromPart(part);
+  if (!midi || midi.some((value) => !Number.isFinite(value))) return 'standard';
+  return Object.keys(TUNINGS).find((id) => TUNINGS[id].midi.every((value, index) => value === midi[index])) || 'standard';
+}
+
+function noteModifier(note) {
+  const technicalTexts = [...note.querySelectorAll('other-technical')]
+    .map((element) => element.textContent?.trim().toLowerCase());
+  if (localChild(note, 'notehead')?.textContent?.trim().toLowerCase() === 'x' || technicalTexts.includes('dead')) return 'x';
+  if (note.querySelector('hammer-on[type="start"]')) return 'h';
+  if (note.querySelector('pull-off[type="start"]')) return 'p';
+  if (note.querySelector('slide[type="start"]')) return technicalTexts.includes('gtab-slide-down') ? '\\' : '/';
+  if (note.querySelector('bend > bend-alter')) return 'b';
+  if (technicalTexts.includes('vibrato')) return '~';
+  return '';
+}
+
+export function isAppOwnedV3GridXml(xml) {
+  let doc;
+  try { doc = parseMusicXml(xml); } catch (error) { return false; }
+  const identification = localChild(doc.documentElement, 'identification');
+  const miscellaneous = identification && localChild(identification, 'miscellaneous');
+  return !!miscellaneous && localChildren(miscellaneous, 'miscellaneous-field').some((field) =>
+    field.getAttribute('name') === GRID_MARKER_NAME && field.textContent?.trim() === GRID_MARKER_VALUE);
+}
+
 /** Best-effort projection used only by the legacy quick-entry grid. */
 export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
   const doc = parseMusicXml(xml);
-  const index = buildScoreIndex(doc, selectedPartId);
-  const measures = index.measures.map(() => emptyMeasure());
-  const eventById = new Map();
-  index.measures.forEach((measure, measureIndex) => {
-    measure.events.forEach((event) => {
-      eventById.set(event.id, { measureIndex, event });
-      if (event.kind !== 'notes') return;
-      const slot = Math.max(0, Math.min(15, Math.round(event.onset.n * 4 / event.onset.d)));
-      event.notes.forEach((note) => {
-        if (!Number.isInteger(note.string) || note.string < 1 || note.string > 6) return;
-        measures[measureIndex][note.string - 1][slot] = note.dead ? 'x' : String(note.fret ?? 0);
-      });
-    });
-  });
-  for (const link of index.links) {
-    const start = eventById.get(link.startEventId);
-    if (!start) continue;
-    const slot = Math.max(0, Math.min(15, Math.round(start.event.onset.n * 4 / start.event.onset.d)));
-    const suffix = { 'hammer-on': 'h', 'pull-off': 'p', slide: '/' }[link.type];
-    if (!suffix) continue;
-    const targetNote = start.event.notes.find((note) => Number.isInteger(note.string));
-    if (targetNote) measures[start.measureIndex][targetNote.string - 1][slot] += suffix;
-  }
-  index.measures.forEach((measure, measureIndex) => {
-    measure.events.forEach((event) => {
-      if (event.kind !== 'notes') return;
-      const slot = Math.max(0, Math.min(15, Math.round(event.onset.n * 4 / event.onset.d)));
-      event.notes.forEach((note) => {
-        if (!Number.isInteger(note.string)) return;
-        if (note.bend) measures[measureIndex][note.string - 1][slot] += 'b';
-      });
-    });
-  });
-  const marks = {};
   const part = [...doc.documentElement.children].find((node) => node.localName === 'part' && node.getAttribute('id') === selectedPartId);
-  localChildren(part || { children: [] }, 'measure').forEach((measure, measureIndex) => {
+  if (!part) throw new Error(`MusicXML part not found: ${selectedPartId}`);
+  const measureElements = localChildren(part, 'measure');
+  if (!measureElements.length) throw new Error(`MusicXML part has no measures: ${selectedPartId}`);
+  const measures = measureElements.map(() => emptyMeasure());
+  const marks = {};
+  let divisions = 1;
+  measureElements.forEach((measure, measureIndex) => {
     let cursor = 0;
+    let previousNoteOnset = null;
+    let previousWasPitched = false;
     for (const child of measure.children) {
-      if (child.localName === 'direction') {
+      if (child.localName === 'attributes') {
+        const nextDivisions = finiteTextNumber(localChild(child, 'divisions'));
+        if (nextDivisions > 0) divisions = nextDivisions;
+      } else if (child.localName === 'direction') {
         const words = child.querySelector('words')?.textContent?.trim();
-        if (words) marks[`${measureIndex}:${Math.max(0, Math.min(15, cursor))}`] = words;
-      } else if (child.localName === 'note' && !child.querySelector(':scope > chord')) {
-        cursor += Number(child.querySelector(':scope > duration')?.textContent) || 0;
+        const offset = finiteTextNumber(localChild(child, 'offset')) || 0;
+        if (words) marks[`${measureIndex}:${slotAt(cursor + offset / divisions)}`] = words;
+      } else if (child.localName === 'note') {
+        const chord = !!localChild(child, 'chord') && previousWasPitched;
+        const onset = chord && previousNoteOnset !== null ? previousNoteOnset : cursor;
+        const rest = !!localChild(child, 'rest');
+        if (!rest) {
+          const string = finiteTextNumber(child.querySelector('technical > string'));
+          const fret = finiteTextNumber(child.querySelector('technical > fret'));
+          if (Number.isInteger(string) && string >= 1 && string <= 6 && fret !== null) {
+            const modifier = noteModifier(child);
+            measures[measureIndex][string - 1][slotAt(onset)] = modifier === 'x' ? 'x' : `${fret}${modifier}`;
+          }
+        }
+        if (!chord) {
+          const duration = finiteTextNumber(localChild(child, 'duration')) || 0;
+          previousNoteOnset = onset;
+          previousWasPitched = !rest;
+          cursor += duration / divisions;
+        }
       } else if (child.localName === 'forward') {
-        cursor += Number(child.querySelector(':scope > duration')?.textContent) || 0;
+        cursor += (finiteTextNumber(localChild(child, 'duration')) || 0) / divisions;
+        previousWasPitched = false;
       } else if (child.localName === 'backup') {
-        cursor -= Number(child.querySelector(':scope > duration')?.textContent) || 0;
+        cursor -= (finiteTextNumber(localChild(child, 'duration')) || 0) / divisions;
+        previousWasPitched = false;
       }
     }
   });
   const metadata = readScoreMetadata(doc, selectedPartId);
   return {
     title: doc.querySelector('work > work-title')?.textContent || '',
-    tuning: 'standard',
+    tuning: tuningIdFromPart(part),
     bpm: metadata.tempo || 90,
     measures,
     marks

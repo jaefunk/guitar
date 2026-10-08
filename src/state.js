@@ -8,7 +8,7 @@ import {
   KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
-import { musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
+import { isAppOwnedV3GridXml, musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
 import { parseMusicXml, serializeMusicXml } from './musicxml.js';
 
 export const KEY_V4 = 'gtab-editor-v4';
@@ -74,6 +74,7 @@ function defaultV4Song(now) {
 }
 
 function refreshSongMusicXml(song) {
+  if (!isAppOwnedV3GridXml(song.musicxml)) return;
   const generatedXml = v3SongToMusicXml({
     id: song.id,
     title: song.title,
@@ -218,7 +219,7 @@ function sanitizeV4Song(value, id, now) {
   return attachLegacyProjection(song, sanitizeSong({ ...projection, id, createdAt: song.createdAt, updatedAt: song.updatedAt }, now));
 }
 
-export function sanitizeV4Doc(value, now) {
+export function sanitizeV4Doc(value, now, ensureSong = true) {
   const doc = { v: 4, songs: {}, order: [], currentId: null, settings: sanitizeSettings(value?.settings) };
   if (value?.songs && typeof value.songs === 'object') {
     const orderedIds = Array.isArray(value.order)
@@ -232,7 +233,7 @@ export function sanitizeV4Doc(value, now) {
       doc.order.push(id);
     }
   }
-  if (!doc.order.length) {
+  if (ensureSong && !doc.order.length) {
     const song = defaultV4Song(now);
     doc.songs[song.id] = song;
     doc.order.push(song.id);
@@ -265,7 +266,10 @@ export function readDoc(storage, now) {
   if (rawV4) {
     try {
       const value = JSON.parse(rawV4);
-      if (value && value.v === 4 && typeof value === 'object') return sanitizeV4Doc(value, now);
+      if (value && value.v === 4 && typeof value === 'object') {
+        const v4 = sanitizeV4Doc(value, now, false);
+        if (v4.order.length) return v4;
+      }
     } catch (e) { /* 손상된 v4는 보존된 v3/legacy에서 복구 */ }
   }
 
@@ -320,8 +324,28 @@ export function touch() { dirty = true; }
 export function flush() {
   const song = currentSong();
   if (!song) return;
-  let changed = dirty;
-  SONG_FIELDS.forEach((k) => { if (song[k] !== state[k]) { song[k] = state[k]; changed = true; } });
+  const changedFields = SONG_FIELDS.filter((field) => song[field] !== state[field]);
+  const changed = dirty || changedFields.length > 0;
+  if (changed && !isAppOwnedV3GridXml(song.musicxml)) {
+    const projection = musicXmlToV3Song(song.musicxml, song.selectedPartId);
+    const restored = sanitizeSong({
+      ...projection,
+      id: song.id,
+      createdAt: song.createdAt,
+      updatedAt: song.updatedAt
+    });
+    song.title = restored.title;
+    song._legacy = {
+      tuning: restored.tuning,
+      bpm: restored.bpm,
+      measures: restored.measures,
+      marks: restored.marks
+    };
+    SONG_FIELDS.forEach((field) => { state[field] = song[field]; });
+    dirty = false;
+    return;
+  }
+  changedFields.forEach((field) => { song[field] = state[field]; });
   if (changed) {
     refreshSongMusicXml(song);
     song.updatedAt = Date.now();

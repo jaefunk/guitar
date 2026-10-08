@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { parseMusicXml } from '../src/musicxml.js';
 import { buildScoreIndex } from '../src/score-index.js';
 import { emptyMeasure } from '../src/tab.js';
-import { v3SongToMusicXml } from '../src/v3-musicxml.js';
+import { TUNINGS } from '../src/constants.js';
+import { isAppOwnedV3GridXml, musicXmlToV3Song, v3SongToMusicXml } from '../src/v3-musicxml.js';
 
 function songWith(measures, overrides = {}) {
   return {
@@ -103,5 +104,101 @@ describe('v3 grid to MusicXML 4.0', () => {
   it('rejects malformed legacy measure data instead of emitting invalid XML', () => {
     expect(() => v3SongToMusicXml(songWith([]))).toThrow(/v3|measure/i);
     expect(() => v3SongToMusicXml(songWith([[['not-a-measure']]]))).toThrow(/v3|measure/i);
+  });
+
+  it('recognizes only the exact app-owned marker path', () => {
+    const xml = v3SongToMusicXml(songWith([emptyMeasure()]));
+    const spoof = xml.replace(
+      /<identification>[\s\S]*?<\/identification>/,
+      '<credit><miscellaneous-field name="gtab-editor-source">v3-grid-v1</miscellaneous-field></credit>'
+    );
+
+    expect(isAppOwnedV3GridXml(xml)).toBe(true);
+    expect(isAppOwnedV3GridXml(spoof)).toBe(false);
+    expect(isAppOwnedV3GridXml('<not-musicxml/>')).toBe(false);
+  });
+
+  it.each(Object.entries(TUNINGS))('round-trips the %s open-string tuning', (tuningId, tuning) => {
+    const measure = emptyMeasure();
+    for (let stringIndex = 0; stringIndex < 6; stringIndex += 1) measure[stringIndex][stringIndex] = '0';
+
+    const xml = v3SongToMusicXml(songWith([measure], { tuning: tuningId }));
+    const doc = parseMusicXml(xml);
+    const staffMidi = [...doc.querySelectorAll('staff-tuning')].map((node) => {
+      const step = node.querySelector('tuning-step')?.textContent;
+      const alter = Number(node.querySelector('tuning-alter')?.textContent || 0);
+      const octave = Number(node.querySelector('tuning-octave')?.textContent);
+      const semitone = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[step] + alter;
+      return (octave + 1) * 12 + semitone;
+    });
+    const noteMidi = buildScoreIndex(doc, 'P1').measures[0].events
+      .filter((event) => event.kind === 'notes')
+      .map((event) => {
+        const pitch = event.notes[0].pitch;
+        return (pitch.octave + 1) * 12 + { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[pitch.step] + (pitch.alter || 0);
+      });
+
+    expect(staffMidi).toEqual(tuning.midi.slice().reverse());
+    expect(noteMidi).toEqual(tuning.midi);
+    expect(musicXmlToV3Song(xml, 'P1').tuning).toBe(tuningId);
+  });
+
+  it('round-trips modifiers on their original string within chords', () => {
+    const measure = emptyMeasure();
+    measure[0][0] = '3h';
+    measure[1][0] = '5~';
+    measure[2][0] = 'x';
+    measure[0][1] = '5p';
+    measure[0][2] = '3/';
+    measure[0][3] = '7\\';
+    measure[0][4] = '9b';
+    measure[0][5] = '11';
+
+    const projected = musicXmlToV3Song(v3SongToMusicXml(songWith([measure])), 'P1');
+
+    expect(projected.measures[0][0].slice(0, 6)).toEqual(['3h', '5p', '3/', '7\\', '9b', '11']);
+    expect(projected.measures[0][1][0]).toBe('5~');
+    expect(projected.measures[0][2][0]).toBe('x');
+  });
+
+  it('projects directions and chord notes using divisions-aware cursor semantics', () => {
+    const xml = `<score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>8</divisions><clef><sign>TAB</sign></clef></attributes>
+        <note><rest/><duration>2</duration></note>
+        <direction><direction-type><words>slot one</words></direction-type></direction>
+        <forward><duration>2</duration></forward>
+        <note><pitch><step>G</step><octave>4</octave></pitch><duration>2</duration><notations><technical><string>1</string><fret>3</fret></technical></notations></note>
+        <note><chord/><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><notations><technical><string>2</string><fret>5</fret></technical></notations></note>
+        <backup><duration>2</duration></backup>
+        <attributes><divisions>4</divisions></attributes>
+        <direction><direction-type><words>slot two</words></direction-type></direction>
+      </measure></part>
+    </score-partwise>`;
+
+    const projected = musicXmlToV3Song(xml, 'P1');
+
+    expect(projected.marks).toMatchObject({ '0:1': 'slot one', '0:2': 'slot two' });
+    expect(projected.measures[0][0][2]).toBe('3');
+    expect(projected.measures[0][1][2]).toBe('5');
+  });
+
+  it('rounds fractional 16th positions deterministically and clamps them to a measure', () => {
+    const xml = `<score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>8</divisions><clef><sign>TAB</sign></clef></attributes>
+        <forward><duration>1</duration></forward>
+        <direction><direction-type><words>half slot</words></direction-type></direction>
+        <forward><duration>40</duration></forward>
+        <direction><direction-type><words>outside</words></direction-type></direction>
+      </measure></part>
+    </score-partwise>`;
+
+    expect(musicXmlToV3Song(xml, 'P1').marks).toEqual({
+      '0:1': 'half slot',
+      '0:15': 'outside'
+    });
   });
 });
