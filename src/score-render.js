@@ -3,6 +3,7 @@ import { buildScoreIndex } from './score-index.js';
 import { layoutScore } from './score-layout.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+export const PRINT_LAYOUT_WIDTH = 703;
 
 function svgEl(name, attributes = {}, text) {
   const element = document.createElementNS(SVG_NS, name);
@@ -77,15 +78,28 @@ function drawBarlines(svg, layout) {
   }
 }
 
-function drawEvents(svg, layout) {
+function eventAriaLabel(event, measureNumber) {
+  const prefix = `${measureNumber}마디`;
+  if (event.kind === 'rest') return `${prefix} 쉼표`;
+  const notes = event.notes.map((note) => `${note.string}번 현 ${note.label}프렛`).join(', ');
+  return `${prefix} ${notes || '음표'}`;
+}
+
+function drawEvents(svg, layout, selectedEventId) {
+  const eventInfo = new Map();
   for (const event of layout.events) {
+    const measureNumber = layout.measures[event.measureIndex]?.number ?? event.measureIndex + 1;
+    const selected = event.id === selectedEventId;
     const group = append(svg, 'g', {
-      class: `score-event score-event-${event.kind}`,
+      class: `score-event score-event-${event.kind}${selected ? ' selected' : ''}`,
       'data-event-id': event.id,
       'data-measure-index': event.measureIndex,
-      tabindex: 0,
-      role: 'button'
+      tabindex: selected ? 0 : -1,
+      role: 'button',
+      'aria-pressed': String(selected),
+      'aria-label': eventAriaLabel(event, measureNumber)
     });
+    eventInfo.set(event.id, { ...event, measureNumber, ariaLabel: eventAriaLabel(event, measureNumber) });
     if (event.chord) {
       append(group, 'text', { class: 'score-chord', x: event.chord.x, y: event.chord.y }, event.chord.text);
     }
@@ -132,6 +146,7 @@ function drawEvents(svg, layout) {
       append(group, 'circle', { class: 'score-fermata-dot', cx: event.fermata.x, cy: event.fermata.y + 2, r: 1.7 });
     }
   }
+  return eventInfo;
 }
 
 function drawRhythm(svg, layout) {
@@ -184,24 +199,67 @@ function drawTechniques(svg, layout) {
   }
 }
 
+function selectRenderedEvent(svg, eventId, eventInfo, onSelect, focus = false) {
+  const groups = [...svg.querySelectorAll('[data-event-id]')];
+  const target = groups.find((group) => group.dataset.eventId === eventId);
+  if (!target) return null;
+  for (const group of groups) {
+    const selected = group === target;
+    group.classList.toggle('selected', selected);
+    group.setAttribute('aria-pressed', String(selected));
+    group.setAttribute('tabindex', selected ? '0' : '-1');
+  }
+  if (focus) target.focus();
+  const selected = eventInfo.get(eventId);
+  if (selected) onSelect?.(selected);
+  return selected || null;
+}
+
+function bindEventSelection(svg, eventInfo, onSelect) {
+  svg.addEventListener('click', (domEvent) => {
+    const group = domEvent.target.closest?.('[data-event-id]');
+    if (group && svg.contains(group)) selectRenderedEvent(svg, group.dataset.eventId, eventInfo, onSelect);
+  });
+  svg.addEventListener('keydown', (domEvent) => {
+    const group = domEvent.target.closest?.('[data-event-id]');
+    if (!group || !svg.contains(group)) return;
+    if (domEvent.key === 'Enter' || domEvent.key === ' ') {
+      domEvent.preventDefault();
+      selectRenderedEvent(svg, group.dataset.eventId, eventInfo, onSelect);
+      return;
+    }
+    const direction = ({ ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 })[domEvent.key];
+    if (!direction) return;
+    domEvent.preventDefault();
+    const groups = [...svg.querySelectorAll('[data-event-id]')];
+    const current = groups.indexOf(group);
+    const next = Math.max(0, Math.min(groups.length - 1, current + direction));
+    selectRenderedEvent(svg, groups[next].dataset.eventId, eventInfo, onSelect, true);
+  });
+}
+
 export function renderScoreSvg(host, index, options = {}) {
   const width = Number.isFinite(options.width) && options.width > 0 ? options.width : 1120;
   const layout = layoutScore(index, { ...options, width });
+  const selectedEventId = layout.events.some((event) => event.id === options.selectedEventId)
+    ? options.selectedEventId
+    : layout.events[0]?.id;
   const svg = svgEl('svg', {
     class: 'professional-score', viewBox: `0 0 ${width} ${layout.totalHeight}`,
-    width, height: layout.totalHeight, role: 'img', 'aria-label': '전문 기타 TAB 악보'
+    width, height: layout.totalHeight, role: 'group', 'aria-label': '전문 기타 TAB 악보'
   });
   drawStaff(svg, layout);
   drawMeasures(svg, layout);
   drawBarlines(svg, layout);
-  drawEvents(svg, layout);
+  const eventInfo = drawEvents(svg, layout, selectedEventId);
   drawRhythm(svg, layout);
   drawTechniques(svg, layout);
+  bindEventSelection(svg, eventInfo, options.onSelect);
   host.replaceChildren(svg);
   return layout;
 }
 
-export function renderScoreDiagnostics(host, diagnostics = []) {
+export function renderScoreDiagnostics(host, diagnostics = [], { onMeasure } = {}) {
   host.replaceChildren();
   host.removeAttribute('role');
   if (diagnostics.length === 0) {
@@ -215,19 +273,60 @@ export function renderScoreDiagnostics(host, diagnostics = []) {
   for (const diagnostic of diagnostics) {
     const item = document.createElement('li');
     item.className = `score-diagnostic score-diagnostic-${diagnostic.severity || 'warning'}`;
-    item.dataset.measureNumber = String(diagnostic.measureNumber ?? '');
-    item.textContent = `${diagnostic.measureNumber ? `${diagnostic.measureNumber}마디 · ` : ''}${diagnostic.message || diagnostic.code || '알 수 없는 진단'}`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.measureNumber = String(diagnostic.measureNumber ?? '');
+    button.textContent = `${diagnostic.measureNumber ? `${diagnostic.measureNumber}마디 · ` : ''}${diagnostic.message || diagnostic.code || '알 수 없는 진단'}`;
+    if (diagnostic.measureNumber !== undefined && diagnostic.measureNumber !== null) {
+      button.addEventListener('click', () => { onMeasure?.(String(diagnostic.measureNumber)); });
+    } else {
+      button.disabled = true;
+    }
+    item.appendChild(button);
     list.appendChild(item);
   }
   host.appendChild(list);
+}
+
+export function renderScoreInspector(host, event) {
+  host.replaceChildren();
+  const title = document.createElement('h2');
+  title.textContent = '속성';
+  host.appendChild(title);
+  const body = document.createElement('p');
+  if (!event) {
+    body.textContent = '음표를 선택하면 세부 속성을 확인할 수 있습니다.';
+  } else {
+    body.textContent = `${event.ariaLabel} · ${event.id}`;
+    body.dataset.eventId = event.id;
+  }
+  host.appendChild(body);
+}
+
+function renderEmptyScore(canvas) {
+  const message = document.createElement('p');
+  message.className = 'score-empty';
+  message.textContent = '표시할 마디가 없습니다.';
+  canvas.replaceChildren(message);
+}
+
+function renderIndexedScore({ canvas, diagnostics, index, options = {}, onMeasure }) {
+  let layout;
+  if (index.measures.length === 0) {
+    renderEmptyScore(canvas);
+    layout = layoutScore(index, options);
+  } else {
+    layout = renderScoreSvg(canvas, index, options);
+  }
+  renderScoreDiagnostics(diagnostics, index.diagnostics, { onMeasure });
+  return layout;
 }
 
 export function renderScoreDocument({ canvas, diagnostics, musicxml, partId, options = {} }) {
   try {
     const doc = parseMusicXml(musicxml);
     const index = buildScoreIndex(doc, partId);
-    const layout = renderScoreSvg(canvas, index, options);
-    renderScoreDiagnostics(diagnostics, index.diagnostics);
+    const layout = renderIndexedScore({ canvas, diagnostics, index, options });
     return { doc, index, layout };
   } catch (error) {
     canvas.replaceChildren();
@@ -239,6 +338,134 @@ export function renderScoreDocument({ canvas, diagnostics, musicxml, partId, opt
     diagnostics.appendChild(message);
     return null;
   }
+}
+
+export function createScoreWorkspaceController({
+  canvas,
+  diagnostics,
+  inspector,
+  getSong,
+  getScreenWidth,
+  onMeasure,
+  onRendered,
+  parse = parseMusicXml,
+  buildIndex = buildScoreIndex,
+  requestFrame = (callback) => window.requestAnimationFrame(callback),
+  cancelFrame = (id) => window.cancelAnimationFrame(id),
+  windowTarget = window
+}) {
+  let cachedKey = null;
+  let cachedDoc = null;
+  let cachedIndex = null;
+  let renderedKey = null;
+  let renderedWidth = null;
+  let selectedEventId = null;
+  let frameId = null;
+  let printing = false;
+  let lastResult = null;
+
+  const readIndex = () => {
+    const song = getSong();
+    if (!song || typeof song.musicxml !== 'string') throw new Error('현재 MusicXML 곡이 없습니다');
+    const key = `${song.selectedPartId || ''}\u0000${song.musicxml}`;
+    if (key !== cachedKey) {
+      cachedDoc = parse(song.musicxml);
+      cachedIndex = buildIndex(cachedDoc, song.selectedPartId);
+      cachedKey = key;
+      renderedKey = null;
+      if (!cachedIndex.measures.some((measure) => measure.events.some((event) => event.id === selectedEventId))) {
+        selectedEventId = null;
+      }
+    }
+    return { doc: cachedDoc, index: cachedIndex, key };
+  };
+
+  const showError = (error) => {
+    canvas.replaceChildren();
+    diagnostics.replaceChildren();
+    diagnostics.setAttribute('role', 'alert');
+    const message = document.createElement('p');
+    message.className = 'score-diagnostic score-diagnostic-error';
+    message.textContent = `MusicXML 악보를 표시하지 못했습니다: ${error?.message || '알 수 없는 오류'}`;
+    diagnostics.appendChild(message);
+    renderScoreInspector(inspector, null);
+    lastResult = null;
+    return null;
+  };
+
+  const renderAt = (width, force = false) => {
+    try {
+      const { doc, index, key } = readIndex();
+      if (!force && key === renderedKey && width === renderedWidth) return lastResult;
+      let selectedEvent = null;
+      const layout = renderIndexedScore({
+        canvas,
+        diagnostics,
+        index,
+        onMeasure,
+        options: {
+          width,
+          selectedEventId,
+          onSelect: (event) => {
+            selectedEventId = event.id;
+            renderScoreInspector(inspector, event);
+          }
+        }
+      });
+      if (!selectedEventId && layout.events.length > 0) selectedEventId = layout.events[0].id;
+      if (selectedEventId) {
+        const layoutEvent = layout.events.find((event) => event.id === selectedEventId);
+        if (layoutEvent) {
+          const measureNumber = layout.measures[layoutEvent.measureIndex]?.number ?? layoutEvent.measureIndex + 1;
+          selectedEvent = {
+            ...layoutEvent,
+            measureNumber,
+            ariaLabel: eventAriaLabel(layoutEvent, measureNumber)
+          };
+        }
+      }
+      renderScoreInspector(inspector, selectedEvent);
+      renderedKey = key;
+      renderedWidth = width;
+      lastResult = { doc, index, layout };
+      onRendered?.({ width, ...lastResult });
+      return lastResult;
+    } catch (error) {
+      return showError(error);
+    }
+  };
+
+  const renderScreen = (force = false) => renderAt(getScreenWidth(), force);
+  const scheduleScreenRender = () => {
+    if (printing || frameId !== null) return;
+    frameId = requestFrame(() => {
+      frameId = null;
+      if (!printing) renderScreen();
+    });
+  };
+  const beforePrint = () => {
+    printing = true;
+    if (frameId !== null) {
+      cancelFrame(frameId);
+      frameId = null;
+    }
+    renderAt(PRINT_LAYOUT_WIDTH, true);
+  };
+  const afterPrint = () => {
+    printing = false;
+    renderScreen(true);
+  };
+  const destroy = () => {
+    if (frameId !== null) cancelFrame(frameId);
+    frameId = null;
+    windowTarget.removeEventListener('beforeprint', beforePrint);
+    windowTarget.removeEventListener('afterprint', afterPrint);
+  };
+
+  windowTarget.addEventListener('beforeprint', beforePrint);
+  windowTarget.addEventListener('afterprint', afterPrint);
+
+  return { renderScreen, scheduleScreenRender, beforePrint, afterPrint, destroy };
 }
 
 export function setScoreViewMode(mode, { settings, song, persist, elements }) {

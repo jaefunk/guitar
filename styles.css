@@ -33,6 +33,7 @@ body{
   padding-bottom:calc(var(--padH) + 16px + env(safe-area-inset-bottom,0px));
   -webkit-tap-highlight-color:transparent;
 }
+body.score-mode{--padH:0px;padding-bottom:0}
 button,select,input{font-family:inherit}
 button{touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:pointer}
 button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -123,14 +124,16 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .score-diagnostics{grid-area:score-diagnostics;overflow:auto}
 .score-diagnostics ul{margin:0;padding-left:18px}
 .score-diagnostic{font-size:12px;margin:0 0 6px;color:var(--muted)}
+.score-diagnostic button{border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:2px 0;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px}
 .score-diagnostic-error{color:var(--danger)}
+.score-empty{margin:0;padding:64px 20px;text-align:center;color:#656565}
 .professional-score{display:block;max-width:none;background:#fff;color:#171717;font-family:var(--mono)}
 .score-staff-line,.score-barline-stroke,.score-stem,.score-technique path,.score-bend path,.score-ending line,.score-tuplet line{stroke:currentColor;fill:none;vector-effect:non-scaling-stroke}
 .score-staff-line{stroke-width:1}
 .score-measure-target{pointer-events:none}
 .score-measure-number{font-size:10px;fill:#656565}
 .score-event{cursor:pointer;outline:none}
-.score-event:focus .score-fret-background,.score-event:hover .score-fret-background{fill:#dce6ff}
+.score-event:focus .score-fret-background,.score-event:hover .score-fret-background,.score-event.selected .score-fret-background{fill:#dce6ff}
 .score-fret-background{fill:#fff}
 .score-fret,.score-rest,.score-chord,.score-measure-number,.score-technique text,.score-ending text,.score-tuplet text{text-anchor:middle;fill:currentColor}
 .score-fret{font-size:11px;font-weight:700}

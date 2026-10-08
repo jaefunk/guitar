@@ -13,7 +13,9 @@ import { toText, parseText, renderImage } from './io.js';
 import { bindSongs } from './songs.js';
 import { padMeasures } from './tab.js';
 import { applyBpmInput, applyTitleInput, applyTuningInput, syncQuickEditability } from './quick-edit.js';
-import { renderScoreDocument, setScoreViewMode } from './score-render.js';
+import { createScoreWorkspaceController, setScoreViewMode } from './score-render.js';
+
+let scoreController = null;
 
 function scoreElements() {
   return {
@@ -40,20 +42,6 @@ function renderMeasureNavigation(index) {
   }
 }
 
-function renderProfessionalScore() {
-  const song = currentSong();
-  if (!song) return null;
-  const result = renderScoreDocument({
-    canvas: $('scoreCanvas'), diagnostics: $('scoreDiagnostics'),
-    musicxml: song.musicxml, partId: song.selectedPartId,
-    options: { width: scoreWidth() }
-  });
-  const nav = $('measureNav').querySelector('.measure-nav-list');
-  if (result) renderMeasureNavigation(result.index);
-  else nav.replaceChildren();
-  return result;
-}
-
 function scrollToScoreMeasure(number) {
   const measure = [...$('scoreCanvas').querySelectorAll('[data-measure-number]')]
     .find((element) => element.dataset.measureNumber === number);
@@ -65,7 +53,7 @@ function applyViewMode(mode, persist = true) {
     settings: state, song: currentSong(), persist: persist ? save : null, elements: scoreElements()
   });
   document.body.classList.toggle('score-mode', next.mode === 'score');
-  if (next.mode === 'score') renderProfessionalScore();
+  if (next.mode === 'score') scoreController?.renderScreen();
 }
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
@@ -110,11 +98,6 @@ function bind() {
     const button = event.target.closest('[data-measure-number]');
     if (!button) return;
     scrollToScoreMeasure(button.dataset.measureNumber);
-  });
-  $('scoreDiagnostics').addEventListener('click', (event) => {
-    const diagnostic = event.target.closest('[data-measure-number]');
-    if (!diagnostic?.dataset.measureNumber) return;
-    scrollToScoreMeasure(diagnostic.dataset.measureNumber);
   });
   $('sheet').addEventListener('click', (e) => {
     const mk = e.target.closest('.mk');
@@ -250,10 +233,10 @@ function bind() {
   window.addEventListener('resize', () => {
     updatePadH();
     if (state.zoom === 'fit') applyZoom();
-    if (state.viewMode === 'score') renderProfessionalScore();
+    if (state.viewMode === 'score') scoreController?.scheduleScreenRender();
   });
   window.addEventListener('gtab:songchange', () => {
-    if (state.viewMode === 'score') renderProfessionalScore();
+    if (state.viewMode === 'score') scoreController?.renderScreen();
   });
   if (window.ResizeObserver) new ResizeObserver(updatePadH).observe($('pad'));
   document.addEventListener('visibilitychange', () => { if (document.hidden && pb.playing) stopPlay(); });
@@ -264,6 +247,15 @@ function bind() {
 /* ---------- 시작 ---------- */
 function boot() {
   load();
+  scoreController = createScoreWorkspaceController({
+    canvas: $('scoreCanvas'),
+    diagnostics: $('scoreDiagnostics'),
+    inspector: $('scoreInspector'),
+    getSong: currentSong,
+    getScreenWidth: scoreWidth,
+    onMeasure: scrollToScoreMeasure,
+    onRendered: ({ index }) => { renderMeasureNavigation(index); }
+  });
   const t = $('tuning');
   Object.keys(TUNINGS).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = TUNINGS[k].name; t.appendChild(o); });
   const g = $('chordGrid');

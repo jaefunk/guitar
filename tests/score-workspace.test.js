@@ -26,5 +26,6 @@ describe('professional score workspace shell', () => {
     expect(css).toMatch(/@media\s+print/);
     expect(css).toMatch(/#scoreWorkspace[^}]*width:\s*186mm/);
     expect(css).toMatch(/\.top[^}]*display:\s*none/);
+    expect(css).toMatch(/body\.score-mode[^}]*--padH:\s*0px[^}]*padding-bottom:\s*0/);
   });
 });
