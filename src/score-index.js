@@ -111,9 +111,21 @@ function readTechniques(noteElement) {
       }
     }
   }
-  for (const element of childElements(noteElement, 'tie')) {
+  const tiedActions = new Set();
+  for (const element of descendantElements(noteElement, 'tied')) {
     const action = element.getAttribute('type');
     if (action === 'start' || action === 'stop') {
+      tiedActions.add(action);
+      techniques.push({
+        type: 'tie',
+        action,
+        number: element.getAttribute('number') || '1'
+      });
+    }
+  }
+  for (const element of childElements(noteElement, 'tie')) {
+    const action = element.getAttribute('type');
+    if ((action === 'start' || action === 'stop') && !tiedActions.has(action)) {
       techniques.push({
         type: 'tie',
         action,
@@ -184,6 +196,7 @@ function indexMeasure(
   diagnostics
 ) {
   let cursor = rational(0);
+  let maximumCursorExtent = rational(0);
   let previousNoteOnset = null;
   let previousNotesEvent = null;
   const events = [];
@@ -202,6 +215,7 @@ function indexMeasure(
       cursor = addRational(cursor, element.localName === 'backup'
         ? rational(-duration.n, duration.d)
         : duration);
+      if (compareRational(cursor, maximumCursorExtent) > 0) maximumCursorExtent = cursor;
       previousNoteOnset = null;
       previousNotesEvent = null;
       continue;
@@ -267,7 +281,10 @@ function indexMeasure(
     registerTechniques(element, eventId, measureNumber, techniqueStacks, links, diagnostics);
 
     previousNoteOnset = onset;
-    if (!canJoinChord) cursor = addRational(cursor, duration);
+    if (!canJoinChord) {
+      cursor = addRational(cursor, duration);
+      if (compareRational(cursor, maximumCursorExtent) > 0) maximumCursorExtent = cursor;
+    }
   }
 
   const orderedEvents = events
@@ -276,18 +293,14 @@ function indexMeasure(
     .map(({ event }) => event);
 
   const expectedDuration = rational(context.beats * 4, context.beatType);
-  let actualDuration = rational(0);
-  for (const event of events) {
-    const end = addRational(event.onset, event.duration);
-    if (compareRational(end, actualDuration) > 0) actualDuration = end;
-  }
-  if (compareRational(actualDuration, expectedDuration) !== 0) {
+  const isImplicit = measureElement.getAttribute('implicit') === 'yes';
+  if (!isImplicit && compareRational(maximumCursorExtent, expectedDuration) !== 0) {
     diagnostics.push(techniqueDiagnostic(
       'error',
       'MEASURE_DURATION',
       measureNumber,
       orderedEvents[0]?.id,
-      `Measure duration ${actualDuration.n}/${actualDuration.d} does not match ${expectedDuration.n}/${expectedDuration.d}`
+      `Measure duration ${maximumCursorExtent.n}/${maximumCursorExtent.d} does not match ${expectedDuration.n}/${expectedDuration.d}`
     ));
   }
 

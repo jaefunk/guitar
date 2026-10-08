@@ -94,6 +94,37 @@ describe('ScoreIndex timing', () => {
     });
   });
 
+  it('includes forward movement in measure duration validation', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <note><rest/><duration>1</duration></note>
+      <forward><duration>3</duration></forward>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.diagnostics.map((diagnostic) => diagnostic.code))
+      .not.toContain('MEASURE_DURATION');
+  });
+
+  it('allows incomplete implicit pickup measures', () => {
+    const doc = scoreWithMeasures(`<measure number="0" implicit="yes">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <note><rest/><duration>1</duration></note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.diagnostics.map((diagnostic) => diagnostic.code))
+      .not.toContain('MEASURE_DURATION');
+  });
+
   it('treats a chord marker at measure start as an advancing note', () => {
     const doc = scoreWithMeasures(`<measure number="1">
       <attributes><divisions>2</divisions></attributes>
@@ -188,6 +219,71 @@ describe('ScoreIndex techniques and playback', () => {
       startEventId: first.measures[0].events[0].id,
       endEventId: first.measures[0].events[1].id
     });
+  });
+
+  it('links tied-only notation elements', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch><duration>2</duration>
+        <notations><tied type="start" number="3"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch><duration>2</duration>
+        <notations><tied type="stop" number="3"/></notations>
+      </note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.links).toEqual([{
+      type: 'tie',
+      number: '3',
+      startEventId: index.measures[0].events[0].id,
+      endEventId: index.measures[0].events[1].id
+    }]);
+  });
+
+  it('does not duplicate links when tie and tied are both present', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.links.filter((link) => link.type === 'tie')).toHaveLength(1);
+    expect(index.diagnostics.map((diagnostic) => diagnostic.code))
+      .not.toContain('UNCLOSED_TECHNIQUE');
+  });
+
+  it('preserves tied notation numbers', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch><duration>2</duration>
+        <notations><tied type="start" number="9"/></notations>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch><duration>2</duration>
+        <notations><tied type="stop" number="9"/></notations>
+      </note>
+    </measure>`);
+
+    expect(buildScoreIndex(doc, 'P1').links[0].number).toBe('9');
+  });
+
+  it('does not mutate the techniques fixture document', () => {
+    const doc = parseMusicXml(techniquesFixture);
+    const before = serializeMusicXml(doc);
+
+    buildScoreIndex(doc, 'P1');
+
+    expect(serializeMusicXml(doc)).toBe(before);
   });
 
   it('normalizes bends, dead notes, tuplets, and fermatas', () => {
