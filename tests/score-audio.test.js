@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPlaybackPlan, createLookaheadPlaybackController, createScoreHighlighter
 } from '../src/score-audio.js';
+import { parseMusicXml } from '../src/musicxml.js';
+import { buildScoreIndex } from '../src/score-index.js';
 
 const q = (n, d = 1) => ({ n, d });
 
@@ -79,6 +81,69 @@ describe('buildPlaybackPlan', () => {
     expect(plan.notes).toHaveLength(2);
     expect(plan.notes.map((entry) => [entry.eventId, entry.occurrence, entry.durationQuarter, entry.key]))
       .toEqual([['start', 0, 4, 'start@0:0'], ['start', 1, 4, 'start@1:0']]);
+  });
+
+  it('ties a stop to the nearest unmatched start occurrence', () => {
+    const index = scoreIndex({
+      measures: [
+        { number: '1', beats: 4, beatType: 4, events: [
+          note('start', 0, 4, [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }])
+        ] },
+        { number: '2', beats: 4, beatType: 4, events: [
+          note('stop', 0, 1, [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }])
+        ] }
+      ],
+      links: [{ type: 'tie', startEventId: 'start', endEventId: 'stop' }],
+      playbackMeasures: [0, 0, 1]
+    });
+
+    const plan = buildPlaybackPlan(index, { bpm: 60 });
+
+    expect(plan.notes.map((entry) => [entry.eventId, entry.occurrence, entry.durationQuarter]))
+      .toEqual([['start', 0, 4], ['start', 1, 5]]);
+  });
+
+  it('does not connect a stale tie start across a backward repeat jump', () => {
+    const index = scoreIndex({
+      measures: [
+        { number: '1', beats: 4, beatType: 4, events: [
+          note('filler', 0, 1, [{ string: 2, fret: 0, pitch: { step: 'B', octave: 3 } }])
+        ] },
+        { number: '2', beats: 4, beatType: 4, events: [
+          note('start', 0, 1, [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }])
+        ] },
+        { number: '3', beats: 4, beatType: 4, events: [
+          note('stop', 0, 1, [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }])
+        ] }
+      ],
+      links: [{ type: 'tie', startEventId: 'start', endEventId: 'stop' }],
+      playbackMeasures: [0, 1, 0, 2]
+    });
+
+    const plan = buildPlaybackPlan(index, { bpm: 60 });
+
+    expect(plan.notes.find((entry) => entry.eventId === 'start').durationQuarter).toBe(1);
+    expect(plan.notes.some((entry) => entry.eventId === 'stop')).toBe(true);
+  });
+
+  it('advances repeated pickup occurrences by actual implicit duration', () => {
+    const doc = parseMusicXml(`<score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list>
+      <part id="P1">
+        <measure number="0" implicit="yes">
+          <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note>
+        </measure>
+        <measure number="1"><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+      </part>
+    </score-partwise>`);
+    const index = buildScoreIndex(doc, 'P1');
+    index.playbackMeasures = [0, 1, 0, 1];
+
+    const plan = buildPlaybackPlan(index, { bpm: 60 });
+
+    expect(plan.notes.map((entry) => entry.startQuarter)).toEqual([0, 1, 5, 6]);
+    expect(plan.durationQuarter).toBe(10);
   });
 
   it('emits short percussive dead notes and link metadata for legato techniques', () => {

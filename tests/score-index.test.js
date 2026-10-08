@@ -123,6 +123,38 @@ describe('ScoreIndex timing', () => {
 
     expect(index.diagnostics.map((diagnostic) => diagnostic.code))
       .not.toContain('MEASURE_DURATION');
+    expect(index.measures[0]).toMatchObject({
+      implicit: true,
+      actualDuration: { n: 1, d: 1 },
+      expectedDuration: { n: 4, d: 1 },
+      playbackDuration: { n: 1, d: 1 }
+    });
+  });
+
+  it('normalizes incomplete and overfull non-implicit playback durations without overlap', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+      </attributes>
+      <note><rest/><duration>1</duration></note>
+    </measure>
+    <measure number="2"><note><rest/><duration>5</duration></note></measure>`);
+
+    const index = buildScoreIndex(doc, 'P1');
+
+    expect(index.measures[0]).toMatchObject({
+      implicit: false,
+      actualDuration: { n: 1, d: 1 },
+      expectedDuration: { n: 4, d: 1 },
+      playbackDuration: { n: 4, d: 1 }
+    });
+    expect(index.measures[1]).toMatchObject({
+      implicit: false,
+      actualDuration: { n: 5, d: 1 },
+      expectedDuration: { n: 4, d: 1 },
+      playbackDuration: { n: 5, d: 1 }
+    });
   });
 
   it('treats a chord marker at measure start as an advancing note', () => {

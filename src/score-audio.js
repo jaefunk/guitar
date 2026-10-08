@@ -13,6 +13,8 @@ function pitchMidi(pitch) {
 }
 
 function measureQuarters(measure) {
+  const normalized = rationalNumber(measure?.playbackDuration || measure?.duration);
+  if (normalized > 0) return normalized;
   const beats = Number(measure?.beats);
   const beatType = Number(measure?.beatType);
   return beats > 0 && beatType > 0 ? beats * 4 / beatType : 4;
@@ -47,10 +49,15 @@ export function createScoreHighlighter(host) {
 function pairLinkOccurrences(rawEvents, link) {
   const waiting = [];
   const pairs = [];
+  let playbackRun = null;
   for (const event of rawEvents) {
+    if (event.playbackRun !== playbackRun) {
+      waiting.length = 0;
+      playbackRun = event.playbackRun;
+    }
     if (event.eventId === link.startEventId) waiting.push(event);
     if (event.eventId === link.endEventId && waiting.length > 0) {
-      pairs.push([waiting.shift(), event]);
+      pairs.push([waiting.pop(), event]);
     }
   }
   return pairs;
@@ -84,8 +91,11 @@ export function buildPlaybackPlan(index, {
   const rawEvents = [];
   const rests = [];
   let absoluteQuarter = 0;
+  let playbackRun = 0;
+  let previousMeasureIndex = null;
 
   for (const measureIndex of playbackMeasures) {
+    if (previousMeasureIndex !== null && measureIndex <= previousMeasureIndex) playbackRun += 1;
     const measure = index.measures[measureIndex];
     if (!measure) continue;
     for (const event of measure.events || []) {
@@ -98,6 +108,7 @@ export function buildPlaybackPlan(index, {
         eventKey: occurrenceKey(event.id, occurrence),
         measureIndex,
         measureNumber: measure.number,
+        playbackRun,
         startQuarter: absoluteQuarter + rationalNumber(event.onset),
         durationQuarter: rationalNumber(event.duration),
         notes: event.notes || []
@@ -106,6 +117,7 @@ export function buildPlaybackPlan(index, {
       else rawEvents.push(record);
     }
     absoluteQuarter += measureQuarters(measure);
+    previousMeasureIndex = measureIndex;
   }
 
   const rawNotes = [];

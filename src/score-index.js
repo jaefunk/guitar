@@ -338,11 +338,25 @@ function indexMeasure(
     ));
   }
 
+  // Pickup/incomplete implicit measures occupy only their authored cursor extent.
+  // Non-implicit underfull measures retain the notated time-signature width, while
+  // malformed overfull measures advance far enough to keep following events apart.
+  const playbackDuration = isImplicit
+    ? maximumCursorExtent
+    : compareRational(maximumCursorExtent, expectedDuration) > 0
+      ? maximumCursorExtent
+      : expectedDuration;
+
   return {
     number: measureNumber,
     divisions: context.divisions,
     beats: context.beats,
     beatType: context.beatType,
+    implicit: isImplicit,
+    actualDuration: maximumCursorExtent,
+    expectedDuration,
+    playbackDuration,
+    duration: playbackDuration,
     events: orderedEvents,
     ...readMeasureBarlines(measureElement)
   };
