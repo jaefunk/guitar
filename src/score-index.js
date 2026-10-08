@@ -72,6 +72,18 @@ function readPitch(noteElement) {
   return pitch;
 }
 
+function readNoteType(noteElement) {
+  return childElement(noteElement, 'type')?.textContent?.trim().toLowerCase() || null;
+}
+
+function readBeams(noteElement) {
+  return childElements(noteElement, 'beam').flatMap((beamElement) => {
+    const number = Number(beamElement.getAttribute('number') || '1');
+    const state = beamElement.textContent?.trim().toLowerCase();
+    return Number.isInteger(number) && number > 0 && state ? [{ number, state }] : [];
+  });
+}
+
 function readNote(noteElement) {
   const note = {};
   const string = numberValue(descendantElement(noteElement, 'string'));
@@ -82,11 +94,15 @@ function readNote(noteElement) {
     .some((element) => element.textContent?.trim().toLowerCase() === 'dead');
   const pitch = readPitch(noteElement);
   const dots = childElements(noteElement, 'dot').length;
+  const noteType = readNoteType(noteElement);
+  const beams = readBeams(noteElement);
   if (string !== null) note.string = string;
   if (fret !== null) note.fret = fret;
   if (bendAlter !== null) note.bend = rational(bendAlter);
   if (notehead === 'x' || otherTechnical) note.dead = true;
   if (dots > 0) note.dots = dots;
+  if (noteType) note.noteType = noteType;
+  if (beams.length > 0) note.beams = beams;
   if (pitch) note.pitch = pitch;
   return note;
 }
@@ -240,10 +256,14 @@ function indexMeasure(
     const tuplet = readTuplet(element);
     const fermata = Boolean(descendantElement(element, 'fermata'));
     const dots = childElements(element, 'dot').length;
+    const noteType = readNoteType(element);
+    const beams = readBeams(element);
 
     if (childElement(element, 'rest')) {
       const event = { id: eventId, kind: 'rest', onset, duration };
       if (dots > 0) event.dots = dots;
+      if (noteType) event.noteType = noteType;
+      if (beams.length > 0) event.beams = beams;
       if (tuplet) event.tuplet = tuplet;
       if (fermata) event.fermata = true;
       events.push(event);
@@ -253,6 +273,8 @@ function indexMeasure(
       if (fermata) note.fermata = true;
       previousNotesEvent.notes.push(note);
       if (dots > (previousNotesEvent.dots || 0)) previousNotesEvent.dots = dots;
+      if (!previousNotesEvent.noteType && noteType) previousNotesEvent.noteType = noteType;
+      if (!previousNotesEvent.beams && beams.length > 0) previousNotesEvent.beams = beams;
       if (tuplet && !previousNotesEvent.tuplet) previousNotesEvent.tuplet = tuplet;
       if (fermata) previousNotesEvent.fermata = true;
     } else {
@@ -268,6 +290,8 @@ function indexMeasure(
         previousNotesEvent.tuplet = tuplet;
       }
       if (dots > 0) previousNotesEvent.dots = dots;
+      if (noteType) previousNotesEvent.noteType = noteType;
+      if (beams.length > 0) previousNotesEvent.beams = beams;
       if (fermata) {
         note.fermata = true;
         previousNotesEvent.fermata = true;

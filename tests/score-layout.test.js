@@ -136,11 +136,11 @@ describe('layoutScore geometry', () => {
 
   it('creates stems, beams, dots, tuplets, and fermata records from durations', () => {
     const events = [
-      event('e1', r(0), r(1, 2), [{ string: 2, fret: 5 }], { dots: 1, tuplet: { actual: 3, normal: 2 } }),
-      event('e2', r(1, 2), r(1, 2), [{ string: 2, fret: 7 }], { tuplet: { actual: 3, normal: 2 } }),
-      event('e3', r(1), r(1, 2), [{ string: 2, fret: 8 }], { tuplet: { actual: 3, normal: 2 }, fermata: true }),
-      event('e4', r(3, 2), r(1, 4), [{ string: 3, fret: 9 }]),
-      event('e5', r(7, 4), r(1, 4), [{ string: 3, fret: 10 }])
+      event('e1', r(0), r(1, 2), [{ string: 2, fret: 5 }], { noteType: 'eighth', dots: 1, tuplet: { actual: 3, normal: 2 } }),
+      event('e2', r(1, 2), r(1, 2), [{ string: 2, fret: 7 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 } }),
+      event('e3', r(1), r(1, 2), [{ string: 2, fret: 8 }], { noteType: 'eighth', tuplet: { actual: 3, normal: 2 }, fermata: true }),
+      event('e4', r(3, 2), r(1, 4), [{ string: 3, fret: 9 }], { noteType: '16th' }),
+      event('e5', r(7, 4), r(1, 4), [{ string: 3, fret: 10 }], { noteType: '16th' })
     ];
     const layout = layoutScore({ partId: 'P1', measures: [measure(1, events)], links: [] }, { width: 700 });
 
@@ -217,7 +217,31 @@ describe('layoutScore geometry', () => {
     const dottedQuarter = layout.events.find((item) => item.id === index.measures[2].events[0].id);
     expect(dottedQuarter.dots).toHaveLength(1);
     expect(dottedQuarter.stem).toEqual(expect.objectContaining({ x: expect.any(Number) }));
+    expect(dottedQuarter.beamLevel).toBe(0);
     expect(layout.beams.flatMap((beam) => beam.eventIds)).not.toContain(dottedQuarter.id);
+    const triplet = layout.events.slice(
+      layout.events.findIndex((item) => item.id === index.measures[2].events[2].id),
+      layout.events.findIndex((item) => item.id === index.measures[2].events[2].id) + 3
+    );
+    expect(triplet.map((item) => item.beamLevel)).toEqual([1, 1, 1]);
+    expect(triplet.map((item) => item.beams[0].state)).toEqual(['begin', 'continue', 'end']);
+  });
+
+  it('prefers notation type and falls back through dots and tuplets for beam levels', () => {
+    const doc = parseMusicXml(`<score-partwise version="4.0">
+      <part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list>
+      <part id="P1"><measure number="1">
+        <attributes><divisions>12</divisions></attributes>
+        <note><pitch><step>C</step><octave>4</octave></pitch><duration>18</duration><type>eighth</type></note>
+        <note><pitch><step>D</step><octave>4</octave></pitch><duration>12</duration><type>16th</type></note>
+        <note><pitch><step>E</step><octave>4</octave></pitch><duration>9</duration><dot/></note>
+        <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>
+        <note><rest/><duration>1</duration></note>
+      </measure></part>
+    </score-partwise>`);
+    const layout = layoutScore(buildScoreIndex(doc, 'P1'), { width: 500 });
+
+    expect(layout.events.map((item) => item.beamLevel)).toEqual([1, 2, 1, 1, undefined]);
   });
 
   it('gives half and quarter notes stems but reserves beams for eighth notes or shorter', () => {

@@ -310,6 +310,15 @@ describe('ScoreIndex techniques and playback', () => {
       ]
     });
     expect(index.measures[2].events[0]).toMatchObject({ dots: 1, notes: [expect.objectContaining({ dots: 1 })] });
+    expect(index.measures[2].events[0]).toMatchObject({
+      noteType: 'quarter',
+      notes: [expect.objectContaining({ noteType: 'quarter' })]
+    });
+    expect(index.measures[2].events.slice(2, 5)).toEqual([
+      expect.objectContaining({ noteType: 'eighth', beams: [{ number: 1, state: 'begin' }] }),
+      expect.objectContaining({ noteType: 'eighth', beams: [{ number: 1, state: 'continue' }] }),
+      expect.objectContaining({ noteType: 'eighth', beams: [{ number: 1, state: 'end' }] })
+    ]);
   });
 
   it('counts multiple dot elements', () => {
@@ -323,6 +332,28 @@ describe('ScoreIndex techniques and playback', () => {
 
     expect(events[0]).toMatchObject({ dots: 2, notes: [expect.objectContaining({ dots: 2 })] });
     expect(events[1]).toMatchObject({ kind: 'rest', dots: 1 });
+  });
+
+  it('normalizes multiple explicit beam levels on events and notes', () => {
+    const doc = scoreWithMeasures(`<measure number="1">
+      <attributes><divisions>4</divisions></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>16th</type><beam number="1">begin</beam><beam number="2">begin</beam></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>16th</type><beam number="1">end</beam><beam number="2">end</beam></note>
+      <note><rest/><duration>14</duration><type>half</type></note>
+    </measure>`);
+
+    const [first, second, restEvent] = buildScoreIndex(doc, 'P1').measures[0].events;
+
+    expect(first).toMatchObject({
+      noteType: '16th',
+      beams: [{ number: 1, state: 'begin' }, { number: 2, state: 'begin' }],
+      notes: [expect.objectContaining({
+        noteType: '16th',
+        beams: [{ number: 1, state: 'begin' }, { number: 2, state: 'begin' }]
+      })]
+    });
+    expect(second.beams).toEqual([{ number: 1, state: 'end' }, { number: 2, state: 'end' }]);
+    expect(restEvent).toMatchObject({ kind: 'rest', noteType: 'half' });
   });
 
   it('expands repeats and first and second endings without cloning measures', () => {

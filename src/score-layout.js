@@ -72,8 +72,43 @@ function groupSystems(widths, widthLimit) {
   return groups;
 }
 
-function beamLevel(duration) {
-  const quarters = rationalNumber(duration);
+const NOTATION_QUARTERS = Object.freeze({
+  maxima: 32,
+  long: 16,
+  breve: 8,
+  whole: 4,
+  half: 2,
+  quarter: 1,
+  eighth: 1 / 2,
+  '16th': 1 / 4,
+  '32nd': 1 / 8,
+  '64th': 1 / 16,
+  '128th': 1 / 32,
+  '256th': 1 / 64,
+  '512th': 1 / 128,
+  '1024th': 1 / 256
+});
+
+function dotMultiplier(dots) {
+  let multiplier = 1;
+  for (let index = 1; index <= dots; index += 1) multiplier += 1 / (2 ** index);
+  return multiplier;
+}
+
+function notationQuarters(event) {
+  if (NOTATION_QUARTERS[event.noteType] !== undefined) return NOTATION_QUARTERS[event.noteType];
+  let quarters = rationalNumber(event.duration) / dotMultiplier(eventDots(event));
+  if (event.tuplet?.actual > 0 && event.tuplet?.normal > 0) {
+    quarters *= event.tuplet.actual / event.tuplet.normal;
+  }
+  return quarters;
+}
+
+function beamLevel(event) {
+  if (event.beams?.length > 0) {
+    return Math.max(...event.beams.map((beam) => beam.number));
+  }
+  const quarters = notationQuarters(event);
   if (!(quarters > 0) || quarters > 0.5) return 0;
   return Math.max(1, Math.round(Math.log2(1 / quarters)));
 }
@@ -158,8 +193,8 @@ function layoutEvents(measure, measureLayout, options) {
       x: x + 9 + dotIndex * 5,
       y: measureLayout.staffBottom + 23
     }));
-    const level = event.kind === 'notes' ? beamLevel(event.duration) : 0;
-    const durationInQuarters = rationalNumber(event.duration);
+    const level = event.kind === 'notes' ? beamLevel(event) : 0;
+    const durationInQuarters = event.kind === 'notes' ? notationQuarters(event) : 0;
     const hasStem = event.kind === 'notes'
       && durationInQuarters > 0
       && durationInQuarters < 4;
@@ -182,6 +217,8 @@ function layoutEvents(measure, measureLayout, options) {
     };
     if (event.kind === 'rest') record.label = '𝜽';
     if (event.chordSymbol) record.chordSymbol = event.chordSymbol;
+    if (event.noteType) record.noteType = event.noteType;
+    if (event.beams?.length > 0) record.beams = event.beams.map((beam) => ({ ...beam }));
     if (event.kind === 'notes') record.beamLevel = level;
     if (hasStem) {
       record.stem = {
