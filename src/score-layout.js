@@ -159,6 +159,10 @@ function layoutEvents(measure, measureLayout, options) {
       y: measureLayout.staffBottom + 23
     }));
     const level = event.kind === 'notes' ? beamLevel(event.duration) : 0;
+    const durationInQuarters = rationalNumber(event.duration);
+    const hasStem = event.kind === 'notes'
+      && durationInQuarters > 0
+      && durationInQuarters < 4;
     const record = {
       id: event.id,
       kind: event.kind,
@@ -178,12 +182,12 @@ function layoutEvents(measure, measureLayout, options) {
     };
     if (event.kind === 'rest') record.label = '𝜽';
     if (event.chordSymbol) record.chordSymbol = event.chordSymbol;
-    if (level > 0) {
+    if (event.kind === 'notes') record.beamLevel = level;
+    if (hasStem) {
       record.stem = {
         x,
         y1: measureLayout.staffBottom + 7,
-        y2: measureLayout.staffBottom + 30,
-        level
+        y2: measureLayout.staffBottom + 30
       };
     }
     if (event.fermata) {
@@ -215,7 +219,7 @@ function beamRecords(events, measures) {
   const records = [];
   for (const measure of measures) {
     const measureEvents = events.filter((event) => event.measureIndex === measure.index);
-    const maxLevel = Math.max(0, ...measureEvents.map((event) => event.stem?.level || 0));
+    const maxLevel = Math.max(0, ...measureEvents.map((event) => event.beamLevel || 0));
     for (let level = 1; level <= maxLevel; level += 1) {
       let group = [];
       const flush = () => {
@@ -233,7 +237,7 @@ function beamRecords(events, measures) {
         group = [];
       };
       for (const event of measureEvents) {
-        if ((event.stem?.level || 0) >= level) group.push(event);
+        if ((event.beamLevel || 0) >= level) group.push(event);
         else flush();
       }
       flush();
@@ -330,6 +334,13 @@ export function layoutScore(index, options = {}) {
   }
 
   const widths = measureWidths(sourceMeasures, settings);
+  const oversizedMeasure = widths.findIndex((measure) => measure.width > settings.width);
+  if (oversizedMeasure !== -1) {
+    throw new RangeError(
+      `Measure ${sourceMeasures[oversizedMeasure].number ?? oversizedMeasure + 1} `
+      + `required ${widths[oversizedMeasure].width}, available ${settings.width}`
+    );
+  }
   const groups = groupSystems(widths, settings.width);
   const systemHeight = settings.systemTopPadding
     + settings.staffGap * 5

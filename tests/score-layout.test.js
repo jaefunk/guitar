@@ -71,14 +71,23 @@ describe('layoutScore geometry', () => {
     expect(layout.systems.every((system) => system.width <= 520)).toBe(true);
   });
 
-  it('keeps the exact minimum measure width when the viewport is narrower', () => {
-    const layout = layoutScore(
+  it('rejects a measure whose exact required width exceeds the available width', () => {
+    expect(() => layoutScore(
       { partId: 'P1', measures: [dense], links: [], playbackMeasures: [0] },
-      { width: 120, minMeasureWidth: 180 }
+      { width: 120, minMeasureWidth: 240 }
+    )).toThrowError(expect.objectContaining({
+      name: 'RangeError',
+      message: expect.stringMatching(/measure 2.*required 240.*available 120/i)
+    }));
+  });
+
+  it('never returns a system wider than the available width', () => {
+    const layout = layoutScore(
+      { partId: 'P1', measures: [sparse, dense, sparse], links: [] },
+      { width: 520, minMeasureWidth: 180, columnWidth: 34 }
     );
 
-    expect(layout.measures[0].width).toBe(240);
-    expect(layout.systems[0].width).toBe(240);
+    expect(layout.systems.every((system) => system.width <= 520)).toBe(true);
   });
 
   it('places six TAB strings, fret labels, chords, and rests', () => {
@@ -205,7 +214,34 @@ describe('layoutScore geometry', () => {
       expect.objectContaining({ number: '1', type: 'start' }),
       expect.objectContaining({ number: '1', type: 'stop' })
     ]));
-    expect(layout.events.find((item) => item.id === index.measures[2].events[0].id).dots).toHaveLength(1);
+    const dottedQuarter = layout.events.find((item) => item.id === index.measures[2].events[0].id);
+    expect(dottedQuarter.dots).toHaveLength(1);
+    expect(dottedQuarter.stem).toEqual(expect.objectContaining({ x: expect.any(Number) }));
+    expect(layout.beams.flatMap((beam) => beam.eventIds)).not.toContain(dottedQuarter.id);
+  });
+
+  it('gives half and quarter notes stems but reserves beams for eighth notes or shorter', () => {
+    const events = [
+      event('whole', r(0), r(4)),
+      event('half', r(4), r(2)),
+      event('quarter', r(6), r(1)),
+      event('eighth-a', r(7), r(1, 2)),
+      event('eighth-b', r(15, 2), r(1, 2)),
+      rest('rest', r(8), r(1, 2))
+    ];
+    const layout = layoutScore(
+      { partId: 'P1', measures: [measure(1, events)], links: [] },
+      { width: 600 }
+    );
+    const byId = Object.fromEntries(layout.events.map((item) => [item.id, item]));
+
+    expect(byId.whole.stem).toBeUndefined();
+    expect(byId.half.stem).toEqual(expect.any(Object));
+    expect(byId.quarter.stem).toEqual(expect.any(Object));
+    expect(byId.rest.stem).toBeUndefined();
+    expect(layout.beams).toEqual([
+      expect.objectContaining({ level: 1, eventIds: ['eighth-a', 'eighth-b'] })
+    ]);
   });
 
   it('is deterministic and does not mutate its input', () => {
