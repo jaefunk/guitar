@@ -69,6 +69,7 @@ try {
     $settings = New-Object System.Xml.XmlReaderSettings
     $settings.ValidationType = [System.Xml.ValidationType]::Schema
     $settings.Schemas = $schemaSet
+    $settings.ValidationFlags = $settings.ValidationFlags -bor [System.Xml.Schema.XmlSchemaValidationFlags]::ReportValidationWarnings
     $settings.DtdProcessing = [System.Xml.DtdProcessing]::Ignore
     $settings.XmlResolver = $null
     $settings.add_ValidationEventHandler($validationHandler)
