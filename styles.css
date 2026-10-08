@@ -47,6 +47,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 }
 .title::placeholder{color:var(--muted);font-weight:500}
 .title:focus{border-bottom-color:var(--accent)}
+#readOnlyStatus{flex:0 0 auto;color:var(--muted);font:700 11px/1 var(--sans);white-space:nowrap}
 .icon-btn{flex:0 0 auto;width:34px;height:34px;border:1px solid var(--border);border-radius:50%;background:transparent;color:var(--muted);font:700 15px/1 var(--mono);display:flex;align-items:center;justify-content:center}
 .icon-btn:active{background:var(--key)}
 .toolbar{display:flex;gap:6px;overflow-x:auto;padding:10px 0 4px;scrollbar-width:none}

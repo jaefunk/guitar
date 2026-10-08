@@ -5,7 +5,7 @@ import { parseMusicXml } from '../src/musicxml.js';
 import { buildScoreIndex } from '../src/score-index.js';
 import { emptyMeasure } from '../src/tab.js';
 import { TUNINGS } from '../src/constants.js';
-import { isAppOwnedV3GridXml, musicXmlToV3Song, v3SongToMusicXml } from '../src/v3-musicxml.js';
+import { musicXmlToV3Song, v3SongToMusicXml } from '../src/v3-musicxml.js';
 
 function songWith(measures, overrides = {}) {
   return {
@@ -106,18 +106,6 @@ describe('v3 grid to MusicXML 4.0', () => {
     expect(() => v3SongToMusicXml(songWith([[['not-a-measure']]]))).toThrow(/v3|measure/i);
   });
 
-  it('recognizes only the exact app-owned marker path', () => {
-    const xml = v3SongToMusicXml(songWith([emptyMeasure()]));
-    const spoof = xml.replace(
-      /<identification>[\s\S]*?<\/identification>/,
-      '<credit><miscellaneous-field name="gtab-editor-source">v3-grid-v1</miscellaneous-field></credit>'
-    );
-
-    expect(isAppOwnedV3GridXml(xml)).toBe(true);
-    expect(isAppOwnedV3GridXml(spoof)).toBe(false);
-    expect(isAppOwnedV3GridXml('<not-musicxml/>')).toBe(false);
-  });
-
   it.each(Object.entries(TUNINGS))('round-trips the %s open-string tuning', (tuningId, tuning) => {
     const measure = emptyMeasure();
     for (let stringIndex = 0; stringIndex < 6; stringIndex += 1) measure[stringIndex][stringIndex] = '0';
@@ -153,12 +141,18 @@ describe('v3 grid to MusicXML 4.0', () => {
     measure[0][3] = '7\\';
     measure[0][4] = '9b';
     measure[0][5] = '11';
+    measure[0][6] = '6hb~';
+    measure[1][6] = '8p/';
+    measure[0][7] = '8';
+    measure[1][7] = '10';
 
     const projected = musicXmlToV3Song(v3SongToMusicXml(songWith([measure])), 'P1');
 
     expect(projected.measures[0][0].slice(0, 6)).toEqual(['3h', '5p', '3/', '7\\', '9b', '11']);
     expect(projected.measures[0][1][0]).toBe('5~');
     expect(projected.measures[0][2][0]).toBe('x');
+    expect(projected.measures[0][0][6]).toBe('6hb~');
+    expect(projected.measures[0][1][6]).toBe('8p/');
   });
 
   it('projects directions and chord notes using divisions-aware cursor semantics', () => {

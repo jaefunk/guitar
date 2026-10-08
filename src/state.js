@@ -8,7 +8,7 @@ import {
   KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
 } from './constants.js';
 import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
-import { isAppOwnedV3GridXml, musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
+import { musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
 import { parseMusicXml, serializeMusicXml } from './musicxml.js';
 
 export const KEY_V4 = 'gtab-editor-v4';
@@ -46,6 +46,20 @@ function attachLegacyProjection(song, legacy) {
     marks: legacy.marks
   };
   Object.defineProperty(song, '_legacy', { value: projection, writable: true, configurable: true });
+  if (song.editorMode === 'musicxml-readonly') {
+    Object.defineProperty(song, '_readonlySnapshot', {
+      value: {
+        title: song.title,
+        tuning: legacy.tuning,
+        bpm: legacy.bpm,
+        measures: cloneMeasures(legacy.measures),
+        marks: { ...legacy.marks },
+        updatedAt: song.updatedAt
+      },
+      writable: true,
+      configurable: true
+    });
+  }
   for (const field of ['tuning', 'bpm', 'measures', 'marks']) {
     Object.defineProperty(song, field, {
       configurable: true,
@@ -63,6 +77,7 @@ function v4SongFromLegacy(legacySong, now) {
     title: legacy.title,
     musicxml: v3SongToMusicXml(legacy),
     selectedPartId: 'P1',
+    editorMode: 'grid-v3',
     createdAt: legacy.createdAt,
     updatedAt: legacy.updatedAt
   };
@@ -74,7 +89,6 @@ function defaultV4Song(now) {
 }
 
 function refreshSongMusicXml(song) {
-  if (!isAppOwnedV3GridXml(song.musicxml)) return;
   const generatedXml = v3SongToMusicXml({
     id: song.id,
     title: song.title,
@@ -125,7 +139,7 @@ function musicXmlWithTitle(xml, title) {
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
 export const state = Object.assign({}, defaultSettings(), {
-  title: '', tuning: 'standard', bpm: 90, measures: [], marks: {}
+  title: '', tuning: 'standard', bpm: 90, measures: [], marks: {}, readOnly: false
 });
 
 /** 편집 세션 상태(저장 안 함) */
@@ -212,6 +226,7 @@ function sanitizeV4Song(value, id, now) {
     title: projection.title || (typeof value.title === 'string' ? value.title : ''),
     musicxml: value.musicxml,
     selectedPartId,
+    editorMode: value.editorMode === 'grid-v3' ? 'grid-v3' : 'musicxml-readonly',
     createdAt: Number.isFinite(value.createdAt) ? value.createdAt : timestamp,
     updatedAt: Number.isFinite(value.updatedAt) ? value.updatedAt : timestamp
   };
@@ -308,6 +323,7 @@ export function activate(id) {
   const song = library.songs[id];
   library.currentId = id;
   SONG_FIELDS.forEach((k) => { state[k] = song[k]; });
+  state.readOnly = song.editorMode !== 'grid-v3';
   padMeasures(state.measures);
   ed.undoStack = [];
   ed.pending = false;
@@ -315,6 +331,10 @@ export function activate(id) {
 }
 
 export function currentSong() { return library.songs[library.currentId]; }
+
+export function canEditCurrentSong() {
+  return currentSong()?.editorMode === 'grid-v3';
+}
 
 let dirty = false;
 /** measures/marks를 제자리에서 바꾼 뒤 호출하면 다음 save 때 updatedAt이 갱신된다. */
@@ -326,22 +346,18 @@ export function flush() {
   if (!song) return;
   const changedFields = SONG_FIELDS.filter((field) => song[field] !== state[field]);
   const changed = dirty || changedFields.length > 0;
-  if (changed && !isAppOwnedV3GridXml(song.musicxml)) {
-    const projection = musicXmlToV3Song(song.musicxml, song.selectedPartId);
-    const restored = sanitizeSong({
-      ...projection,
-      id: song.id,
-      createdAt: song.createdAt,
-      updatedAt: song.updatedAt
-    });
+  if (changed && !canEditCurrentSong()) {
+    const restored = song._readonlySnapshot;
     song.title = restored.title;
     song._legacy = {
       tuning: restored.tuning,
       bpm: restored.bpm,
-      measures: restored.measures,
-      marks: restored.marks
+      measures: cloneMeasures(restored.measures),
+      marks: { ...restored.marks }
     };
+    song.updatedAt = restored.updatedAt;
     SONG_FIELDS.forEach((field) => { state[field] = song[field]; });
+    state.readOnly = true;
     dirty = false;
     return;
   }
@@ -364,6 +380,7 @@ export function toDoc() {
       title: song.title,
       musicxml: song.musicxml,
       selectedPartId: song.selectedPartId,
+      editorMode: song.editorMode,
       createdAt: song.createdAt,
       updatedAt: song.updatedAt
     };
@@ -425,12 +442,13 @@ export function switchSong(id) {
 
 export function renameSong(id, title) {
   const s = library.songs[id];
-  if (!s) return;
+  if (!s || s.editorMode !== 'grid-v3') return false;
   s.title = title;
   if (id === library.currentId) state.title = title;
   s.updatedAt = Date.now();
   s.musicxml = musicXmlWithTitle(s.musicxml, title);
   save();
+  return true;
 }
 
 export function duplicateSong(id) {
@@ -452,6 +470,7 @@ export function duplicateSong(id) {
     title: copyLegacy.title,
     musicxml: musicXmlWithTitle(src.musicxml, copyLegacy.title),
     selectedPartId: src.selectedPartId,
+    editorMode: src.editorMode,
     createdAt: timestamp,
     updatedAt: timestamp
   }, copyLegacy);

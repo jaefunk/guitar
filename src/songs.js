@@ -4,6 +4,7 @@ import { $, openMenu, ask, toast } from './ui.js';
 import { render, setSel } from './render.js';
 import { stopPlay } from './audio.js';
 import { buildFretboard } from './fretboard.js';
+import { syncQuickEditability } from './quick-edit.js';
 
 /** 곡이 바뀐 뒤 제목·BPM·튜닝 입력창과 악보를 현재 곡에 맞춘다. */
 export function refreshSongUI() {
@@ -14,6 +15,7 @@ export function refreshSongUI() {
   render();
   setSel(ed.sel, false);
   if (state.padMode === 'fret') buildFretboard();
+  syncQuickEditability();
 }
 
 function fmtDate(t) {
@@ -51,7 +53,7 @@ function songMenu(id) {
   if (!s) return;
   openMenu(songLabel(s), [
     { k: '→', label: '열기', action: () => { openSong(id); }, disabled: id === library.currentId },
-    { k: 'A', label: '이름 바꾸기', action: () => { rename(id); } },
+    { k: 'A', label: '이름 바꾸기', action: () => { rename(id); }, disabled: s.editorMode !== 'grid-v3' },
     { k: '⎘', label: '복제', desc: '같은 내용으로 새 곡을 만들어요', action: () => { const c = duplicateSong(id); toast('"' + songLabel(c) + '" 만듦'); openSongs(); } },
     { k: '×', label: '삭제', desc: '되돌릴 수 없어요', danger: true, action: () => { remove(id); } }
   ]);
@@ -65,7 +67,7 @@ function rename(id) {
   const s = library.songs[id];
   ask({ title: '이름 바꾸기', input: true, value: s.title, placeholder: '곡 제목', ok: '저장' }).then((v) => {
     if (v === null) return;
-    renameSong(id, v.trim());
+    if (!renameSong(id, v.trim())) { toast('읽기 전용 MusicXML입니다'); return; }
     if (id === library.currentId) $('title').value = state.title;
     openSongs();
   });

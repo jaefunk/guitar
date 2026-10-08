@@ -183,21 +183,15 @@ function noteModifier(note) {
   const technicalTexts = [...note.querySelectorAll('other-technical')]
     .map((element) => element.textContent?.trim().toLowerCase());
   if (localChild(note, 'notehead')?.textContent?.trim().toLowerCase() === 'x' || technicalTexts.includes('dead')) return 'x';
-  if (note.querySelector('hammer-on[type="start"]')) return 'h';
-  if (note.querySelector('pull-off[type="start"]')) return 'p';
-  if (note.querySelector('slide[type="start"]')) return technicalTexts.includes('gtab-slide-down') ? '\\' : '/';
-  if (note.querySelector('bend > bend-alter')) return 'b';
-  if (technicalTexts.includes('vibrato')) return '~';
-  return '';
-}
-
-export function isAppOwnedV3GridXml(xml) {
-  let doc;
-  try { doc = parseMusicXml(xml); } catch (error) { return false; }
-  const identification = localChild(doc.documentElement, 'identification');
-  const miscellaneous = identification && localChild(identification, 'miscellaneous');
-  return !!miscellaneous && localChildren(miscellaneous, 'miscellaneous-field').some((field) =>
-    field.getAttribute('name') === GRID_MARKER_NAME && field.textContent?.trim() === GRID_MARKER_VALUE);
+  const modifiers = [];
+  if (note.querySelector('hammer-on[type="start"]')) modifiers.push('h');
+  if (note.querySelector('pull-off[type="start"]')) modifiers.push('p');
+  if (note.querySelector('bend > bend-alter')) modifiers.push('b');
+  if (note.querySelector('slide[type="start"]')) {
+    modifiers.push(technicalTexts.includes('gtab-slide-down') ? '\\' : '/');
+  }
+  if (technicalTexts.includes('vibrato')) modifiers.push('~');
+  return modifiers.join('');
 }
 
 /** Best-effort projection used only by the legacy quick-entry grid. */

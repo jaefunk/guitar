@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
   listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
-  KEY_V4
+  KEY_V4, canEditCurrentSong
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
@@ -102,8 +102,9 @@ describe('곡 관리', () => {
     const d = JSON.parse(st.dump()[KEY_V4]);
     expect(d.v).toBe(4);
     expect(Object.keys(d.songs[d.currentId]).sort()).toEqual([
-      'createdAt', 'id', 'musicxml', 'selectedPartId', 'title', 'updatedAt'
+      'createdAt', 'editorMode', 'id', 'musicxml', 'selectedPartId', 'title', 'updatedAt'
     ]);
+    expect(d.songs[d.currentId].editorMode).toBe('grid-v3');
     const index = buildScoreIndex(parseMusicXml(d.songs[d.currentId].musicxml), 'P1');
     expect(index.measures[1].events[1].notes[0]).toMatchObject({ string: 2, fret: 7 });
     expect(d.settings.zoom).toBe('l');
@@ -133,7 +134,7 @@ describe('곡 관리', () => {
     expect(migrated.currentId).toBe('kept-id');
     expect(migrated.order).toEqual(['kept-id']);
     expect(migrated.songs['kept-id']).toMatchObject({
-      id: 'kept-id', title: '옛 곡', selectedPartId: 'P1', createdAt: 123, updatedAt: 456
+      id: 'kept-id', title: '옛 곡', selectedPartId: 'P1', editorMode: 'grid-v3', createdAt: 123, updatedAt: 456
     });
     expect(parseMusicXml(migrated.songs['kept-id'].musicxml)).toBeTruthy();
   });
@@ -281,6 +282,63 @@ describe('곡 관리', () => {
     expect(persisted.musicxml).toBe(imported);
     expect(persisted.updatedAt).toBe(2);
     expect(state.measures[0][0][1]).toBe('');
+  });
+
+  it('editorMode가 없는 v4는 정확한 XML marker가 있어도 readonly로 취급한다', () => {
+    const imported = v3SongToMusicXml({ ...v2Blob(), id: 'imported' });
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { imported: { id: 'imported', title: 'Imported', musicxml: imported, selectedPartId: 'P1', createdAt: 1, updatedAt: 2 } },
+        order: ['imported'], currentId: 'imported', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+
+    expect(canEditCurrentSong()).toBe(false);
+    expect(currentSong().editorMode).toBe('musicxml-readonly');
+    expect(JSON.parse(storage.getItem(KEY_V4)).songs.imported.editorMode).toBe('musicxml-readonly');
+  });
+
+  it('readonly 거부 시 제목 fallback, BPM, updatedAt과 quick state snapshot을 정확히 복원한다', () => {
+    const measure = emptyMeasure();
+    measure[0][0] = '3';
+    const withoutTitle = v3SongToMusicXml({
+      id: 'readonly', title: '', tuning: 'dropd', bpm: 72, measures: [measure], marks: {}
+    }).replace(/<identification>[\s\S]*?<\/identification>/, '');
+    const storage = memStorage({
+      [KEY_V4]: JSON.stringify({
+        v: 4,
+        songs: { readonly: {
+          id: 'readonly', title: 'Fallback title', musicxml: withoutTitle,
+          selectedPartId: 'P1', editorMode: 'musicxml-readonly', createdAt: 1, updatedAt: 2
+        } },
+        order: ['readonly'], currentId: 'readonly', settings: {}
+      })
+    });
+    useStorage(storage);
+    load();
+    expect(state.title).toBe('Fallback title');
+    expect(state.bpm).toBe(72);
+    expect(state.tuning).toBe('dropd');
+    state.title = 'Mutated';
+    state.bpm = 200;
+    state.measures[0][0][0] = '19';
+    touch();
+
+    save();
+
+    const persisted = JSON.parse(storage.getItem(KEY_V4)).songs.readonly;
+    expect(persisted.musicxml).toBe(withoutTitle);
+    expect(persisted.title).toBe('Fallback title');
+    expect(persisted.updatedAt).toBe(2);
+    expect(state).toMatchObject({ title: 'Fallback title', bpm: 72, tuning: 'dropd' });
+    expect(state.measures[0][0][0]).toBe('3');
+    expect(state.readOnly).toBe(true);
+    expect(renameSong('readonly', 'Renamed')).toBe(false);
+    expect(currentSong().title).toBe('Fallback title');
+    expect(currentSong().musicxml).toBe(withoutTitle);
   });
   it('새 곡을 만들면 현재 곡이 바뀌고 이전 곡은 보존된다', () => {
     const first = currentSong().id;

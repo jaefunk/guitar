@@ -1,6 +1,6 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
-import { state, ed, load, save } from './state.js';
+import { state, ed, load, save, canEditCurrentSong } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
 import { render, setSel } from './render.js';
 import {
@@ -12,6 +12,7 @@ import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './aud
 import { toText, parseText, renderImage } from './io.js';
 import { bindSongs } from './songs.js';
 import { padMeasures } from './tab.js';
+import { applyBpmInput, applyTitleInput, applyTuningInput, syncQuickEditability } from './quick-edit.js';
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
 function openExport() { $('exportText').value = toText(state); $('modal').hidden = false; }
@@ -28,6 +29,7 @@ function copyText() {
   else fallback();
 }
 function doImport() {
+  if (!canEditCurrentSong()) { syncQuickEditability(); toast('읽기 전용 MusicXML입니다'); return; }
   const ms = parseText($('importText').value);
   if (!ms) { toast('형식을 읽지 못했어요. 이 에디터의 텍스트만 지원해요'); return; }
   // pushUndo와 같은 순서: 스냅샷 → 변경 → 저장
@@ -72,8 +74,7 @@ function bind() {
   $('playBtn').addEventListener('click', togglePlay);
   $('restartBtn').addEventListener('click', () => { startPlay(0); });
   $('bpm').addEventListener('change', function () {
-    const v = Math.max(40, Math.min(240, Math.round(+this.value || 90)));
-    this.value = v; state.bpm = v; save();
+    applyBpmInput(this);
   });
   const syncMetro = () => { $('metroBtn').classList.toggle('on', state.metro); $('metroBtn').setAttribute('aria-pressed', String(state.metro)); };
   $('metroBtn').addEventListener('click', () => { state.metro = !state.metro; save(); syncMetro(); toast(state.metro ? '메트로놈 켬' : '메트로놈 끔'); });
@@ -162,10 +163,13 @@ function bind() {
     });
   });
   $('chordGrid').addEventListener('click', (e) => { const b = e.target.closest('.chord'); if (!b) return; buzz(); insertChord(b.dataset.name, b.dataset.fing); });
-  $('title').addEventListener('input', function () { state.title = this.value; save(); });
+  $('title').addEventListener('input', function () { applyTitleInput(this); });
   $('zoom').addEventListener('change', function () { state.zoom = this.value; save(); applyZoom(); });
   $('theme').addEventListener('change', function () { state.theme = this.value; save(); applyTheme(); });
-  $('tuning').addEventListener('change', function () { state.tuning = this.value; save(); render(); if (state.padMode === 'fret') buildFretboard(); });
+  $('tuning').addEventListener('change', function () {
+    if (!applyTuningInput(this)) return;
+    render(); if (state.padMode === 'fret') buildFretboard();
+  });
   const syncAuto = () => { $('autoAdv').checked = state.autoAdv; $('autoAdv2').checked = state.autoAdv; };
   $('autoAdv').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
   $('autoAdv2').addEventListener('change', function () { state.autoAdv = this.checked; save(); syncAuto(); });
@@ -206,6 +210,7 @@ function boot() {
   render();
   setPadMode(state.padMode);
   setCollapsed(state.collapsed);
+  syncQuickEditability();
   updatePadH();
   if (!state.seen) $('coachModal').hidden = false;
 }
