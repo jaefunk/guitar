@@ -141,7 +141,7 @@ describe('professional score SVG renderer', () => {
     expect(song.editorMode).toBe('musicxml-readonly');
     expect(elements.gridWorkspace.hidden).toBe(true);
     expect(elements.scoreWorkspace.hidden).toBe(false);
-    expect(elements.pad.hidden).toBe(true);
+    expect(elements.pad.hidden).toBe(false);
     expect(elements.modeScore.getAttribute('aria-pressed')).toBe('true');
     expect(persist).toHaveBeenCalledTimes(1);
   });

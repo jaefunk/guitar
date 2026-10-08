@@ -593,7 +593,7 @@ export function setScoreViewMode(mode, { settings, song, persist, elements }) {
   settings.viewMode = next;
   elements.gridWorkspace.hidden = next === 'score';
   elements.scoreWorkspace.hidden = next !== 'score';
-  if (elements.pad) elements.pad.hidden = next === 'score';
+  if (elements.pad) elements.pad.hidden = false;
   elements.modeGrid?.setAttribute('aria-pressed', String(next === 'grid'));
   elements.modeScore?.setAttribute('aria-pressed', String(next === 'score'));
   elements.modeGrid?.classList.toggle('on', next === 'grid');

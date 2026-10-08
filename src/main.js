@@ -10,7 +10,7 @@ import {
   copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
-import { pb, startPlay, stopPlay, togglePlay, setVolume, setReverb } from './audio.js';
+import { pb, startPlay, startScorePlay, stopPlay, setVolume, setReverb } from './audio.js';
 import { toText, parseText, renderImage } from './io.js';
 import { bindSongs, refreshSongUI } from './songs.js';
 import { padMeasures } from './tab.js';
@@ -58,11 +58,27 @@ function scrollToScoreMeasure(number) {
 }
 
 function applyViewMode(mode, persist = true) {
+  stopPlay();
   const next = setScoreViewMode(mode, {
     settings: state, song: currentSong(), persist: persist ? save : null, elements: scoreElements()
   });
   document.body.classList.toggle('score-mode', next.mode === 'score');
   if (next.mode === 'score') scoreController?.renderScreen();
+}
+
+function startCurrentPlayback(restart = false) {
+  if (state.viewMode === 'score') {
+    const result = scoreController?.getLastResult() || scoreController?.renderScreen();
+    return startScorePlay(result?.index, {
+      selectedEventId: scoreController?.getSelectedEventId(), canvas: $('scoreCanvas')
+    });
+  }
+  return startPlay(restart ? 0 : undefined);
+}
+
+function toggleCurrentPlayback() {
+  if (pb.playing) stopPlay();
+  else startCurrentPlayback(false);
 }
 
 /* ---------- 내보내기/불러오기 글루 ---------- */
@@ -140,14 +156,19 @@ function bind() {
     else if (b.dataset.move) { if (!ed.sel) { setSel({ m: 0, s: 0, i: 0 }, true); return; } const mv = b.dataset.move.split(','); move(+mv[0], +mv[1]); }
     else if (b.classList.contains('fb-cell')) { buzz(); fretTap(+b.dataset.s, +b.dataset.f); }
   });
-  $('playBtn').addEventListener('click', togglePlay);
-  $('restartBtn').addEventListener('click', () => { startPlay(0); });
+  $('playBtn').addEventListener('click', toggleCurrentPlayback);
+  $('restartBtn').addEventListener('click', () => { startCurrentPlayback(true); });
   $('bpm').addEventListener('change', function () {
     applyBpmInput(this);
+    if (pb.playing) startCurrentPlayback();
   });
   const syncMetro = () => { $('metroBtn').classList.toggle('on', state.metro); $('metroBtn').setAttribute('aria-pressed', String(state.metro)); };
-  $('metroBtn').addEventListener('click', () => { state.metro = !state.metro; save(); syncMetro(); toast(state.metro ? '메트로놈 켬' : '메트로놈 끔'); });
-  $('loop').addEventListener('change', function () { state.loop = this.value; save(); if (pb.playing) startPlay(); });
+  $('metroBtn').addEventListener('click', () => {
+    state.metro = !state.metro; save(); syncMetro();
+    if (pb.playing) startCurrentPlayback();
+    toast(state.metro ? '메트로놈 켬' : '메트로놈 끔');
+  });
+  $('loop').addEventListener('change', function () { state.loop = this.value; save(); if (pb.playing) startCurrentPlayback(); });
   $('modeKeys').addEventListener('click', () => { setPadMode('keys'); syncQuickEditability(); });
   $('modeFret').addEventListener('click', () => { setPadMode('fret'); syncQuickEditability(); });
   $('collapseBtn').addEventListener('click', () => { setCollapsed(!state.collapsed); });
@@ -170,7 +191,7 @@ function bind() {
     if (mod && k.toLowerCase() === 'c') { e.preventDefault(); copyMeasure(); return; }
     if (mod && k.toLowerCase() === 'v') { e.preventDefault(); pasteMeasure(); return; }
     if (mod || e.altKey) return;
-    if (k === ' ') { e.preventDefault(); togglePlay(); return; }
+    if (k === ' ') { e.preventDefault(); toggleCurrentPlayback(); return; }
     if (k === 'Escape') { setSel(null, false); return; }
     if (!ed.sel) { if (k.indexOf('Arrow') === 0) { e.preventDefault(); setSel({ m: 0, s: 0, i: 0 }, true); } return; }
     const sel = ed.sel;

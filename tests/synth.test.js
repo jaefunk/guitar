@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { synthSamples } from '../src/audio.js';
+import { createScoreVoiceAdapter, synthSamples } from '../src/audio.js';
 import { INSTR } from '../src/constants.js';
 
 /**
@@ -52,5 +52,29 @@ describe('Karplus-Strong 피치', () => {
     expect(peak).toBeGreaterThan(0.5);
     expect(Math.abs(data[0])).toBe(0);
     expect(Math.abs(data[data.length - 1])).toBe(0);
+  });
+});
+
+describe('score voice adapter', () => {
+  it('maps score plan technique data to the existing synth voice and exposes stop only', () => {
+    const calls = [];
+    const voice = { id: 'voice' };
+    const adapter = createScoreVoiceAdapter({
+      play: (midi, at, options) => { calls.push(['play', midi, at, options]); return voice; },
+      stop: (handle, at) => { calls.push(['stop', handle, at]); }
+    });
+
+    const handle = adapter.schedule({
+      midi: 57, velocity: 0.42, muted: false, bendSemitones: 0.5,
+      legato: [{ type: 'slide', targetMidi: 60 }], durationSeconds: 1
+    }, 12);
+    adapter.stop(handle, 12.5);
+
+    expect(handle).toBe(voice);
+    expect(calls[0]).toEqual(['play', 57, 12, expect.objectContaining({
+      vel: 0.42, bendSemitones: 0.5, slideRatio: Math.pow(2, 3 / 12), slideFrom: 12, slideTo: 13
+    })]);
+    expect(calls[1]).toEqual(['stop', voice, 12.5]);
+    expect(Object.keys(adapter)).toEqual(['schedule', 'stop']);
   });
 });

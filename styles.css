@@ -33,7 +33,10 @@ body{
   padding-bottom:calc(var(--padH) + 16px + env(safe-area-inset-bottom,0px));
   -webkit-tap-highlight-color:transparent;
 }
-body.score-mode{--padH:0px;padding-bottom:0}
+body.score-mode #padBody{display:none}
+body.score-mode .collapse{display:none}
+body.score-mode .transport .seg{display:none}
+body.score-mode .pad-inner{max-width:1120px}
 button,select,input{font-family:inherit}
 button{touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:pointer}
 button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -133,6 +136,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .score-measure-target{pointer-events:none}
 .score-measure-number{font-size:10px;fill:#656565}
 .score-event{cursor:pointer;outline:none}
+.score-event.play .score-fret-background{fill:#ffd66b;stroke:#9a6500;stroke-width:1.5}
+.score-event-rest.play .score-event-rest-target{fill:#fff0bd;stroke:#9a6500}
 .score-event:focus .score-fret-background,.score-event:hover .score-fret-background,.score-event.selected .score-fret-background{fill:#dce6ff}
 .score-event-rest-target{fill:transparent;stroke:transparent;stroke-width:2;vector-effect:non-scaling-stroke}
 .score-event-rest:focus .score-event-rest-target,.score-event-rest:hover .score-event-rest-target,.score-event-rest.selected .score-event-rest-target{fill:#dce6ff;stroke:#2457d6}

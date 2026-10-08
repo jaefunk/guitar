@@ -27,7 +27,8 @@ describe('professional score workspace shell', () => {
     expect(css).toMatch(/@media\s+print/);
     expect(css).toMatch(/#scoreWorkspace[^}]*width:\s*186mm/);
     expect(css).toMatch(/\.top[^}]*display:\s*none/);
-    expect(css).toMatch(/body\.score-mode[^}]*--padH:\s*0px[^}]*padding-bottom:\s*0/);
+    expect(css).toMatch(/body\.score-mode\s+#padBody[^}]*display:\s*none/);
+    expect(css).toMatch(/body\.score-mode\s+\.transport\s+\.seg[^}]*display:\s*none/);
   });
 
   it('does not run legacy global shortcuts for an already handled score key', () => {
@@ -42,5 +43,14 @@ describe('professional score workspace shell', () => {
     expect(doc.querySelector('#confirmMusicXmlImport')).not.toBeNull();
     expect(main).toContain('createMusicXmlImportController');
     expect(main).toContain("downloadMusicXml('mxl')");
+  });
+
+  it('routes transport controls through score playback in score mode and stops on mode changes', () => {
+    expect(main).toContain('startScorePlay');
+    expect(main).toMatch(/state\.viewMode\s*===\s*'score'[\s\S]*startScorePlay/);
+    expect(main).toMatch(/function applyViewMode[\s\S]*stopPlay\(\)/);
+    expect(main).toMatch(/applyBpmInput\(this\);\s*if\s*\(pb\.playing\)\s*startCurrentPlayback\(\)/);
+    expect(main).toMatch(/metroBtn[\s\S]*state\.metro[\s\S]*if\s*\(pb\.playing\)\s*startCurrentPlayback\(\)/);
+    expect(css).toMatch(/\.score-event\.play/);
   });
 });
