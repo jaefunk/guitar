@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.2.0",
   "type": "module",
-  "description": "폰에서 쓰는 기타 타브 에디터 (4마디 x 16분음표 16칸)",
+  "description": "데스크톱 MusicXML 4.0 전문 TAB 에디터와 레거시 빠른 격자",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

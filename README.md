@@ -34,7 +34,7 @@ npm run test:e2e  # 빌드 + preview 준비 + Chromium 스모크 테스트
 - Web Audio 기반 재생과 선택 이벤트부터의 재생
 - MusicXML 4.0 `.musicxml`/`.xml`, 압축 MusicXML `.mxl` 왕복
 
-범용 PDF 악보 인식(OMR), 오선보 편집, 다중 트랙 동시 표시는 범위 밖입니다.
+모바일 전문 UI, 범용 PDF 악보 인식(OMR), 오선보 편집, 다중 트랙 동시 표시는 범위 밖입니다.
 
 ## 내장 악보
 
