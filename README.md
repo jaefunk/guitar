@@ -4,6 +4,8 @@ MusicXML 4.0을 저장 정본으로 사용하는 데스크톱 전문 기타 TAB 
 
 ## 실행과 검증
 
+필수 환경은 **Node.js 20+**와 npm입니다.
+
 ```bash
 npm install
 npm run dev       # 개발 서버: http://localhost:5173
@@ -13,7 +15,7 @@ npm run preview   # 빌드 미리보기: http://localhost:4173
 npm run test:e2e  # 빌드 + preview 준비 + Chromium 스모크 테스트
 ```
 
-처음 E2E를 실행하는 환경에서는 `npx playwright install chromium`으로 브라우저를 한 번 설치합니다. `test:e2e`는 기본적으로 4173 포트에서 preview를 직접 시작하고 준비 완료를 기다립니다. 이미 실행 중인 서버는 `APP_URL` 환경 변수로 지정할 수 있습니다.
+처음 E2E를 실행하는 로컬 환경에서는 `npx playwright install chromium`으로 브라우저를 한 번 설치합니다. CI/Linux에서는 시스템 의존성까지 함께 준비하는 `npx playwright install --with-deps chromium`을 사용합니다. `test:e2e`는 빌드 후 전용 Vite preview를 가용 포트에 직접 시작하며, 다른 개발·preview 서버를 재사용하지 않습니다.
 
 ## 데스크톱 작업 흐름
 

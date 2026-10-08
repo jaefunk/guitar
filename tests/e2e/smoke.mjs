@@ -1,12 +1,11 @@
-import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { startOwnedPreview } from './preview-server.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const URL_ = process.env.APP_URL || 'http://127.0.0.1:4173/';
 const VIEWPORT = { width: 1440, height: 900 };
 const fixture = resolve(ROOT, 'tests/fixtures/basic-tab.musicxml');
 let failures = 0;
@@ -14,33 +13,6 @@ let failures = 0;
 function check(name, ok, extra) {
   console.log(`${ok ? '  ok  ' : '  FAIL'} ${name}${ok || extra === undefined ? '' : ` → ${JSON.stringify(extra)}`}`);
   if (!ok) failures += 1;
-}
-
-async function waitForReady(url, timeoutMs = 20_000) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) return;
-      lastError = new Error(`HTTP ${response.status}`);
-    } catch (error) { lastError = error; }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 150));
-  }
-  throw new Error(`preview readiness timeout (${url}): ${lastError?.message || 'unknown error'}`);
-}
-
-async function startPreview() {
-  if (process.env.APP_URL) { await waitForReady(URL_); return null; }
-  const vite = resolve(ROOT, 'node_modules/vite/bin/vite.js');
-  const child = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
-    cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe']
-  });
-  let output = '';
-  child.stdout.on('data', (chunk) => { output += chunk; });
-  child.stderr.on('data', (chunk) => { output += chunk; });
-  try { await waitForReady(URL_); return child; }
-  catch (error) { child.kill(); throw new Error(`${error.message}\n${output.trim()}`); }
 }
 
 function emptyMeasure() { return Array.from({ length: 6 }, () => Array(16).fill('')); }
@@ -59,23 +31,24 @@ function collectErrors(page) {
   return errors;
 }
 
-async function runLegacySmoke(browser) {
+async function runLegacySmoke(browser, appUrl) {
   const context = await browser.newContext({ viewport: VIEWPORT });
-  const page = await context.newPage();
-  const errors = collectErrors(page);
-  await page.addInitScript((blob) => {
-    if (sessionStorage.getItem('legacy-smoke-seeded')) return;
-    localStorage.clear();
-    localStorage.setItem('gtab-editor-v2', JSON.stringify(blob));
-    sessionStorage.setItem('legacy-smoke-seeded', '1');
-  }, legacyV2);
-  await page.goto(URL_, { waitUntil: 'networkidle' });
-  await page.locator('.cell').first().waitFor();
-  const cellText = (m, s, i) => page.locator(`.cell[data-m="${m}"][data-s="${s}"][data-i="${i}"]`).textContent();
-  const openMenuItem = async (key) => {
-    await page.locator('#exportMenu').click();
-    await page.locator(`[data-menu-action="${key}"]`).click();
-  };
+  try {
+    const page = await context.newPage();
+    const errors = collectErrors(page);
+    await page.addInitScript((blob) => {
+      if (sessionStorage.getItem('legacy-smoke-seeded')) return;
+      localStorage.clear();
+      localStorage.setItem('gtab-editor-v2', JSON.stringify(blob));
+      sessionStorage.setItem('legacy-smoke-seeded', '1');
+    }, legacyV2);
+    await page.goto(appUrl, { waitUntil: 'networkidle' });
+    await page.locator('.cell').first().waitFor();
+    const cellText = (m, s, i) => page.locator(`.cell[data-m="${m}"][data-s="${s}"][data-i="${i}"]`).textContent();
+    const openMenuItem = async (key) => {
+      await page.locator('#exportMenu').click();
+      await page.locator(`[data-menu-action="${key}"]`).click();
+    };
 
   console.log('1. 기존 빠른 격자 회귀');
   check('v2 제목/BPM 마이그레이션', await page.locator('#title').inputValue() === '옛 곡' && await page.locator('#bpm').inputValue() === '100');
@@ -146,8 +119,10 @@ async function runLegacySmoke(browser) {
   await openMenuItem('image-export');
   check('PNG 생성', await page.locator('#imgOut img').evaluate((image) => image.src.startsWith('data:image/png') && image.naturalWidth > 100));
   await page.locator('#closeImg').click();
-  check('빠른 격자 콘솔 오류 없음', errors.length === 0, errors);
-  await context.close();
+    check('빠른 격자 콘솔 오류 없음', errors.length === 0, errors);
+  } finally {
+    await context.close();
+  }
 }
 
 async function importMusicXml(page, path) {
@@ -161,13 +136,14 @@ async function importMusicXml(page, path) {
   await page.locator('#scoreWorkspace').waitFor({ state: 'visible' });
 }
 
-async function runProfessionalWorkflow(browser, outputDir) {
+async function runProfessionalWorkflow(browser, outputDir, appUrl) {
   const context = await browser.newContext({ viewport: VIEWPORT, acceptDownloads: true });
-  const page = await context.newPage();
-  const errors = collectErrors(page);
-  await page.addInitScript(() => localStorage.clear());
-  await page.goto(URL_, { waitUntil: 'networkidle' });
-  if (await page.locator('#coachModal').isVisible()) await page.locator('#closeCoach').click();
+  try {
+    const page = await context.newPage();
+    const errors = collectErrors(page);
+    await page.addInitScript(() => localStorage.clear());
+    await page.goto(appUrl, { waitUntil: 'networkidle' });
+    if (await page.locator('#coachModal').isVisible()) await page.locator('#closeCoach').click();
 
   console.log('3. MusicXML 전문 TAB 왕복');
   await importMusicXml(page, fixture);
@@ -205,20 +181,54 @@ async function runProfessionalWorkflow(browser, outputDir) {
   await page.locator('#scoreCanvas .score-measure[data-measure-number="77"]').waitFor();
   const builtInMeasureCount = await page.locator('#scoreCanvas .score-measure[data-measure-number]').count();
   check('내장 1:03 명시 로드', builtInMeasureCount === 77, builtInMeasureCount);
-  check('전문 TAB 콘솔 오류 없음', errors.length === 0, errors);
-  await context.close();
+    check('전문 TAB 콘솔 오류 없음', errors.length === 0, errors);
+  } finally {
+    await context.close();
+  }
 }
 
-const preview = await startPreview();
-const outputDir = await mkdtemp(join(tmpdir(), 'guitar-e2e-'));
-const browser = await chromium.launch({ headless: true });
+let preview = null;
+let outputDir = null;
+let browser = null;
+let cleanupPromise = null;
+const cleanup = () => {
+  if (cleanupPromise) return cleanupPromise;
+  cleanupPromise = Promise.allSettled([
+    browser?.close(),
+    preview?.close(),
+    outputDir ? rm(outputDir, { recursive: true, force: true }) : null
+  ]);
+  return cleanupPromise;
+};
+const signalHandlers = new Map([
+  ['SIGINT', () => { void cleanup().finally(() => process.exit(130)); }],
+  ['SIGTERM', () => { void cleanup().finally(() => process.exit(143)); }]
+]);
+for (const [signal, handler] of signalHandlers) process.once(signal, handler);
+
+const run = async () => {
+  preview = await startOwnedPreview({ root: ROOT });
+  const markerResponse = await fetch(preview.url);
+  const markerHtml = await markerResponse.text();
+  if (!markerResponse.ok || !markerHtml.includes('<title>기타 타브 에디터</title>')) {
+    throw new Error('Owned E2E preview did not serve the expected application build');
+  }
+  outputDir = await mkdtemp(join(tmpdir(), 'guitar-e2e-'));
+  browser = await chromium.launch({ headless: true });
+  await runLegacySmoke(browser, preview.url);
+  await runProfessionalWorkflow(browser, outputDir, preview.url);
+};
+
+let timeoutId;
 try {
-  await runLegacySmoke(browser);
-  await runProfessionalWorkflow(browser, outputDir);
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('E2E workflow timed out after 120 seconds')), 120_000);
+  });
+  await Promise.race([run(), timeout]);
 } finally {
-  await browser.close();
-  preview?.kill();
-  await rm(outputDir, { recursive: true, force: true });
+  clearTimeout(timeoutId);
+  for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+  await cleanup();
 }
 console.log(failures ? `\n${failures}개 실패` : '\n모두 통과');
 process.exitCode = failures ? 1 : 0;

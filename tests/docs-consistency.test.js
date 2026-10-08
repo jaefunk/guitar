@@ -6,11 +6,19 @@ const read = (path) => readFileSync(new URL(path, root), 'utf8');
 
 describe('product documentation consistency', () => {
   it('describes the current desktop MusicXML product in package metadata', () => {
-    const description = JSON.parse(read('package.json')).description;
+    const packageJson = JSON.parse(read('package.json'));
+    const description = packageJson.description;
     expect(description).toMatch(/데스크톱/);
     expect(description).toMatch(/MusicXML 4\.0/);
     expect(description).toMatch(/전문 TAB/);
     expect(description).toMatch(/레거시 빠른 격자/);
+    expect(packageJson.engines.node).toBe('>=20');
+  });
+
+  it('documents the Node and CI browser prerequisites', () => {
+    const docs = `${read('README.md')}\n${read('HANDOFF.md')}`;
+    expect(docs.match(/Node\.js 20\+/g)).toHaveLength(2);
+    expect(docs.match(/playwright install --with-deps chromium/g)).toHaveLength(2);
   });
 
   it('keeps mobile and v3 statements inside legacy migration context', () => {

@@ -34,6 +34,7 @@
 
 ## 2. 기술 스택과 제약
 
+- 개발·검증 필수 환경은 **Node.js 20+**와 npm이다. Playwright Chromium은 로컬에서 `npx playwright install chromium`, CI/Linux에서 `npx playwright install --with-deps chromium`으로 설치한다.
 - Vanilla JS, ES 모듈(`src/*.js`), 빌드는 Vite(`base:'./'`라 하위 경로 배포 가능). MXL ZIP 처리를 위해 `fflate`를 사용한다.
 - 외부 리소스는 Google Fonts(`Red Hat Mono`)뿐. 아티팩트 환경 CSP 때문에 외부 스크립트·이미지·fetch를 쓰지 않았음. 자체 호스팅이면 이 제약은 없다(샘플 로딩, 파일 다운로드 등 가능).
 - 이미지는 아직 "길게 눌러 저장" 방식. 자체 호스팅에서는 `<a download>`로 바꿔도 됨.
