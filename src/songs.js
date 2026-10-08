@@ -1,5 +1,5 @@
 // 곡 목록 시트(새 곡 / 열기 / 이름 바꾸기 / 복제 / 삭제).
-import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel } from './state.js';
+import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel, importMusicXmlSong } from './state.js';
 import { $, openMenu, ask, toast } from './ui.js';
 import { render, setSel } from './render.js';
 import { stopPlay } from './audio.js';
@@ -45,6 +45,40 @@ export function renderSongList() {
     row.appendChild(main); row.appendChild(more);
     list.appendChild(row);
   });
+  const builtIn = document.createElement('div');
+  builtIn.className = 'song built-in-song';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'song-main';
+  open.dataset.act = 'built-in-nell';
+  const label = document.createElement('div');
+  label.className = 'l';
+  label.textContent = '1:03 — Gt.1 전문 TAB';
+  const description = document.createElement('div');
+  description.className = 'd';
+  description.textContent = '내장 MusicXML · 77마디 · BPM 84';
+  open.append(label, description);
+  builtIn.appendChild(open);
+  list.appendChild(builtIn);
+}
+
+/** 사용자가 명시적으로 선택했을 때만 내장 Gt.1 MusicXML을 읽어 새 곡으로 추가한다. */
+export async function loadBuiltInNellGt1({ fetchImpl = fetch, importSong = importMusicXmlSong } = {}) {
+  const response = await fetchImpl(new URL('../songs/nell-1-03-gt1.musicxml', import.meta.url));
+  if (!response?.ok) throw new Error('내장 1:03 악보를 읽지 못했습니다');
+  const xml = await response.text();
+  return importSong({ xml, selectedPartId: 'P1', title: '1:03', editorMode: 'musicxml-score' });
+}
+
+async function openBuiltInNellGt1() {
+  try {
+    const song = await loadBuiltInNellGt1();
+    refreshSongUI();
+    $('songsModal').hidden = true;
+    toast(`"${songLabel(song)}" 불러옴`);
+  } catch (error) {
+    toast(error?.message || '내장 악보를 불러오지 못했습니다');
+  }
 }
 
 export function openSongs() { renderSongList(); $('songsModal').hidden = false; }
@@ -99,6 +133,7 @@ export function bindSongs() {
   $('newSong').addEventListener('click', newSong);
   $('songList').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.act === 'built-in-nell') { openBuiltInNellGt1(); return; }
     const id = b.closest('.song').dataset.id;
     if (b.dataset.act === 'open') openSong(id); else songMenu(id);
   });
