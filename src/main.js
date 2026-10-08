@@ -1,6 +1,8 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { STRINGS, SLOTS, TUNINGS, CHORDS, MODS, INSTR } from './constants.js';
-import { state, ed, load, save, canEditCurrentSong, currentSong } from './state.js';
+import {
+  state, ed, load, save, canEditCurrentSong, currentSong, persistCurrentScoreMusicXml
+} from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom } from './ui.js';
 import { render, setSel } from './render.js';
 import {
@@ -14,8 +16,10 @@ import { bindSongs } from './songs.js';
 import { padMeasures } from './tab.js';
 import { applyBpmInput, applyTitleInput, applyTuningInput, syncQuickEditability } from './quick-edit.js';
 import { createScoreWorkspaceController, setScoreViewMode } from './score-render.js';
+import { createScoreEditorBindings } from './score-ui.js';
 
 let scoreController = null;
+let scoreEditor = null;
 
 function scoreElements() {
   return {
@@ -248,6 +252,15 @@ function bind() {
 /* ---------- 시작 ---------- */
 function boot() {
   load();
+  scoreEditor = createScoreEditorBindings({
+    inspector: $('scoreInspector'),
+    getSong: currentSong,
+    persistMusicXml: persistCurrentScoreMusicXml,
+    rerender: (_measureIndices, selectedEventId) => {
+      scoreController?.setSelectedEventId(selectedEventId);
+      scoreController?.renderScreen(true);
+    }
+  });
   scoreController = createScoreWorkspaceController({
     canvas: $('scoreCanvas'),
     diagnostics: $('scoreDiagnostics'),
@@ -255,6 +268,7 @@ function boot() {
     getSong: currentSong,
     getScreenWidth: scoreWidth,
     onMeasure: scrollToScoreMeasure,
+    renderInspector: (_host, event) => scoreEditor.render(event),
     onRendered: (result) => {
       if (result?.index) renderMeasureNavigation(result.index);
       else $('measureNav').querySelector('.measure-nav-list').replaceChildren();

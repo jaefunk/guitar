@@ -354,6 +354,7 @@ export function createScoreWorkspaceController({
   getScreenWidth,
   onMeasure,
   onRendered,
+  renderInspector = renderScoreInspector,
   parse = parseMusicXml,
   buildIndex = buildScoreIndex,
   requestFrame = (callback) => window.requestAnimationFrame(callback),
@@ -394,7 +395,7 @@ export function createScoreWorkspaceController({
     message.className = 'score-diagnostic score-diagnostic-error';
     message.textContent = `MusicXML 악보를 표시하지 못했습니다: ${error?.message || '알 수 없는 오류'}`;
     diagnostics.appendChild(message);
-    renderScoreInspector(inspector, null);
+    renderInspector(inspector, null);
     lastResult = null;
     onRendered?.({ result: null, error });
     return null;
@@ -417,7 +418,7 @@ export function createScoreWorkspaceController({
           selectedEventId,
           onSelect: (event) => {
             selectedEventId = event.id;
-            renderScoreInspector(inspector, event);
+            renderInspector(inspector, event);
           }
         }
       });
@@ -436,7 +437,7 @@ export function createScoreWorkspaceController({
       canvas.replaceChildren(...stagedCanvas.childNodes);
       diagnostics.replaceChildren(...stagedDiagnostics.childNodes);
       diagnostics.removeAttribute('role');
-      renderScoreInspector(inspector, selectedEvent);
+      renderInspector(inspector, selectedEvent);
       renderedKey = key;
       renderedWidth = width;
       lastResult = { doc, index, layout };
@@ -478,7 +479,12 @@ export function createScoreWorkspaceController({
   windowTarget.addEventListener('beforeprint', beforePrint);
   windowTarget.addEventListener('afterprint', afterPrint);
 
-  return { renderScreen, scheduleScreenRender, beforePrint, afterPrint, destroy };
+  const setSelectedEventId = (eventId) => { selectedEventId = eventId || null; };
+  const getSelectedEventId = () => selectedEventId;
+  return {
+    renderScreen, scheduleScreenRender, beforePrint, afterPrint, destroy,
+    setSelectedEventId, getSelectedEventId
+  };
 }
 
 export function setScoreViewMode(mode, { settings, song, persist, elements }) {

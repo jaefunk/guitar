@@ -329,7 +329,9 @@ function layoutEvents(measure, measureLayout, options) {
       y: event.kind === 'rest' ? measureLayout.staffTop + options.staffGap * 2.5 : measureLayout.staffBottom,
       notes: event.kind === 'notes' ? (event.notes || []).map((note) => ({
         ...note,
-        label: note.dead ? 'x' : String(note.fret ?? ''),
+        label: note.ghost
+          ? `(${note.dead ? 'x' : String(note.fret ?? '')})`
+          : note.dead ? 'x' : String(note.fret ?? ''),
         x,
         y: measureLayout.staffTop + ((note.string || 1) - 1) * options.staffGap
       })) : [],

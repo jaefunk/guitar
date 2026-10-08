@@ -459,6 +459,23 @@ export function renameSong(id, title) {
   return true;
 }
 
+/** 전문 악보 편집 결과를 v3 격자 투영과 분리해 현재 v4 곡에 저장한다. */
+export function persistCurrentScoreMusicXml(xml) {
+  const song = currentSong();
+  if (!song) throw new Error('현재 곡이 없습니다');
+  const doc = parseMusicXml(xml);
+  const selectedPart = [...doc.documentElement.children]
+    .find((node) => node.localName === 'part' && node.getAttribute('id') === song.selectedPartId);
+  if (!selectedPart) throw new Error(`Selected MusicXML part is missing: ${song.selectedPartId}`);
+  song.musicxml = serializeMusicXml(doc);
+  song.updatedAt = Date.now();
+  const st = getStorage();
+  if (st) {
+    try { st.setItem(KEY_V4, JSON.stringify(toDoc())); } catch (error) { /* 저장 실패 시 메모리 편집은 유지 */ }
+  }
+  return song.musicxml;
+}
+
 export function duplicateSong(id) {
   const src = library.songs[id];
   if (!src) return null;

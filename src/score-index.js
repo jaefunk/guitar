@@ -90,6 +90,7 @@ function readNote(noteElement) {
   const fret = numberValue(descendantElement(noteElement, 'fret'));
   const bendAlter = numberValue(descendantElement(noteElement, 'bend-alter'));
   const notehead = childElement(noteElement, 'notehead')?.textContent?.trim().toLowerCase();
+  const ghost = childElement(noteElement, 'notehead')?.getAttribute('parentheses') === 'yes';
   const otherTechnical = descendantElements(noteElement, 'other-technical')
     .some((element) => element.textContent?.trim().toLowerCase() === 'dead');
   const pitch = readPitch(noteElement);
@@ -100,6 +101,7 @@ function readNote(noteElement) {
   if (fret !== null) note.fret = fret;
   if (bendAlter !== null) note.bend = rational(bendAlter);
   if (notehead === 'x' || otherTechnical) note.dead = true;
+  if (ghost) note.ghost = true;
   if (dots > 0) note.dots = dots;
   if (noteType) note.noteType = noteType;
   if (beams.length > 0) note.beams = beams;
@@ -217,10 +219,11 @@ function indexMeasure(
   let maximumCursorExtent = rational(0);
   let previousNoteOnset = null;
   let previousNotesEvent = null;
+  let notePosition = 0;
   const events = [];
   const measureNumber = measureElement.getAttribute('number') || String(measureIndex + 1);
 
-  for (const [sourcePosition, element] of Array.from(measureElement.children || []).entries()) {
+  for (const element of Array.from(measureElement.children || [])) {
     if (element.localName === 'attributes') {
       updateContext(element, context);
       previousNoteOnset = null;
@@ -251,7 +254,7 @@ function indexMeasure(
     const onset = canJoinChord ? previousNoteOnset : cursor;
     const eventId = canJoinChord
       ? previousNotesEvent.id
-      : `${partId}:m${measureIndex}:s${sourcePosition}`;
+      : `${partId}:m${measureIndex}:s${notePosition}`;
     const note = childElement(element, 'rest') ? null : readNote(element);
     const tuplet = readTuplet(element);
     const fermata = Boolean(descendantElement(element, 'fermata'));
@@ -309,6 +312,7 @@ function indexMeasure(
       ));
     }
     registerTechniques(element, eventId, measureNumber, techniqueStacks, links, diagnostics);
+    notePosition += 1;
 
     previousNoteOnset = onset;
     if (!canJoinChord) {
