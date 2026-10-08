@@ -60,9 +60,9 @@
           <step>C</step>
           <octave>4</octave>
         </pitch>
-        <duration>8</duration>
+        <duration>2</duration>
         <voice>1</voice>
-        <type>half</type>
+        <type>eighth</type>
         <notations>
           <technical>
             <string>3</string>
@@ -71,19 +71,26 @@
         </notations>
       </note>
       <note>
+        <chord/>
         <pitch>
           <step>D</step>
           <octave>4</octave>
         </pitch>
-        <duration>8</duration>
+        <duration>2</duration>
         <voice>1</voice>
-        <type>half</type>
+        <type>eighth</type>
         <notations>
           <technical>
             <string>3</string>
             <fret>7</fret>
           </technical>
         </notations>
+      </note>
+      <note>
+        <rest/>
+        <duration>2</duration>
+        <voice>1</voice>
+        <type>eighth</type>
       </note>
     </measure>
   </part>
