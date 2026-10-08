@@ -67,6 +67,15 @@ function tunedScoreXml({ lowStep = 'E', lowAlter = '', lowOctave = 2, capo = 0 }
   return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time><staff-details>${tuning}<capo>${capo}</capo></staff-details></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note><note><rest/><duration>12</duration><type>half</type><dot/></note></measure></part></score-partwise>`;
 }
 
+function timelineScoreXml() {
+  return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note><note><rest/><duration>8</duration><type>half</type></note><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>3</fret></technical></notations></note></measure></part></score-partwise>`;
+}
+
+function techniqueScoreXml(eventCount = 4) {
+  const notes = Array.from({ length: eventCount }, (_, index) => `<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>16th</type><notations><technical><string>1</string><fret>${index % 12}</fret></technical></notations></note>`).join('');
+  return `<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>${eventCount}</beats><beat-type>16</beat-type></time></attributes>${notes}</measure></part></score-partwise>`;
+}
+
 function childNames(node) {
   return [...node.children].map((child) => child.localName);
 }
@@ -106,25 +115,25 @@ describe('MusicXML score commands', () => {
   });
 
   it('edits duration/type/dots/tuplet and rest/dead/ghost reversibly', () => {
-    const { doc, first } = setup();
+    const { doc, second } = setup();
     const history = createHistory();
-    history.execute(setRhythmCommand(doc, 'P1', first, {
+    history.execute(setRhythmCommand(doc, 'P1', second, {
       type: 'eighth', dots: 0, tuplet: null
     }));
-    history.execute(setFlagsCommand(doc, 'P1', first, { dead: true, ghost: true }));
+    history.execute(setFlagsCommand(doc, 'P1', second, { dead: true, ghost: true }));
 
-    expect(event(doc, first)).toMatchObject({
+    expect(event(doc, second)).toMatchObject({
       duration: { n: 1, d: 2 }, noteType: 'eighth'
     });
-    const note = doc.querySelector('part[id="P1"] measure note');
+    const note = resolveXmlEvent(doc, second).notes[0];
     expect(note.querySelector('notehead').textContent).toBe('x');
     expect(note.querySelector('notehead').getAttribute('parentheses')).toBe('yes');
-    expect(layoutScore(buildScoreIndex(doc, 'P1'), { width: 700 }).events[0].notes[0].label).toBe('(x)');
+    expect(layoutScore(buildScoreIndex(doc, 'P1'), { width: 700 }).events[1].notes[0].label).toBe('(x)');
 
-    history.execute(setFlagsCommand(doc, 'P1', first, { rest: true }));
-    expect(event(doc, first).kind).toBe('rest');
+    history.execute(setFlagsCommand(doc, 'P1', second, { rest: true }));
+    expect(event(doc, second).kind).toBe('rest');
     history.undo();
-    expect(event(doc, first).kind).toBe('notes');
+    expect(event(doc, second).kind).toBe('notes');
   });
 
   it('inserts and deletes complete chord events without touching adjacent source nodes', () => {
@@ -132,12 +141,12 @@ describe('MusicXML score commands', () => {
     const history = createHistory();
     history.execute(insertEventCommand(doc, 'P1', {
       measureIndex: 0,
-      afterEventId: first,
+      afterEventId: second,
       event: { duration: 4, type: 'quarter', notes: [{ string: 1, fret: 10 }, { string: 2, fret: 8 }] }
     }));
     let events = buildScoreIndex(doc, 'P1').measures[0].events;
     expect(events).toHaveLength(4);
-    expect(events[1].notes).toEqual(expect.arrayContaining([
+    expect(events[2].notes).toEqual(expect.arrayContaining([
       expect.objectContaining({ string: 1, fret: 10 }),
       expect.objectContaining({ string: 2, fret: 8 })
     ]));
@@ -169,22 +178,22 @@ describe('MusicXML score commands', () => {
   });
 
   it('turns a chord into one clean rest and restores an exclusive pitched note', () => {
-    const { doc, first } = setup();
+    const { doc, first, second } = setup();
     const original = resolveXmlEvent(doc, first).notes[0];
     const extension = doc.createElementNS('urn:test', 'ext:note-data');
     extension.textContent = 'keep';
     original.appendChild(extension);
     const history = createHistory();
     history.execute(insertEventCommand(doc, 'P1', {
-      measureIndex: 0, afterEventId: first,
+      measureIndex: 0, afterEventId: second,
       event: { duration: 4, type: 'quarter', notes: [{ string: 1, fret: 3 }, { string: 2, fret: 4 }] }
     }));
-    const chord = buildScoreIndex(doc, 'P1').measures[0].events[1];
+    const chord = buildScoreIndex(doc, 'P1').measures[0].events[2];
     history.execute(setFlagsCommand(doc, 'P1', chord.id, { rest: true, dead: true, ghost: true }));
     const rest = resolveXmlEvent(doc, chord.id);
     expect(rest.notes).toHaveLength(1);
     expect(childNames(rest.notes[0])).toEqual(['rest', 'duration', 'type']);
-    expect(buildScoreIndex(doc, 'P1').measures[0].events[1].kind).toBe('rest');
+    expect(buildScoreIndex(doc, 'P1').measures[0].events[2].kind).toBe('rest');
 
     history.execute(setFlagsCommand(doc, 'P1', chord.id, { rest: false }));
     const restored = resolveXmlEvent(doc, chord.id).notes[0];
@@ -199,15 +208,15 @@ describe('MusicXML score commands', () => {
   it('keeps note and barline children in MusicXML 4.0 order', () => {
     const { doc, first, second } = setup();
     const history = createHistory();
-    history.execute(setRhythmCommand(doc, 'P1', first, { type: 'eighth', dots: 1, tuplet: null }));
-    history.execute(setFlagsCommand(doc, 'P1', first, { dead: true, ghost: true }));
+    history.execute(setRhythmCommand(doc, 'P1', second, { type: 'eighth', dots: 1, tuplet: null }));
+    history.execute(setFlagsCommand(doc, 'P1', second, { dead: true, ghost: true }));
     history.execute(setFretCommand(doc, 'P1', second, 5));
     history.execute(setTechniquePairCommand(doc, 'P1', 'tie', first, second, true));
     history.execute(setRepeatCommand(doc, 'P1', 0, 'forward', true));
     history.execute(setRepeatCommand(doc, 'P1', 0, 'backward', true));
     history.execute(setEndingCommand(doc, 'P1', 0, 0, '1', true));
 
-    const noteNames = childNames(resolveXmlEvent(doc, first).notes[0]);
+    const noteNames = childNames(resolveXmlEvent(doc, second).notes[0]);
     expect(noteNames).toEqual(['pitch', 'duration', 'tie', 'type', 'dot', 'notehead', 'notations']);
     const right = [...doc.querySelectorAll('part[id="P1"] measure barline')]
       .find((barline) => barline.getAttribute('location') === 'right');
@@ -238,6 +247,64 @@ describe('MusicXML score commands', () => {
     expect(index.diagnostics.filter((item) => item.code === 'MEASURE_DURATION')).toEqual([]);
   });
 
+  it('compensates only the immediately following rest and preserves downstream onset', () => {
+    const doc = parseMusicXml(timelineScoreXml());
+    let index = buildScoreIndex(doc, 'P1');
+    const first = index.measures[0].events[0].id;
+    const downstreamId = index.measures[0].events[2].id;
+    const downstreamOnset = index.measures[0].events[2].onset;
+    createHistory().execute(setRhythmCommand(doc, 'P1', first, {
+      type: 'quarter', dots: 1, tuplet: null
+    }));
+    index = buildScoreIndex(doc, 'P1');
+    expect(index.measures[0].events.find((item) => item.id === downstreamId).onset).toEqual(downstreamOnset);
+    expect(index.measures[0].events[1]).toMatchObject({ kind: 'rest', duration: { n: 3, d: 2 } });
+    expect(index.diagnostics.filter((item) => item.code === 'MEASURE_DURATION')).toEqual([]);
+
+    const insertedDoc = parseMusicXml(timelineScoreXml());
+    const insertedBefore = buildScoreIndex(insertedDoc, 'P1');
+    const insertAnchor = insertedBefore.measures[0].events[0].id;
+    const finalOnset = insertedBefore.measures[0].events[2].onset;
+    createHistory().execute(insertEventCommand(insertedDoc, 'P1', {
+      measureIndex: 0, afterEventId: insertAnchor,
+      event: { type: 'quarter', notes: [{ string: 1, fret: 2 }] }
+    }));
+    const insertedAfter = buildScoreIndex(insertedDoc, 'P1');
+    expect(insertedAfter.measures[0].events.at(-1).onset).toEqual(finalOnset);
+    expect(insertedAfter.diagnostics.filter((item) => item.code === 'MEASURE_DURATION')).toEqual([]);
+  });
+
+  it('rejects non-adjacent rest compensation and multi-voice streams atomically', () => {
+    const nonAdjacent = setup();
+    const before = serializeMusicXml(nonAdjacent.doc);
+    const history = createHistory();
+    expect(() => history.execute(setRhythmCommand(nonAdjacent.doc, 'P1', nonAdjacent.first, {
+      type: 'eighth', dots: 0, tuplet: null
+    }))).toThrow(/adjacent rest/i);
+    expect(serializeMusicXml(nonAdjacent.doc)).toBe(before);
+    expect(history.canUndo()).toBe(false);
+    expect(() => insertEventCommand(nonAdjacent.doc, 'P1', {
+      measureIndex: 0, afterEventId: nonAdjacent.first,
+      event: { type: 'eighth', notes: [{ string: 1, fret: 2 }] }
+    })).toThrow(/rest.*insertion point/i);
+    expect(serializeMusicXml(nonAdjacent.doc)).toBe(before);
+
+    const multiVoice = parseMusicXml(timelineScoreXml().replace(
+      '<note><rest/><duration>8</duration><type>half</type></note>',
+      '<backup><duration>4</duration></backup><note><rest/><duration>8</duration><voice>2</voice><type>half</type></note>'
+    ));
+    const multiId = buildScoreIndex(multiVoice, 'P1').measures[0].events[0].id;
+    const multiBefore = serializeMusicXml(multiVoice);
+    expect(() => setRhythmCommand(multiVoice, 'P1', multiId, { type: 'eighth', dots: 0, tuplet: null }))
+      .toThrow(/multi-voice|backup|forward/i);
+    expect(() => setRhythmCommand(multiVoice, 'P1', multiId, { type: 'quarter', dots: 0, tuplet: null }))
+      .toThrow(/multi-voice|backup|forward/i);
+    expect(() => insertEventCommand(multiVoice, 'P1', {
+      measureIndex: 0, afterEventId: multiId, event: { type: 'eighth', notes: [{ string: 1, fret: 2 }] }
+    })).toThrow(/multi-voice|backup|forward/i);
+    expect(serializeMusicXml(multiVoice)).toBe(multiBefore);
+  });
+
   it('rejects fractional durations before mutation and preserves XML', () => {
     const doc = parseMusicXml(tunedScoreXml());
     const first = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
@@ -249,8 +316,8 @@ describe('MusicXML score commands', () => {
   });
 
   it('inserts at musical start after leading metadata and resolves an orphan chord as a normal event', () => {
-    const doc = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><print/><direction/><harmony/><barline location="left"><bar-style>regular</bar-style></barline><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note><note><rest/><duration>12</duration><type>half</type><dot/></note></measure></part></score-partwise>`);
-    const orphan = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const doc = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><print/><direction/><harmony/><barline location="left"><bar-style>regular</bar-style></barline><note><rest/><duration>12</duration><type>half</type><dot/></note><direction/><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>0</fret></technical></notations></note></measure></part></score-partwise>`);
+    const orphan = buildScoreIndex(doc, 'P1').measures[0].events[1].id;
     const history = createHistory();
     history.execute(setFretCommand(doc, 'P1', orphan, 2));
     history.execute(insertEventCommand(doc, 'P1', {
@@ -323,6 +390,93 @@ describe('MusicXML score commands', () => {
       .toThrow(/same string/i);
   });
 
+  it('removes exact cross-measure technique counterparts on rest/delete and restores both measures on undo', () => {
+    const doc = parseMusicXml(`<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Gt.</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>0</fret><hammer-on type="start" number="3">H</hammer-on></technical></notations></note></measure><measure number="2"><note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration><type>quarter</type><notations><technical><string>1</string><fret>1</fret><hammer-on type="stop" number="3"/></technical></notations></note></measure></part></score-partwise>`);
+    const index = buildScoreIndex(doc, 'P1');
+    const start = index.measures[0].events[0].id;
+    const end = index.measures[1].events[0].id;
+    const history = createHistory();
+    const restCommand = setFlagsCommand(doc, 'P1', start, { rest: true });
+    expect(restCommand.measures).toEqual([0, 1]);
+    history.execute(restCommand);
+    expect(buildScoreIndex(doc, 'P1').links).toEqual([]);
+    expect(doc.querySelector('hammer-on')).toBeNull();
+    history.undo();
+    expect(buildScoreIndex(doc, 'P1').links).toContainEqual(expect.objectContaining({ startEventId: start, endEventId: end }));
+
+    const deleteCommand = deleteEventCommand(doc, 'P1', end);
+    expect(deleteCommand.measures).toEqual([0, 1]);
+    history.execute(deleteCommand);
+    expect(doc.querySelector('hammer-on')).toBeNull();
+    history.undo();
+    expect(buildScoreIndex(doc, 'P1').links).toHaveLength(1);
+  });
+
+  it('rejects fret/string edits that would break linked technique invariants', () => {
+    const doc = parseMusicXml(techniqueScoreXml());
+    const [first, second] = buildScoreIndex(doc, 'P1').measures[0].events;
+    const history = createHistory();
+    history.execute(setTechniquePairCommand(doc, 'P1', 'slide', first.id, second.id, true));
+    const beforeString = serializeMusicXml(doc);
+    expect(() => setStringCommand(doc, 'P1', first.id, 2)).toThrow(/technique|string/i);
+    expect(serializeMusicXml(doc)).toBe(beforeString);
+
+    const tieDoc = parseMusicXml(techniqueScoreXml(2));
+    const tieEvents = buildScoreIndex(tieDoc, 'P1').measures[0].events;
+    const tieHistory = createHistory();
+    tieHistory.execute(setTechniquePairCommand(tieDoc, 'P1', 'tie', tieEvents[0].id, tieEvents[1].id, true));
+    const beforeFret = serializeMusicXml(tieDoc);
+    expect(() => setFretCommand(tieDoc, 'P1', tieEvents[0].id, 2)).toThrow(/tie|pitch/i);
+    expect(serializeMusicXml(tieDoc)).toBe(beforeFret);
+  });
+
+  it('reuses numbers 1..16 for closed non-overlapping pairs and rejects the 17th overlapping interval', () => {
+    const sequential = parseMusicXml(techniqueScoreXml(34));
+    const sequentialEvents = buildScoreIndex(sequential, 'P1').measures[0].events;
+    const sequentialHistory = createHistory();
+    for (let index = 0; index < 17; index += 1) {
+      sequentialHistory.execute(setTechniquePairCommand(
+        sequential, 'P1', 'slide', sequentialEvents[index * 2].id, sequentialEvents[index * 2 + 1].id, true
+      ));
+    }
+    const sequentialNumbers = buildScoreIndex(sequential, 'P1').links.map((link) => Number(link.number));
+    expect(Math.max(...sequentialNumbers)).toBeLessThanOrEqual(16);
+    expect(new Set(sequentialNumbers)).toEqual(new Set([1]));
+
+    const overlapping = parseMusicXml(techniqueScoreXml(34));
+    const overlapEvents = buildScoreIndex(overlapping, 'P1').measures[0].events;
+    const overlapHistory = createHistory();
+    for (let index = 0; index < 16; index += 1) {
+      overlapHistory.execute(setTechniquePairCommand(
+        overlapping, 'P1', 'slide', overlapEvents[index].id, overlapEvents[33 - index].id, true
+      ));
+    }
+    const before = serializeMusicXml(overlapping);
+    expect(() => setTechniquePairCommand(
+      overlapping, 'P1', 'slide', overlapEvents[16].id, overlapEvents[17].id, true
+    )).toThrow(/1.*16|number/i);
+    expect(serializeMusicXml(overlapping)).toBe(before);
+    expect(overlapHistory.canUndo()).toBe(true);
+  });
+
+  it('updates an existing time-modification in place without losing extensions', () => {
+    const doc = parseMusicXml(timelineScoreXml().replace('<divisions>4</divisions>', '<divisions>6</divisions>').replace(
+      '<type>quarter</type><notations>',
+      '<type>eighth</type><time-modification ext:keep="yes" xmlns:ext="urn:test"><actual-notes>3</actual-notes><normal-notes>2</normal-notes><normal-type>eighth</normal-type><normal-dot/><ext:payload>keep</ext:payload></time-modification><notations>'
+    ));
+    const first = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const modification = doc.querySelector('time-modification');
+    createHistory().execute(setRhythmCommand(doc, 'P1', first, {
+      type: 'eighth', dots: 0, tuplet: { actual: 3, normal: 2 }
+    }));
+    const updated = doc.querySelector('time-modification');
+    expect(updated).toBe(modification);
+    expect(updated.getAttributeNS('urn:test', 'keep')).toBe('yes');
+    expect(updated.querySelector('normal-type').textContent).toBe('eighth');
+    expect(updated.querySelector('normal-dot')).not.toBeNull();
+    expect(updated.getElementsByTagNameNS('urn:test', 'payload')[0].textContent).toBe('keep');
+  });
+
   it('preserves unsupported elements and every other part byte-semantically', () => {
     const { doc, first } = setup();
     const otherPartBefore = new XMLSerializer().serializeToString(doc.querySelector('part[id="P2"]'));
@@ -389,13 +543,13 @@ describe('score inspector and persistence', () => {
   });
 
   it('selects and edits an exact chord note by noteIndex', () => {
-    const { doc, first } = setup();
+    const { doc, second } = setup();
     const history = createHistory();
     history.execute(insertEventCommand(doc, 'P1', {
-      measureIndex: 0, afterEventId: first,
+      measureIndex: 0, afterEventId: second,
       event: { duration: 4, type: 'quarter', notes: [{ string: 1, fret: 10 }, { string: 2, fret: 8 }] }
     }));
-    const chord = buildScoreIndex(doc, 'P1').measures[0].events[1];
+    const chord = buildScoreIndex(doc, 'P1').measures[0].events[2];
     const song = { id: 'chord', musicxml: serializeMusicXml(doc), selectedPartId: 'P1', editorMode: 'musicxml-score' };
     const editor = createScoreEditorBindings({
       inspector: document.querySelector('#scoreInspector'), getSong: () => song,
@@ -409,7 +563,7 @@ describe('score inspector and persistence', () => {
     fret.value = '11';
     fret.dispatchEvent(new Event('change', { bubbles: true }));
 
-    const edited = buildScoreIndex(parseMusicXml(song.musicxml), 'P1').measures[0].events[1];
+    const edited = buildScoreIndex(parseMusicXml(song.musicxml), 'P1').measures[0].events[2];
     expect(edited.notes[0].fret).toBe(10);
     expect(edited.notes[1].fret).toBe(11);
     expect(editor.getSelectedNoteIndex()).toBe(1);
@@ -522,9 +676,9 @@ describe('score inspector and persistence', () => {
   it('delivers clicked fret noteIndex and invalidates renderer cache across identical song sources', () => {
     document.body.innerHTML = '<div id="canvas"></div><aside id="diagnostics"></aside><aside id="inspector"></aside>';
     const doc = parseMusicXml(scoreXml());
-    const first = buildScoreIndex(doc, 'P1').measures[0].events[0].id;
+    const second = buildScoreIndex(doc, 'P1').measures[0].events[1].id;
     createHistory().execute(insertEventCommand(doc, 'P1', {
-      measureIndex: 0, afterEventId: first,
+      measureIndex: 0, afterEventId: second,
       event: { duration: 4, type: 'quarter', notes: [{ string: 1, fret: 10 }, { string: 2, fret: 8 }] }
     }));
     let song = { id: 'a', musicxml: serializeMusicXml(doc), selectedPartId: 'P1' };
@@ -537,7 +691,7 @@ describe('score inspector and persistence', () => {
       renderInspector: (_host, selected) => { if (selected) selections.push(selected); }
     });
     controller.renderScreen();
-    const chord = controller.getLastResult().index.measures[0].events[1];
+    const chord = controller.getLastResult().index.measures[0].events[2];
     document.querySelector(`[data-event-id="${chord.id}"] [data-note-index="1"]`)
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(selections.at(-1)).toMatchObject({ id: chord.id, noteIndex: 1 });

@@ -25,11 +25,13 @@ const BARLINE_ORDER = [
   'bar-style', 'footnote', 'level', 'wavy-line', 'segno', 'coda', 'fermata', 'ending', 'repeat'
 ];
 const PITCH_ORDER = ['step', 'alter', 'octave'];
+const TIME_MODIFICATION_ORDER = ['actual-notes', 'normal-notes', 'normal-type', 'normal-dot'];
 
 function orderFor(parent) {
   if (parent.localName === 'note') return NOTE_ORDER;
   if (parent.localName === 'barline') return BARLINE_ORDER;
   if (parent.localName === 'pitch') return PITCH_ORDER;
+  if (parent.localName === 'time-modification') return TIME_MODIFICATION_ORDER;
   return null;
 }
 
@@ -272,6 +274,10 @@ export function createHistory(onChanged = () => {}) {
 export function setFretCommand(doc, partId, eventId, fret, noteIndex = 0) {
   const value = integer(fret, 'fret', 0, 36);
   const location = selectedNote(doc, partId, eventId, noteIndex);
+  const technical = descendants(location.note, 'technical')[0];
+  const string = integer(numericText(child(technical, 'string')), 'string', 1, 6);
+  validateTechniqueEdit(doc, partId, location.note, string,
+    midiForPosition(doc, partId, location.measureIndex, string, value));
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const { note } = selectedNote(doc, partId, eventId, noteIndex);
     const technical = technicalFor(doc, note);
@@ -284,6 +290,10 @@ export function setFretCommand(doc, partId, eventId, fret, noteIndex = 0) {
 export function setStringCommand(doc, partId, eventId, string, noteIndex = 0) {
   const value = integer(string, 'string', 1, 6);
   const location = selectedNote(doc, partId, eventId, noteIndex);
+  const technical = descendants(location.note, 'technical')[0];
+  const fret = integer(numericText(child(technical, 'fret')), 'fret', 0, 36);
+  validateTechniqueEdit(doc, partId, location.note, value,
+    midiForPosition(doc, partId, location.measureIndex, value, fret));
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const { note } = selectedNote(doc, partId, eventId, noteIndex);
     const technical = technicalFor(doc, note);
@@ -356,18 +366,26 @@ function setNoteRhythm(doc, note, rhythm) {
   setTextChild(doc, note, 'type', rhythm.type);
   children(note, 'dot').forEach((dot) => dot.remove());
   for (let count = 0; count < rhythm.dots; count += 1) insertOrdered(note, element(doc, 'dot'));
-  child(note, 'time-modification')?.remove();
   if (rhythm.tuplet) {
-    const modification = element(doc, 'time-modification');
-    modification.append(element(doc, 'actual-notes', rhythm.tuplet.actual), element(doc, 'normal-notes', rhythm.tuplet.normal));
-    insertOrdered(note, modification);
+    const modification = child(note, 'time-modification') || insertOrdered(note, element(doc, 'time-modification'));
+    setTextChild(doc, modification, 'actual-notes', rhythm.tuplet.actual);
+    setTextChild(doc, modification, 'normal-notes', rhythm.tuplet.normal);
+  } else {
+    child(note, 'time-modification')?.remove();
   }
 }
 
-function findAdjustableRest(measure, excludedNotes, delta) {
-  return children(measure, 'note').find((note) => (
-    child(note, 'rest') && !excludedNotes.includes(note) && rawDuration(note) - delta >= 0
-  )) || null;
+function assertSimpleMeasure(measure) {
+  if (children(measure, 'backup').length || children(measure, 'forward').length) {
+    throw new Error('Duration editing does not support backup/forward or multi-voice measures');
+  }
+  const voices = new Set(children(measure, 'note').map((note) => child(note, 'voice')?.textContent?.trim() || '1'));
+  if (voices.size > 1) throw new Error('Duration editing does not support multi-voice measures');
+}
+
+function restAt(node, neededDuration) {
+  if (node?.localName !== 'note' || child(node, 'chord') || !child(node, 'rest')) return null;
+  return rawDuration(node) >= neededDuration ? node : null;
 }
 
 function adjustRestDuration(doc, rest, delta) {
@@ -387,17 +405,20 @@ function convertNoteToRest(doc, note) {
 
 export function setRhythmCommand(doc, partId, eventId, values = {}) {
   const location = resolveEvent(doc, partId, eventId);
+  assertSimpleMeasure(location.measure);
   const divisions = divisionsAt(doc, partId, location.measureIndex);
   const nextRhythm = rhythmValues(location.notes[0], values, divisions);
   const previousDuration = rawDuration(location.notes[0]);
   const delta = nextRhythm.duration - previousDuration;
-  if (delta !== 0 && !findAdjustableRest(location.measure, location.notes, delta)) {
-    throw new Error('No rest can absorb the duration change without invalidating the measure');
+  if (delta !== 0) {
+    if (!restAt(location.after, Math.max(delta, 0))) {
+      throw new Error('An adjacent rest after the event is required to preserve the measure timeline');
+    }
   }
 
   return measureCommand(doc, partId, [location.measureIndex], () => {
     const resolved = resolveEvent(doc, partId, eventId);
-    if (delta !== 0) adjustRestDuration(doc, findAdjustableRest(resolved.measure, resolved.notes, delta), delta);
+    if (delta !== 0) adjustRestDuration(doc, restAt(resolved.after, Math.max(delta, 0)), delta);
     for (const note of resolved.notes) setNoteRhythm(doc, note, nextRhythm);
   });
 }
@@ -407,9 +428,12 @@ export function setFlagsCommand(doc, partId, eventId, flags = {}) {
   for (const name of ['rest', 'dead', 'ghost']) {
     if (flags[name] !== undefined && typeof flags[name] !== 'boolean') throw new Error(`Invalid ${name} flag`);
   }
-  return measureCommand(doc, partId, [location.measureIndex], () => {
+  const cleanupPairs = flags.rest === true ? pairsTouchingNotes(directPart(doc, partId), location.notes) : [];
+  const measureIndices = [location.measureIndex, ...cleanupPairs.flatMap((pair) => [pair.start.measureIndex, pair.end.measureIndex])];
+  return measureCommand(doc, partId, measureIndices, () => {
     const resolved = resolveEvent(doc, partId, eventId);
     if (flags.rest === true) {
+      removePairs(cleanupPairs);
       const source = resolved.notes[0];
       convertNoteToRest(doc, source);
       resolved.notes.slice(1).forEach((note) => note.remove());
@@ -477,20 +501,25 @@ function buildInsertedNotes(doc, partId, measureIndex, spec, rhythm) {
 
 export function insertEventCommand(doc, partId, { measureIndex, afterEventId = null, event: spec }) {
   const measure = measureAt(doc, partId, measureIndex);
+  assertSimpleMeasure(measure);
   const rhythm = insertionRhythm(spec || {}, divisionsAt(doc, partId, measureIndex));
   const preview = buildInsertedNotes(doc, partId, measureIndex, spec || {}, rhythm);
   if (afterEventId && resolveEvent(doc, partId, afterEventId).measureIndex !== measureIndex) {
     throw new Error('Insertion anchor must be in the target measure');
   }
-  const rest = findAdjustableRest(measure, [], rhythm.duration);
-  if (!rest) throw new Error('Insertion requires enough rest duration in the measure');
+  const leading = new Set(['attributes', 'print', 'direction', 'harmony', 'barline']);
+  const insertionNode = afterEventId
+    ? resolveEvent(doc, partId, afterEventId).after
+    : [...measure.children].find((node) => !leading.has(node.localName)) || null;
+  if (!restAt(insertionNode, rhythm.duration)) {
+    throw new Error('Insertion requires enough rest duration at the insertion point');
+  }
   return measureCommand(doc, partId, [measureIndex], () => {
     const target = measureAt(doc, partId, measureIndex);
-    const currentRest = findAdjustableRest(target, [], rhythm.duration);
-    const leading = new Set(['attributes', 'print', 'direction', 'harmony', 'barline']);
     let anchor = afterEventId
       ? resolveEvent(doc, partId, afterEventId).after
       : [...target.children].find((node) => !leading.has(node.localName)) || null;
+    const currentRest = restAt(anchor, rhythm.duration);
     if (anchor === currentRest && rawDuration(currentRest) === rhythm.duration) anchor = currentRest.nextSibling;
     adjustRestDuration(doc, currentRest, rhythm.duration);
     for (const note of preview.map((node) => node.cloneNode(true))) target.insertBefore(note, anchor);
@@ -500,8 +529,11 @@ export function insertEventCommand(doc, partId, { measureIndex, afterEventId = n
 export function deleteEventCommand(doc, partId, eventId) {
   const location = resolveEvent(doc, partId, eventId);
   if (child(location.notes[0], 'rest')) throw new Error('Cannot delete a rest event');
-  return measureCommand(doc, partId, [location.measureIndex], () => {
+  const cleanupPairs = pairsTouchingNotes(directPart(doc, partId), location.notes);
+  const measureIndices = [location.measureIndex, ...cleanupPairs.flatMap((pair) => [pair.start.measureIndex, pair.end.measureIndex])];
+  return measureCommand(doc, partId, measureIndices, () => {
     const resolved = resolveEvent(doc, partId, eventId);
+    removePairs(cleanupPairs);
     const source = resolved.notes[0];
     convertNoteToRest(doc, source);
     resolved.notes.slice(1).forEach((note) => note.remove());
@@ -541,16 +573,99 @@ function addTechnique(doc, note, type, action, number) {
   parent.appendChild(node);
 }
 
-function usedTechniqueNumbers(part, type) {
-  const name = type === 'tie' ? 'tied' : type;
-  return new Set(descendants(part, name).map((node) => node.getAttribute('number') || '1'));
+function noteTimeline(part) {
+  const result = [];
+  let order = 0;
+  children(part, 'measure').forEach((measure, measureIndex) => {
+    children(measure, 'note').forEach((note, sourcePosition) => {
+      result.push({ note, measureIndex, sourcePosition, order: order++ });
+    });
+  });
+  return result;
 }
 
-function nextTechniqueNumber(part, type) {
-  const used = usedTechniqueNumbers(part, type);
-  let number = 1;
-  while (used.has(String(number))) number += 1;
-  return String(number);
+function techniqueInventory(part, requestedType = null) {
+  const pairs = [];
+  const malformedNumbers = new Set();
+  const endpoints = [];
+  const stacks = new Map();
+  for (const entry of noteTimeline(part)) {
+    for (const type of (requestedType ? [requestedType] : ['hammer-on', 'pull-off', 'slide', 'tie'])) {
+      for (const node of descendants(entry.note, type === 'tie' ? 'tied' : type)) {
+        const action = node.getAttribute('type');
+        const number = node.getAttribute('number') || '1';
+        const endpoint = { ...entry, node, type, action, number };
+        endpoints.push(endpoint);
+        const numeric = Number(number);
+        if (!Number.isInteger(numeric) || numeric < 1 || numeric > 16 || !['start', 'stop'].includes(action)) {
+          malformedNumbers.add(number);
+          continue;
+        }
+        const key = `${type}:${number}`;
+        const stack = stacks.get(key) || [];
+        if (action === 'start') {
+          stack.push(endpoint);
+          stacks.set(key, stack);
+        } else if (stack.length) {
+          pairs.push({ type, number, start: stack.pop(), end: endpoint });
+        } else {
+          malformedNumbers.add(number);
+        }
+      }
+    }
+  }
+  for (const [key, stack] of stacks) {
+    if (stack.length) malformedNumbers.add(key.split(':')[1]);
+  }
+  return { pairs, malformedNumbers, endpoints };
+}
+
+function pairsTouchingNotes(part, notes) {
+  const targets = new Set(notes);
+  return techniqueInventory(part).pairs.filter((pair) => targets.has(pair.start.note) || targets.has(pair.end.note));
+}
+
+function removePairs(pairs) {
+  for (const pair of pairs) {
+    removeTechniqueNumber(pair.start.note, pair.type, 'start', pair.number);
+    removeTechniqueNumber(pair.end.note, pair.type, 'stop', pair.number);
+  }
+}
+
+function validateTechniqueEdit(doc, partId, note, proposedString, proposedMidi) {
+  const inventory = techniqueInventory(directPart(doc, partId));
+  const endpoints = inventory.endpoints.filter((endpoint) => endpoint.note === note);
+  const pairs = inventory.pairs.filter((pair) => pair.start.note === note || pair.end.note === note);
+  if (endpoints.length !== pairs.length) throw new Error('Cannot edit a malformed technique endpoint');
+  for (const pair of pairs) {
+    const counterpart = pair.start.note === note ? pair.end.note : pair.start.note;
+    if (pair.type === 'tie' && pitchMidi(child(counterpart, 'pitch')) !== proposedMidi) {
+      throw new Error('Technique edit would break an equal-pitch tie');
+    }
+    if (pair.type !== 'tie') {
+      const counterpartString = numericText(child(descendants(counterpart, 'technical')[0], 'string'));
+      if (counterpartString !== proposedString) throw new Error('Technique edit would break the same-string pair');
+    }
+  }
+}
+
+function intervalsOverlap(leftStart, leftEnd, rightStart, rightEnd) {
+  return leftStart <= rightEnd && rightStart <= leftEnd;
+}
+
+function nextTechniqueNumber(part, type, startNote, endNote) {
+  const inventory = techniqueInventory(part, type);
+  const timeline = noteTimeline(part);
+  const startOrder = timeline.find((entry) => entry.note === startNote)?.order;
+  const endOrder = timeline.find((entry) => entry.note === endNote)?.order;
+  for (let number = 1; number <= 16; number += 1) {
+    const label = String(number);
+    if (inventory.malformedNumbers.has(label)) continue;
+    const occupied = inventory.pairs.some((pair) => pair.number === label
+      && intervalsOverlap(pair.start.order, pair.end.order, startOrder, endOrder));
+    if (!occupied) return label;
+  }
+  throw new Error('No technique number from 1 to 16 is available for this interval');
 }
 
 function exactPairNumber(startNote, endNote, type) {
@@ -582,7 +697,7 @@ export function setTechniquePairCommand(
   }
   const existingNumber = exactPairNumber(start.note, end.note, type);
   if (!enabled && !existingNumber) throw new Error('Technique pair not found');
-  const number = enabled ? nextTechniqueNumber(directPart(doc, partId), type) : existingNumber;
+  const number = enabled ? nextTechniqueNumber(directPart(doc, partId), type, start.note, end.note) : existingNumber;
   return measureCommand(doc, partId, [start.measureIndex, end.measureIndex], () => {
     const startNote = selectedNote(doc, partId, startEventId, startNoteIndex).note;
     const endNote = selectedNote(doc, partId, endEventId, endNoteIndex).note;
