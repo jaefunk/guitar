@@ -4,24 +4,53 @@
 
 ## 0. 현재 상태 (2026-10)
 
-- 9절의 리팩터링과 8절 로드맵 1~11번이 모두 구현됨. 실행법·파일별 역할은 README.md.
-- 테스트: vitest 91개(`npm test`), Chromium 스모크 약 90개 항목(`npm run test:e2e`), GitHub Actions CI.
-- localStorage 키는 `gtab-editor-v3`(곡 여러 개). 기존 v1/v2 데이터는 첫 곡으로 자동 마이그레이션. 샘플 악기는 IndexedDB `gtab-samples`.
+- 데스크톱 전문 TAB v4 완료: MusicXML 4.0 DOM이 유일한 저장 정본이며, `ScoreIndex`는 렌더링·편집·재생용 메모리 투영이다.
+- `.musicxml`/`.xml`/`.mxl` 가져오기·내보내기, 파트 선택, SVG TAB, 명령 기반 Undo/Redo, 반복·엔딩 재생과 진단 패널을 제공한다.
+- 내장 `1:03` Gt.1은 사용자가 곡 목록에서 명시적으로 열며 실제 77마디·BPM 84·카포 1이다.
+- 빠른 격자는 단순 4/4·16분음표 입력 보조 모드다. 무손실 투영할 수 없는 MusicXML에서는 읽기 전용이다.
+- 모바일은 현재 제품 범위 밖이다. 범용 PDF→MusicXML OMR, 오선보 편집도 제공하지 않는다.
+- 9절의 리팩터링 완료: ES 모듈로 분리, Vite 빌드, vitest 테스트(`npm test`), Playwright 스모크 테스트(`tests/e2e/smoke.mjs`).
+- 현재 저장 키는 `gtab-editor-v4`다. `gtab-editor-v3`는 삭제하지 않는 마이그레이션 원본이며, 기존 v1/v2 데이터도 첫 곡으로 자동 변환한다.
 - 분리 전 원본은 `legacy/guitar-tab-editor.html`에 참고용으로 남겨 둠(더 이상 수정하지 않음).
 - 분리 중 고친 버그: `shiftMarks`가 "마지막 줄 삭제"(4마디) 때 지워진 마디 중 첫 마디의 메모만 버리고 나머지 3마디의 메모를 앞 줄로 밀어 넣던 문제.
 - 아티팩트 배포본(참고용, 옛 버전): https://claude.ai/artifact/7LiGUkmidiJV2df2Csv9Zk
 
 ---
 
-## 1. 제품 요구사항 (사용자가 정한 것)
+## 0b. 빠른 격자 확장 (2026-10, PR #2 병합)
 
-- 한 줄에 **4마디**, 한 마디는 **16분음표 칸** 고정 그리드. 칸 수는 박자표가 정한다(4/4=16, 3/4=12, 6/8=12 …). 4마디/줄 틀은 유지.
-- 폰에서 입력·재생·공유까지 되는 "쓸모 있는" 타브 에디터. Songsterr(재생·반복), Guitar Pro(프렛보드 입력·코드 라이브러리·속도 트레이너), Ultimate Guitar(텍스트 타브)를 참고 모델로 삼음.
-- 외부 서버 없이 동작. 저장은 브라우저 localStorage.
+격자 모드에 로드맵 2~11이 들어왔다. 설계 요점만 적는다. 상세 함수 위치는 README의 표와 각 모듈 머리말 참고.
+
+- 곡 필드 `meter`, `pm`, `rep`가 `SONG_FIELDS`에 추가됐다. v4 곡은 MusicXML이 정본이므로 `v3-musicxml.js`가 이 필드를 MusicXML로 쓰고 읽는다:
+  `meter` → 첫 `<attributes><time>`과 마디당 16분음표 칸 수, `pm['m:i']` → `<direction><other-direction>gtab-pm`, 끊기 셀 `'.'` → `other-direction gtab-stop:<줄 번호>`,
+  `rep[m] = {s, e, v}` → `<barline location="left|right">`의 `<repeat>`·`<ending>`. 전문 TAB 쪽(`score-index.js`)은 같은 barline을 읽어 반복·엔딩 재생에 쓴다.
+- `slotsOf(song)`/`beatOf(song)`(tab.js)이 박자표에서 칸 수와 한 박 칸 수를 준다. `SLOTS` 상수는 기본값·테스트용이며 격자 코드는 전부 이 헬퍼를 쓴다.
+- 편집 세션 `ed`에 `redoStack`, `range`({from,to} 마디 범위)가 있다. 범위 연산·반복 기호·박자표 변경은 모두 `canEditCurrentSong()` 가드를 지난다(읽기 전용 MusicXML 곡에서는 동작하지 않음).
+- 격자 재생기(`audio.js`의 `startPlay`)는 `expandRepeats`로 마디 순서를 펼치고, 트레이너(`pb.bpm`)·드럼(`drumHits`)·스윙(`swingDelay`)·샘플 악기(`samples.js`)를 적용한다. 전문 TAB 재생(`startScorePlay`)은 별도라 이 설정의 영향을 받지 않는다.
+- 설정에 `trainer`, `drums`, `swing`, `landscapeFit`가 추가됐다(모두 `SETTING_FIELDS`, `sanitizeSettings`에서 검증).
+- 텍스트 타브 포맷: 헤더 `(BPM 90, 4/4, 한 칸 = 16분음표)`, 눈금 줄 위에 `R`(반복)·`PM`(팜뮤트)·메모 줄. `parseText`는 `{measures, marks, pm, rep, meter, bpm, title}`을 돌려준다.
+- MIDI(`midi.js`)는 격자 데이터 기준(포맷 0, PPQ 480, 줄마다 채널). 코드 인식(`chords.js`)은 피치클래스 템플릿 매칭.
+- PWA: `public/manifest.webmanifest`, `public/sw.js`(캐시 이름 `gtab-v1`), 아이콘. 빌드본에서만 서비스 워커를 등록한다.
+- 알려진 한계: 다중 선택은 마디 단위, 괄호는 마디당 번호 하나, MIDI 슬라이드는 ±2반음, 샘플은 사용자가 직접 올림. 헤드리스 Chromium은 한글 파일명 다운로드를 `download`로 보고한다.
+
+## 1. 현재 제품 요구사항
+
+- 제품 방향은 **데스크톱 MusicXML 4.0 전문 TAB 편집기**다.
+- MusicXML 문서가 유일한 저장 정본이며, 선택한 TAB 파트를 SVG로 편집·재생하고 전체 문서를 XML/MXL로 왕복한다.
+- 데스크톱 악보 조판, 진단, 명령 기반 Undo/Redo, 반복·엔딩 재생을 우선한다.
+- 모바일 UI는 현재 범위 밖이다.
+- 외부 서버 없이 동작하며 저장은 브라우저 localStorage를 사용한다.
+
+### 레거시 빠른 격자 호환성만을 위한 요구사항
+
+- 한 줄 4마디, 한 마디 16분음표 16칸 구조는 기존 데이터와 빠른 입력 흐름을 위해 유지한다.
+- 숫자판·프렛보드 입력, 텍스트 TAB, PNG 공유 기능은 레거시 빠른 격자에서 계속 지원한다.
+- tuplet·32분음표 등 무손실 투영이 불가능한 MusicXML은 빠른 격자에서 읽기 전용이다.
 
 ## 2. 기술 스택과 제약
 
-- Vanilla JS, ES 모듈(`src/*.js`), 빌드는 Vite(`base:'./'`라 하위 경로 배포 가능). 런타임 라이브러리 없음.
+- 개발·검증 필수 환경은 **Node.js 20+**와 npm이다. Playwright Chromium은 로컬에서 `npx playwright install chromium`, CI/Linux에서 `npx playwright install --with-deps chromium`으로 설치한다.
+- Vanilla JS, ES 모듈(`src/*.js`), 빌드는 Vite(`base:'./'`라 하위 경로 배포 가능). MXL ZIP 처리를 위해 `fflate`를 사용한다.
 - 외부 리소스는 Google Fonts(`Red Hat Mono`)뿐. 아티팩트 환경 CSP 때문에 외부 스크립트·이미지·fetch를 쓰지 않았음. 자체 호스팅이면 이 제약은 없다(샘플 로딩, 파일 다운로드 등 가능).
 - 이미지는 아직 "길게 눌러 저장" 방식. 자체 호스팅에서는 `<a download>`로 바꿔도 됨.
 - 모달/확인창은 `confirm()`/`prompt()` 대신 자체 구현(`ask()`, `openMenu()`). iframe sandbox 때문.
@@ -29,7 +58,11 @@
 
 ## 3. 데이터 모델
 
-저장 문서(v3, `gtab-editor-v3`)는 "책장"이고, 편집 코드가 보는 `state`는 "책상 위에 펼친 책 한 권 + 설정"이다.
+현재 저장 문서는 `gtab-editor-v4`이며 곡별 `musicxml`, `selectedPartId`, `editorMode`를 저장한다. MusicXML이 음악 정보의 정본이고 기존 `measures`/`marks`는 빠른 격자 투영이다.
+
+### 레거시 v3 마이그레이션 참고 구조
+
+`gtab-editor-v3`는 삭제하지 않는 마이그레이션 원본이다. 다음 구조는 현재 저장 형식이 아니라 레거시 빠른 격자 구현을 이해하기 위한 참고다.
 
 ```js
 // 저장되는 문서 (src/state.js: toDoc / sanitizeDoc)
@@ -105,7 +138,7 @@ ed = { sel: {m,s,i}|null, range: {from,to}|null, pending, undoStack, redoStack, 
 - 스트럼: 같은 칸의 여러 음은 낮은 줄부터 4~9ms 간격. 세기 ±6% 랜덤.
 - 기법 재생: `b` 반음 벤딩(playbackRate 램프), `~` LFO 비브라토, `/ \` 다음 음까지 playbackRate 램프, `h/p` 어둡고 작은 여기, `x` 짧게 댐핑된 버퍼.
 - 미리듣기(`preview`): 입력 시 해당 음/코드를 1초 재생. 재생 중엔 끔.
-- iOS: 첫 사용자 제스처에서 `AudioContext` 생성·resume 필요(현재 ▶, 숫자판 탭에서 처리). 무음 스위치면 소리 안 남.
+- 레거시 빠른 격자의 iOS 호환 메모: 첫 사용자 제스처에서 `AudioContext` 생성·resume이 필요하며 무음 스위치에서는 소리가 나지 않는다.
 
 ## 6. 텍스트 타브 포맷 (왕복 가능)
 
@@ -135,14 +168,9 @@ B|1---------------|...
 - 접근성: 셀이 `tabindex=-1`인 버튼이라 스크린리더 탐색이 약함.
 - 전체 문서를 한 키에 통째로 저장(곡이 수십 개가 되면 저장이 무거워질 수 있음 → 곡별 키 분리 고려).
 - 곡 목록에서 순서 바꾸기(드래그)는 없음. `library.order`만 바꾸면 되므로 UI만 추가하면 됨.
-- 다중 선택은 마디 단위. 칸 단위 범위(`{from:{m,i}, to:{m,i}}`)는 아직 없음.
-- 반복 괄호는 마디당 번호 하나(1·2·3). "1,2번" 같은 복수 괄호는 지원하지 않음.
-- MIDI의 슬라이드는 피치벤드 범위(±2반음)를 넘으면 2반음까지만 휜다.
-- 샘플 악기는 사용자가 직접 올려야 한다(저장소에 샘플을 포함하지 않음). 줄별 샘플이 없으면 가장 가까운 줄의 샘플을 당겨 쓰므로 멀리 떨어진 음은 음색이 변한다.
-- 서비스 워커 캐시 이름이 `gtab-v1` 고정. 자산은 해시가 바뀌므로 문제없지만, `sw.js` 자체를 크게 바꾸면 이름을 올릴 것.
-- 헤드리스 Chromium은 한글 파일명 다운로드를 `download`로 보고하므로 스모크 테스트는 내용으로 확인한다(실제 브라우저는 정상).
+- 브라우저 테스트는 `npm run test:e2e`로 빌드·preview 준비·Chromium 검증을 재현한다(CI 연결은 아직 없음).
 
-## 8. 로드맵 — 1~11번 모두 완료. 구현 위치 메모
+## 8. 레거시 빠른 격자 백로그 (현재 제품 우선순위 아님)
 
 1. 곡 여러 개 관리 — `state.js`(library/activate/flush), `songs.js`.
 2. 쉼표/음 끊기 `'.'` + 팜뮤트 `song.pm` — `tab.js`(applyMod/togglePm), `audio.js`(scheduleSlot의 끊기·pm 버퍼), `io.js`(PM 줄).
@@ -175,7 +203,7 @@ B|1---------------|...
 - `state` 전역 변이 대신 `setState(patch)` + 구독.
 - `PER_LINE`(한 줄 4마디)은 아직 상수. 가로 모드에서 8마디/줄 같은 선택지를 주려면 곡 속성 또는 설정으로.
 
-## 10. 다음 작업 프롬프트 예시
+## 10. 레거시 빠른 격자 유지보수 프롬프트 예시
 
 ```
 README.md와 HANDOFF.md를 읽어줘. npm test와 npm run test:e2e가 통과하는지 먼저 확인한 뒤,
@@ -183,4 +211,4 @@ HANDOFF 8b절의 "칸 단위 범위 선택과 선택 구간만 재생"을 구현
 넓히되 기존 마디 단위 동작(복사/삭제/조옮김/밀기/팜뮤트)은 그대로 유지하고, 스모크 테스트에 케이스를 추가해.
 ```
 
-작업 중 지킬 것: 4마디×16칸 그리드 유지, 폰 세로 화면 우선, 외부 의존성 최소, 기존 저장 데이터 깨지지 않게.
+레거시 빠른 격자를 수정할 때는 4마디×16칸 데이터 호환성과 기존 저장 데이터 보존을 지킨다. 현재 제품 작업은 데스크톱 전문 TAB과 MusicXML 4.0 정본을 우선한다.

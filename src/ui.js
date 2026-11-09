@@ -5,7 +5,7 @@ import { slotsOf } from './tab.js';
 
 export function $(id) { return document.getElementById(id); }
 
-export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'trainerModal', 'dlg'];
+export const MODALS = ['menuModal', 'settingsModal', 'modal', 'importModal', 'musicXmlImportModal', 'imgModal', 'chordModal', 'helpModal', 'coachModal', 'songsModal', 'trainerModal', 'dlg'];
 
 export function openMenu(title, items) {
   $('menuTitle').textContent = title;
@@ -15,6 +15,7 @@ export function openMenu(title, items) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'menu-item' + (it.danger ? ' danger' : '');
+    if (it.key) b.dataset.menuAction = it.key;
     if (it.disabled) b.disabled = true;
     const k = document.createElement('span'); k.className = 'k'; k.textContent = it.k || '';
     const tx = document.createElement('span');
@@ -60,6 +61,7 @@ export function toast(msg) {
 
 export function anyModalOpen() { return MODALS.some((id) => !$(id).hidden); }
 export function closeModals() {
+  document.dispatchEvent(new CustomEvent('gtab:closemodals'));
   MODALS.forEach((id) => {
     if (id === 'dlg') { if (!$(id).hidden) closeDlg(dlgCancelValue()); } else $(id).hidden = true;
   });
