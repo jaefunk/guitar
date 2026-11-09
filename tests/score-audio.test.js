@@ -505,3 +505,69 @@ describe('createScoreHighlighter', () => {
     expect(status.textContent).toBe('');
   });
 });
+
+describe('드럼·스윙·트레이너 (격자와 공유)', () => {
+  // 위 describe의 harness와 같은 가짜 타이머/보이스 어댑터
+  function harness() {
+    let now = 10;
+    let nextTimerId = 1;
+    const timers = new Map();
+    const calls = { scheduled: [], stopped: [] };
+    const setTimer = (callback, delay) => { const id = nextTimerId++; timers.set(id, { callback, due: now + delay / 1000 }); return id; };
+    const clearTimer = (id) => timers.delete(id);
+    const advance = (seconds) => {
+      const target = now + seconds;
+      while (true) {
+        const ready = [...timers.entries()].filter(([, timer]) => timer.due <= target).sort((a, b) => a[1].due - b[1].due || a[0] - b[0])[0];
+        if (!ready) break;
+        timers.delete(ready[0]); now = ready[1].due; ready[1].callback();
+      }
+      now = target;
+    };
+    const voiceAdapter = {
+      schedule(entry, at) { const handle = { entry, at }; calls.scheduled.push(handle); return handle; },
+      stop(handle, at) { calls.stopped.push({ handle, at }); }
+    };
+    return { clock: () => now, setTimer, clearTimer, advance, voiceAdapter, calls };
+  }
+  it('buildPlaybackPlan이 드럼 시간표와 스윙 지연을 만든다', () => {
+    const measure = { number: '1', beats: 4, beatType: 4, duration: { n: 4, d: 1 }, events: [
+      { id: 'a', kind: 'notes', onset: { n: 0, d: 1 }, duration: { n: 1, d: 4 }, notes: [{ string: 1, fret: 0, pitch: { step: 'E', octave: 4 } }] },
+      { id: 'b', kind: 'notes', onset: { n: 1, d: 4 }, duration: { n: 1, d: 4 }, notes: [{ string: 1, fret: 2, pitch: { step: 'F', alter: 1, octave: 4 } }] }
+    ] };
+    const index = { measures: [measure], links: [] };
+    const plain = buildPlaybackPlan(index, { bpm: 60 });
+    expect(plain.drums).toEqual([]);
+    expect(plain.notes.map((n) => n.startSeconds)).toEqual([0, 0.25]);
+    const plan = buildPlaybackPlan(index, { bpm: 60, drums: 'rock', swing: 0.5 });
+    const kicks = plan.drums.filter((d) => d.hit === 'kick').map((d) => d.atSeconds);
+    const snares = plan.drums.filter((d) => d.hit === 'snare').map((d) => d.atSeconds);
+    expect(kicks).toEqual([0, 2]);
+    expect(snares).toEqual([1, 3]);
+    // 두 번째 음(홀수 16분)은 한 칸(0.25초)의 절반만큼 늦는다
+    expect(plan.notes.map((n) => n.startSeconds)).toEqual([0, 0.375]);
+  });
+  it('컨트롤러가 드럼을 스케줄하고, 반복 때 onLoop이 준 새 plan으로 바꿔 끼운다', () => {
+    const h = harness();
+    const mkPlan = (bpm) => ({ bpm, durationSeconds: 1, notes: [{ key: 'n@0:0', eventKey: 'n@0', eventId: 'n', occurrence: 0, startSeconds: 0, durationSeconds: 0.5, string: 1, midi: 64 }], gates: [], clicks: [], drums: [{ atSeconds: 0, hit: 'kick' }, { atSeconds: 0.5, hit: 'snare' }] });
+    const drums = [];
+    let loops = 0;
+    const controller = createLookaheadPlaybackController({
+      plan: mkPlan(60), clock: h.clock, setTimer: h.setTimer, clearTimer: h.clearTimer,
+      voiceAdapter: h.voiceAdapter,
+      drumAdapter: { schedule: (at, hit) => { drums.push([Math.round((at - 10) * 100) / 100, hit]); } }, // 가짜 시계는 10초에서 시작
+      loop: true,
+      onLoop: () => { loops += 1; return mkPlan(120); }
+    });
+    controller.start({ delaySeconds: 0 });
+    h.advance(0);
+    expect(drums).toEqual([[0, 'kick']]);
+    h.advance(0.3);
+    expect(drums).toEqual([[0, 'kick'], [0.5, 'snare']]);
+    h.advance(1.0);
+    expect(loops).toBe(1);
+    expect(h.calls.scheduled.length).toBeGreaterThanOrEqual(2);
+    expect(h.calls.scheduled[1].entry).toBeDefined();
+    controller.stop();
+  });
+});

@@ -1,10 +1,12 @@
 // 소리 엔진: 확장 Karplus-Strong을 오프라인 합성해 AudioBuffer로 캐시하고, 악기별 체인으로 내보낸다.
 import { STRINGS, PER_LINE, TUNINGS, INSTR } from './constants.js';
 import { state, ed } from './state.js';
-import { parse, nextNoteOnString, slotsOf, beatOf, expandRepeats } from './tab.js';
+import { parse, nextNoteOnString, slotsOf, beatOf, expandRepeats, colRange } from './tab.js';
 import { $, toast } from './ui.js';
 import { dom, updateInfo } from './render.js';
 import * as samples from './samples.js';
+import { drumHits, swingDelay } from './rhythm.js';
+export { drumHits, swingDelay };
 import {
   buildPlaybackPlan, createLookaheadPlaybackController, createScoreHighlighter
 } from './score-audio.js';
@@ -164,6 +166,7 @@ export function createScoreVoiceAdapter({ play = playNote, stop = stopVoice } = 
     schedule(entry, at) {
       const slide = entry.legato?.find((item) => item.type === 'slide' && Number.isFinite(item.targetMidi));
       const options = {
+        s: Number.isInteger(entry.string) ? entry.string - 1 : undefined, // 샘플 악기가 줄 샘플을 고르도록
         muted: Boolean(entry.muted),
         soft: Boolean(entry.ghost || entry.attack === 'legato'),
         attack: entry.attack || 'normal',
@@ -241,30 +244,6 @@ function hat(t, accent) {
   const g = actx.createGain(); env(g, t, accent ? 0.3 : 0.18, 0.05);
   n.connect(hp); hp.connect(g); g.connect(drumBus); n.start(t); n.stop(t + 0.06);
 }
-/**
- * 드럼 패턴: 칸 i에서 울릴 악기 목록. BEAT = 한 박의 칸 수, slots = 한 마디 칸 수.
- *  rock: 하이햇 8분, 킥 홀수 박, 스네어 짝수 박
- *  pop: rock + 3박 뒷박에 킥 하나 더
- *  ballad: 하프타임. 하이햇 박마다, 킥 1박, 스네어 3박
- */
-export function drumHits(style, i, BEAT, slots) {
-  if (!style || style === 'off') return [];
-  const beat = Math.floor(i / BEAT), sub = i % BEAT, beats = slots / BEAT, hits = [];
-  const half = Math.floor(BEAT / 2);
-  if (style === 'ballad') {
-    if (sub === 0 || sub === half) hits.push(sub === 0 ? 'hat!' : 'hat');
-    if (beat === 0 && sub === 0) hits.push('kick');
-    if (beats >= 3 && beat === Math.floor(beats / 2) && sub === 0) hits.push('snare');
-    else if (beats < 3 && beat === 1 && sub === 0) hits.push('snare');
-    return hits;
-  }
-  if (i % 2 === 0) hits.push(sub === 0 ? 'hat!' : 'hat');
-  if (sub === 0) hits.push(beat % 2 === 0 ? 'kick' : 'snare');
-  if (style === 'pop' && beat === 2 && sub === half && BEAT >= 4) hits.push('kick');
-  return hits;
-}
-/** 스윙: 홀수 16분음표를 한 칸 길이의 swing 비율만큼 늦춘다 */
-export function swingDelay(i, swing, dur) { return (swing > 0 && i % 2 === 1) ? swing * dur : 0; }
 function scheduleDrums(i, t) {
   drumHits(state.drums, i, beatOf(state), SL).forEach((h) => {
     if (h === 'kick') kick(t); else if (h === 'snare') snare(t); else hat(t, h === 'hat!');
@@ -338,17 +317,22 @@ export function applyLoopMarks() {
 }
 /** 반복 기호를 펼친 마디 순서 */
 export function playOrder() { return expandRepeats(state.measures.length, state.rep); }
-export function startPlay(fromPos) {
+export function startPlay(fromPos, opts) {
   if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return; }
   stopPlay();
   const sel = ed.sel, tr = state.trainer || {};
+  opts = opts || {};
   SL = slotsOf(state);
   // 트레이너가 켜져 있으면 반복이 필요하다. 반복 없음이면 전체 반복으로 돈다.
   pb.trainer = !!tr.on;
   loopOn = state.loop !== 'none' || pb.trainer;
   pb.bpm = pb.trainer ? Math.min(tr.start, tr.max) : state.bpm;
-  // 마디/줄 반복은 선택한 범위를 그대로 돌리므로 반복 기호를 펼치지 않는다
-  if ((state.loop === 'measure' || state.loop === 'line') && sel) {
+  // 선택 구간 재생: 범위를 그대로(반복 기호 없이) 연주. 반복 설정이 있으면 그 구간을 돈다.
+  if (opts.range && ed.range) {
+    const c = colRange(ed.range, SL);
+    order = playOrder.identity();
+    loopA = c.gA; loopB = c.gB + 1;
+  } else if ((state.loop === 'measure' || state.loop === 'line') && sel) {
     order = playOrder.identity();
     if (state.loop === 'measure') { loopA = sel.m * SL; loopB = loopA + SL; }
     else { const L = Math.floor(sel.m / PER_LINE); loopA = L * PER_LINE * SL; loopB = Math.min(order.length * SL, loopA + PER_LINE * SL); }
@@ -396,25 +380,41 @@ export function startScorePlay(index, { selectedEventId = null, canvas = $('scor
   if (!ensureAudio()) { toast('이 브라우저는 소리 재생을 지원하지 않아요'); return false; }
   stopPlay();
   const playbackMeasures = scoreLoopMeasures(index, state.loop, selectedEventId);
-  const plan = buildPlaybackPlan(index, {
-    bpm: state.bpm,
+  const tr = state.trainer || {};
+  pb.trainer = !!tr.on;
+  pb.bpm = pb.trainer ? Math.min(tr.start, tr.max) : state.bpm;
+  const planFor = (bpm) => buildPlaybackPlan(index, {
+    bpm,
     playbackMeasures,
-    metronome: state.metro
+    metronome: state.metro,
+    drums: state.drums,
+    swing: state.swing
   });
+  const plan = planFor(pb.bpm);
   const highlighter = createScoreHighlighter(canvas, { status: $('scorePlaybackStatus') });
   const scoreClickAdapter = createScoreClickAdapter();
+  if (pb.trainer) toast('트레이너: ' + pb.bpm + ' BPM부터 한 바퀴마다 +' + tr.step + ', 최대 ' + tr.max);
   scorePlayback = createLookaheadPlaybackController({
     plan,
     clock: () => actx.currentTime,
     voiceAdapter: createScoreVoiceAdapter(),
     clickAdapter: scoreClickAdapter,
-    loop: state.loop !== 'none',
+    drumAdapter: { schedule: (at, hit) => { if (hit === 'kick') kick(at); else if (hit === 'snare') snare(at); else hat(at, hit === 'hat!'); } },
+    loop: state.loop !== 'none' || pb.trainer,
+    // 트레이너: 한 바퀴 돌 때마다 더 빠른 시간표로 바꿔 끼운다
+    onLoop: () => {
+      if (!pb.trainer) return null;
+      const nb = Math.min(tr.max, pb.bpm + tr.step);
+      if (nb === pb.bpm) return null;
+      pb.bpm = nb; updateInfo();
+      return planFor(nb);
+    },
     onHighlight: highlighter.highlight,
     onClearHighlight: highlighter.clear,
     onEnd: () => {
       stopCountInClicks(actx.currentTime);
       scorePlayback = null;
-      pb.playing = false;
+      pb.playing = false; pb.trainer = false;
       $('playBtn').textContent = '▶';
       $('playBtn').setAttribute('aria-label', '재생');
       updateInfo();

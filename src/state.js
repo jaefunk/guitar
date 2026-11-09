@@ -192,7 +192,9 @@ export function sanitizeSong(d, now) {
       const o = {};
       if (r.s) o.s = 1;
       if (typeof r.e === 'number' && r.e >= 2 && r.e <= 99) o.e = Math.round(r.e);
-      if (typeof r.v === 'number' && r.v >= 1 && r.v <= 9) o.v = Math.round(r.v);
+      const vs = (Array.isArray(r.v) ? r.v : [r.v]).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 9);
+      const uv = Array.from(new Set(vs)).sort((a, b) => a - b);
+      if (uv.length === 1) o.v = uv[0]; else if (uv.length > 1) o.v = uv;
       if (o.s || o.e || o.v) s.rep[k] = o;
     });
   }
@@ -691,3 +693,35 @@ export function deleteSong(id) {
 }
 
 export function songLabel(s) { return s.title || '제목 없음'; }
+
+/** 곡 목록 순서 바꾸기. delta: -1 위로, +1 아래로. 바뀌었으면 true */
+export function moveSong(id, delta) {
+  const idx = library.order.indexOf(id);
+  const to = idx + delta;
+  if (idx < 0 || to < 0 || to >= library.order.length) return false;
+  library.order.splice(idx, 1);
+  library.order.splice(to, 0, id);
+  save();
+  return true;
+}
+
+/**
+ * 백업(JSON, toDoc() 형식)을 현재 보관함에 추가한다. 설정은 건드리지 않고 곡만 더한다.
+ * id가 겹치면 새 id를 준다. 추가한 곡 수를 돌려준다(0이면 읽을 곡이 없음).
+ */
+export function importBackup(value) {
+  const doc = sanitizeV4Doc(value, Date.now(), false);
+  if (!doc.order.length) return 0;
+  flush();
+  let added = 0;
+  for (const id of doc.order) {
+    const song = doc.songs[id];
+    let targetId = id;
+    if (library.songs[targetId]) { targetId = newId(); song.id = targetId; }
+    library.songs[targetId] = song;
+    library.order.push(targetId);
+    added++;
+  }
+  save();
+  return added;
+}

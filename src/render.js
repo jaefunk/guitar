@@ -1,7 +1,7 @@
 // 악보 DOM 생성과 선택 표시. 값 변경은 전체 재렌더 없이 paintCell/paintMark로.
 import { STRINGS, PER_LINE, TUNINGS } from './constants.js';
 import { state, ed } from './state.js';
-import { parse, slotsOf, beatOf } from './tab.js';
+import { parse, slotsOf, beatOf, colRange, voltaLabel } from './tab.js';
 import { $ } from './ui.js';
 import { pb, applyLoopMarks } from './audio.js';
 import { updateFretboard } from './fretboard.js';
@@ -76,7 +76,7 @@ export function render() {
       const md = document.createElement('div'); md.className = 'measure'; md.dataset.m = m; md.title = '마디 ' + (m + 1) + ' 처음으로 이동';
       const mn = document.createElement('span'); mn.className = 'mnum'; mn.textContent = m + 1; md.appendChild(mn);
       const rp = state.rep && state.rep[m];
-      if (rp && rp.v) { md.classList.add('volta'); const vl = document.createElement('span'); vl.className = 'vlab'; vl.textContent = rp.v + '.'; md.appendChild(vl); }
+      if (rp && voltaLabel(rp.v)) { md.classList.add('volta'); const vl = document.createElement('span'); vl.className = 'vlab'; vl.textContent = voltaLabel(rp.v); md.appendChild(vl); }
       if (rp && rp.e && rp.e > 2) { const tl = document.createElement('span'); tl.className = 'times'; tl.textContent = '×' + rp.e; md.appendChild(tl); }
       for (let i = 0; i < SLOTS; i++) {
         const t = document.createElement('div'); t.className = 'tick' + (i % BEAT ? ' sub' : '');
@@ -122,18 +122,33 @@ export function render() {
   applySel(); applyRange(); updateInfo(); updateFretboard(); applyLoopMarks();
 }
 
-/** 다중 선택 범위 표시 + 범위 작업 막대 */
+/** 다중 선택 범위 표시(칸 단위) + 범위 작업 막대 */
 export function applyRange() {
-  const r = ed.range;
+  const r = ed.range, slots = slotsOf(state);
+  const c = r ? colRange(r, slots) : null;
   dom.rulers.forEach((el, m) => {
-    const on = !!r && m >= r.from && m <= r.to;
-    el.classList.toggle('range', on);
-    (dom.mdivs[m] || []).forEach((d) => { d.classList.toggle('range', on); });
+    const whole = !!c && c.aligned && m >= c.fromM && m <= c.toM;
+    el.classList.toggle('range', whole);
+    (dom.mdivs[m] || []).forEach((d) => { d.classList.toggle('range', whole); });
+    const row = dom.cells[m] || [];
+    for (let i = 0; i < slots; i++) {
+      const g = m * slots + i, on = !!c && g >= c.gA && g <= c.gB;
+      for (let s = 0; s < row.length; s++) { const cell = row[s] && row[s][i]; if (cell) cell.classList.toggle('rng', on); }
+      const mk = dom.marks[m] && dom.marks[m][i]; if (mk) mk.classList.toggle('rng', on);
+    }
   });
   const bar = $('rangeBar');
   if (bar) {
     bar.hidden = !r;
-    if (r) $('rangeLabel').textContent = r.from === r.to ? '마디 ' + (r.from + 1) + ' 선택 · 다른 마디 번호를 탭해 넓히기' : '마디 ' + (r.from + 1) + '~' + (r.to + 1) + ' (' + (r.to - r.from + 1) + '마디)';
+    if (r) {
+      const n = c.n;
+      const base = c.aligned
+        ? (c.fromM === c.toM ? '마디 ' + (c.fromM + 1) : '마디 ' + (c.fromM + 1) + '~' + (c.toM + 1) + ' (' + (c.toM - c.fromM + 1) + '마디)')
+        : n + '칸 선택 (마디 ' + (c.fromM + 1) + '~' + (c.toM + 1) + ')';
+      $('rangeLabel').textContent = base + (n === slots && c.aligned ? ' · 다른 칸이나 마디 번호를 탭해 넓히기' : '');
+      const del = bar.querySelector('[data-act="delete"]');
+      if (del) del.textContent = c.aligned ? '삭제' : '비우기';
+    }
   }
 }
 

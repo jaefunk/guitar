@@ -129,6 +129,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 /* 다중 선택 범위 */
 .ruler .measure.range{background:var(--sel)}
 .srow .measure.range{background:var(--col)}
+.cell.rng{background:linear-gradient(var(--line),var(--line)) center/100% 1px no-repeat,var(--sel)}
+.mk.rng{background:var(--sel)}
 .mk.pm{border-top:2px dashed var(--mod);border-radius:0}
 .mk.pm-start::after{content:'P.M.';position:absolute;left:1px;top:1px;font:700 8px/1 var(--mono);color:var(--mod)}
 .range-bar{display:flex;align-items:center;gap:8px;padding:6px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;max-width:760px;margin-left:auto;margin-right:auto}

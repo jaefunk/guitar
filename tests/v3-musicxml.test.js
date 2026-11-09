@@ -268,6 +268,12 @@ describe('격자 확장 필드의 MusicXML 왕복 (박자표·팜뮤트·끊기�
     expect(back.measures[1][2][0]).toBe('7h');
     expect(isLosslessV3GridMusicXml(xml, 'P1')).toBe(true);
   });
+  it('복수 괄호 번호(1,2)는 ending number="1,2"로 왕복한다', () => {
+    const song = songWith([emptyMeasure(), emptyMeasure(), emptyMeasure()], { rep: { 1: { v: [1, 2], e: 3 }, 2: { v: 3 } } });
+    const xml = v3SongToMusicXml(song);
+    expect(xml).toContain('<ending number="1,2" type="start"/>');
+    expect(musicXmlToV3Song(xml, 'P1').rep).toEqual(song.rep);
+  });
   it('끊기 너머로는 해머온·슬라이드 짝을 잇지 않는다', () => {
     const m = emptyMeasure();
     m[0][0] = '3/'; m[0][1] = '.'; m[0][2] = '5';

@@ -1,3 +1,5 @@
+import { drumHits, swingDelay, beatSlots } from './rhythm.js';
+
 const PITCH_CLASS = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
 function rationalNumber(value) {
@@ -84,7 +86,9 @@ export function buildPlaybackPlan(index, {
   ghostVelocity = 0.42,
   velocity = 0.72,
   playbackMeasures: requestedPlaybackMeasures,
-  metronome = false
+  metronome = false,
+  drums = 'off',   // off | rock | pop | ballad (rhythm.js drumHits)
+  swing = 0        // 0~0.7: 홀수 16분음표 위치의 음을 한 칸의 이 비율만큼 늦춘다
 } = {}) {
   if (!Number.isFinite(bpm) || bpm <= 0) throw new Error('BPM must be a positive finite number');
   if (!index || !Array.isArray(index.measures)) throw new Error('ScoreIndex measures are required');
@@ -239,8 +243,14 @@ export function buildPlaybackPlan(index, {
     }
   }
 
+  const slotSeconds = secondsPerQuarter / 4;
+  const swingOf = (quarter) => {
+    if (!(swing > 0)) return 0;
+    const slot = quarter * 4, rounded = Math.round(slot);
+    return Math.abs(slot - rounded) < 1e-6 ? swingDelay(rounded, swing, slotSeconds) : 0; // 16분 격자 위의 음만
+  };
   for (const entry of notes) {
-    entry.startSeconds = entry.startQuarter * secondsPerQuarter;
+    entry.startSeconds = entry.startQuarter * secondsPerQuarter + swingOf(entry.startQuarter);
     entry.durationSeconds = entry.muted
       ? Math.min(0.12, entry.durationQuarter * secondsPerQuarter)
       : entry.durationQuarter * secondsPerQuarter;
@@ -280,6 +290,24 @@ export function buildPlaybackPlan(index, {
     }
   }
 
+  const drumEvents = [];
+  if (drums && drums !== 'off') {
+    let measureStart = 0;
+    for (const measureIndex of playbackMeasures) {
+      const measure = index.measures[measureIndex];
+      const duration = measureQuarters(measure);
+      const slots = Math.max(1, Math.round(duration * 4));
+      const beatType = Number(measure?.beatType) || 4, beats = Number(measure?.beats) || 4;
+      const BEAT = beatSlots(beats, beatType);
+      for (let slot = 0; slot < slots; slot += 1) {
+        for (const hit of drumHits(drums, slot, BEAT, slots)) {
+          drumEvents.push({ atSeconds: (measureStart + slot / 4) * secondsPerQuarter + swingDelay(slot, swing, slotSeconds), hit });
+        }
+      }
+      measureStart += duration;
+    }
+  }
+
   const playbackNotes = notes.sort((a, b) => a.startQuarter - b.startQuarter || a.noteIndex - b.noteIndex);
   return {
     bpm,
@@ -292,18 +320,21 @@ export function buildPlaybackPlan(index, {
     notes: playbackNotes,
     events: playbackNotes,
     gates: gates.sort((a, b) => a.atQuarter - b.atQuarter),
-    clicks
+    clicks,
+    drums: drumEvents
   };
 }
 
 /** 주입 가능한 250ms/70ms lookahead 스케줄러. */
 export function createLookaheadPlaybackController({
-  plan,
+  plan: initialPlan,
   clock,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   voiceAdapter,
   clickAdapter = null,
+  drumAdapter = null,      // { schedule(at, hit) } 드럼 백킹
+  onLoop = null,           // 반복 한 바퀴 뒤 호출. 새 plan을 돌려주면 그것으로 바꿔 끼운다(속도 트레이너)
   onHighlight = () => {},
   onClearHighlight = () => {},
   onEnd = () => {},
@@ -311,6 +342,7 @@ export function createLookaheadPlaybackController({
   tickMilliseconds = 70,
   loop = false
 }) {
+  let plan = initialPlan;
   if (!plan || !Array.isArray(plan.notes)) throw new Error('Playback plan is required');
   if (typeof clock !== 'function') throw new Error('Playback clock is required');
   if (!voiceAdapter?.schedule || !voiceAdapter?.stop) throw new Error('Voice adapter is required');
@@ -320,6 +352,7 @@ export function createLookaheadPlaybackController({
   let noteCursor = 0;
   let gateCursor = 0;
   let clickCursor = 0;
+  let drumCursor = 0;
   let tickTimer = null;
   let endTimer = null;
   const highlightTimers = new Set();
@@ -363,7 +396,12 @@ export function createLookaheadPlaybackController({
       noteCursor = 0;
       gateCursor = 0;
       clickCursor = 0;
+      drumCursor = 0;
       startTime += plan.durationSeconds;
+      if (onLoop) {
+        const next = onLoop();
+        if (next && Array.isArray(next.notes) && next.durationSeconds > 0) plan = next;
+      }
       tick();
       endTimer = setTimer(finish, Math.max(0, (startTime + plan.durationSeconds - clock()) * 1000));
       return;
@@ -418,6 +456,13 @@ export function createLookaheadPlaybackController({
       const handle = clickAdapter?.schedule(at, metronomeClick.accent);
       if (handle !== undefined && handle !== null) clickHandles.add(handle);
     }
+    while (drumCursor < (plan.drums || []).length) {
+      const drum = plan.drums[drumCursor];
+      const at = startTime + drum.atSeconds;
+      if (at > horizon) break;
+      drumCursor += 1;
+      drumAdapter?.schedule(at, drum.hit);
+    }
     tickTimer = setTimer(tick, tickMilliseconds);
   };
 
@@ -451,6 +496,7 @@ export function createLookaheadPlaybackController({
     noteCursor = 0;
     gateCursor = 0;
     clickCursor = 0;
+    drumCursor = 0;
     scheduledHighlights.clear();
     startTime = clock() + Math.max(0, delaySeconds);
     tick();

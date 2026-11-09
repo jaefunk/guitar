@@ -65,7 +65,7 @@ describe('텍스트 타브 왕복', () => {
   });
   it('반복 기호 줄(REP) 왕복: 메모·PM과 함께', () => {
     const base = withNotes([[0, 0, 0, '3'], [5, 0, 0, '5']]);
-    const rep = { 0: { s: 1 }, 1: { v: 1, e: 2 }, 2: { v: 2 }, 5: { s: 1, e: 3 } };
+    const rep = { 0: { s: 1 }, 1: { v: [1, 2], e: 3 }, 2: { v: 3 }, 5: { s: 1, e: 3 } };
     const s = song({ measures: base, rep, pm: { '1:0': 1 }, marks: { '0:0': 'Intro', '5:4': 'Solo' } });
     const txt = toText(s);
     expect(txt).toMatch(/^R \|:/m);

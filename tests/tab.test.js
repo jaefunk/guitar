@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures, sliceRange, pasteRange, transposeMeasures, shiftCells, togglePm, allPm, expandRepeats, shiftRep, cleanRep } from '../src/tab.js';
+import { parse, nextDigit, applyMod, shiftMarks, padMeasures, emptyMeasure, nextNoteOnString, prevPos, hasContent, resizeMeasures, slotsOf, beatOf, validMeasures, sliceRange, pasteRange, clearRange, transposeMeasures, transposeRange, shiftRange, togglePm, allPm, colRange, measureRange, expandRepeats, shiftRep, cleanRep, voltaList, voltaLabel, parseVolta } from '../src/tab.js';
 import { SLOTS, PER_LINE } from '../src/constants.js';
 
 describe('parse', () => {
@@ -114,78 +114,90 @@ describe('padMeasures / 기타', () => {
   });
 });
 
-describe('마디 범위 연산', () => {
+describe('범위 연산 (칸 단위)', () => {
   function mk() {
     const ms = [];
     for (let k = 0; k < 8; k++) ms.push(emptyMeasure());
     ms[1][0][0] = '5'; ms[1][2][4] = '7h'; ms[2][5][15] = '0'; ms[3][1][0] = 'x';
-    return { meter: '4/4', measures: ms, marks: { '1:0': 'A', '2:8': 'B', '5:0': 'C' }, pm: { '1:0': 1, '1:1': 1 } };
+    return { meter: '4/4', measures: ms, marks: { '1:0': 'A', '2:8': 'B', '5:0': 'C' }, pm: { '1:0': 1, '1:1': 1 }, rep: { 1: { s: 1 }, 2: { e: 2 } } };
   }
-  it('sliceRange는 상대 키로 복사한다', () => {
-    const c = sliceRange(mk(), 1, 2);
-    expect(c.measures.length).toBe(2);
-    expect(c.measures[0][0][0]).toBe('5');
-    expect(c.marks).toEqual({ '0:0': 'A', '1:8': 'B' });
-    expect(c.pm).toEqual({ '0:0': 1, '0:1': 1 });
+  const R = (fm, fi, tm, ti) => ({ from: { m: fm, i: fi }, to: { m: tm, i: ti } });
+  it('colRange: 전역 칸 번호, 정렬 여부, 뒤집힌 범위', () => {
+    expect(colRange(R(1, 0, 2, 15), 16)).toEqual({ gA: 16, gB: 47, n: 32, aligned: true, fromM: 1, toM: 2 });
+    expect(colRange(R(2, 3, 1, 4), 16)).toMatchObject({ gA: 20, gB: 35, n: 16, aligned: false });
+    expect(measureRange(2, 1, 12)).toEqual({ from: { m: 1, i: 0 }, to: { m: 2, i: 11 } });
   });
-  it('pasteRange는 덮어쓰고 필요하면 마디를 늘린다', () => {
-    const song = mk(), c = sliceRange(song, 1, 2);
-    pasteRange(song, c, 7);
+  it('sliceRange: 마디 단위면 반복 기호까지, 칸 단위면 칸만', () => {
+    const c = sliceRange(mk(), measureRange(1, 2, 16));
+    expect(c.n).toBe(32); expect(c.aligned).toBe(true);
+    expect(c.cells[0][0]).toBe('5'); expect(c.cells[5][31]).toBe('0');
+    expect(c.marks).toEqual({ 0: 'A', 24: 'B' });
+    expect(c.pm).toEqual({ 0: 1, 1: 1 });
+    expect(c.rep).toEqual({ 0: { s: 1 }, 1: { e: 2 } });
+    const d = sliceRange(mk(), R(1, 2, 1, 5));
+    expect(d.n).toBe(4); expect(d.aligned).toBe(false); expect(d.cells[2][2]).toBe('7h'); expect(d.rep).toEqual({});
+  });
+  it('pasteRange: 덮어쓰고 필요하면 마디를 늘리며, 마디 첫 칸에 붙일 때만 반복 기호를 옮긴다', () => {
+    const song = mk(), c = sliceRange(song, measureRange(1, 2, 16));
+    pasteRange(song, c, 7 * 16);
     expect(song.measures.length).toBe(12);
     expect(song.measures[7][0][0]).toBe('5');
     expect(song.measures[8][5][15]).toBe('0');
-    expect(song.marks['7:0']).toBe('A');
-    expect(song.marks['8:8']).toBe('B');
+    expect(song.marks['7:0']).toBe('A'); expect(song.marks['8:8']).toBe('B');
     expect(song.pm['7:1']).toBe(1);
-    // 기존 메모는 지워진다
-    pasteRange(song, c, 5);
-    expect(song.marks['5:0']).toBe('A');
+    expect(song.rep[7]).toEqual({ s: 1 }); expect(song.rep[8]).toEqual({ e: 2 });
+    // 칸 단위 붙여넣기: 마디 경계를 넘어가며 칸만 덮어쓴다
+    const d = sliceRange(song, R(1, 0, 1, 4)); // 5칸: '5' + 7h(칸4)
+    pasteRange(song, d, 3 * 16 + 14);
+    expect(song.measures[3][0][14]).toBe('5');
+    expect(song.measures[4][2][2]).toBe('7h');
+    expect(song.marks['3:14']).toBe('A');
+    expect(song.rep[3]).toBeUndefined();
   });
-  it('pasteRange는 박자표가 다른 클립을 칸 수에 맞춘다', () => {
-    const song = { meter: '3/4', measures: [emptyMeasure(12)], marks: {}, pm: {} };
-    const c = sliceRange(mk(), 2, 2); // 16칸, 마지막 칸에 '0'
-    pasteRange(song, c, 0);
-    expect(song.measures[0][5].length).toBe(12);
-    expect(song.measures[0][5][11]).toBe('');
-    expect(song.measures.length).toBe(4);
-  });
-  it('transposeMeasures: 기법 유지, 범위 밖이면 null', () => {
-    const ms = mk().measures;
-    const up = transposeMeasures(ms, 2);
-    expect(up[1][0][0]).toBe('7');
-    expect(up[1][2][4]).toBe('9h');
-    expect(up[3][1][0]).toBe('x');
-    expect(transposeMeasures(ms, -1)).toBeNull();   // 0 → -1
-    expect(transposeMeasures(ms, 20)).toBeNull();   // 7 → 27
-    expect(transposeMeasures(ms, 12)[1][2][4]).toBe('19h');
-    expect(ms[1][0][0]).toBe('5'); // 원본 유지
-  });
-  it('shiftCells: 범위 안에서 칸을 밀고 메모·팜뮤트도 따라간다', () => {
+  it('clearRange는 칸만 비우고 마디 수는 그대로', () => {
     const song = mk();
-    const r = shiftCells(song, 1, 2, 1);
-    expect(r.measures[1][0][1]).toBe('5');
-    expect(r.measures[1][0][0]).toBe('');
-    expect(r.measures[2][5][15]).toBe('');       // 범위 끝에서 밀려나 사라짐
-    expect(r.measures[3][1][0]).toBe('x');       // 범위 밖은 그대로
+    clearRange(song, R(1, 0, 1, 7));
+    expect(song.measures.length).toBe(8);
+    expect(song.measures[1][0][0]).toBe(''); expect(song.measures[1][2][4]).toBe('');
+    expect(song.marks['1:0']).toBeUndefined(); expect(song.pm['1:0']).toBeUndefined();
+    expect(song.marks['2:8']).toBe('B');
+  });
+  it('transposeMeasures/transposeRange: 기법 유지, 범위 밖이면 null', () => {
+    const song = mk(), ms = song.measures;
+    const up = transposeMeasures(ms, 2);
+    expect(up[1][0][0]).toBe('7'); expect(up[1][2][4]).toBe('9h'); expect(up[3][1][0]).toBe('x');
+    expect(transposeMeasures(ms, -1)).toBeNull();
+    expect(transposeMeasures(ms, 20)).toBeNull();
+    const part = transposeRange(song, R(1, 0, 1, 15), 12);
+    expect(part[1][2][4]).toBe('19h'); expect(part[2][5][15]).toBe('0');
+    expect(transposeRange(song, R(2, 0, 2, 15), -1)).toBeNull();
+    expect(ms[1][0][0]).toBe('5');
+  });
+  it('shiftRange: 범위 안에서 칸을 밀고 메모·팜뮤트도 따라간다', () => {
+    const song = mk();
+    const r = shiftRange(song, measureRange(1, 2, 16), 1);
+    expect(r.measures[1][0][1]).toBe('5'); expect(r.measures[1][0][0]).toBe('');
+    expect(r.measures[2][5][15]).toBe('');
+    expect(r.measures[3][1][0]).toBe('x');
     expect(r.marks).toEqual({ '1:1': 'A', '2:9': 'B', '5:0': 'C' });
     expect(r.pm).toEqual({ '1:1': 1, '1:2': 1 });
-    const l = shiftCells(song, 1, 2, -1);
-    expect(l.measures[1][2][3]).toBe('7h');
-    expect(l.measures[1][0][0]).toBe('');        // 왼쪽 끝에서 사라짐
-    expect(l.measures[2][5][14]).toBe('0');
-    expect(l.marks['2:7']).toBe('B');
-    expect(l.pm).toEqual({ '1:0': 1 });
+    const l = shiftRange(song, measureRange(1, 2, 16), -1);
+    expect(l.measures[1][2][3]).toBe('7h'); expect(l.measures[1][0][0]).toBe('');
+    expect(l.measures[2][5][14]).toBe('0'); expect(l.marks['2:7']).toBe('B'); expect(l.pm).toEqual({ '1:0': 1 });
+    const part = shiftRange(song, R(1, 3, 1, 4), -1);
+    expect(part.measures[1][2][3]).toBe('7h'); expect(part.measures[1][0][0]).toBe('5');
   });
   it('togglePm / allPm', () => {
-    const pm = togglePm({}, 0, 1, 4);
+    const pm = togglePm({}, measureRange(0, 1, 4), 4);
     expect(Object.keys(pm).length).toBe(8);
-    expect(allPm(pm, 0, 1, 4)).toBe(true);
-    expect(allPm(pm, 0, 2, 4)).toBe(false);
-    const off = togglePm(pm, 0, 0, 4);
+    expect(allPm(pm, measureRange(0, 1, 4), 4)).toBe(true);
+    expect(allPm(pm, measureRange(0, 2, 4), 4)).toBe(false);
+    const off = togglePm(pm, measureRange(0, 0, 4), 4);
     expect(Object.keys(off).length).toBe(4);
-    expect(allPm(off, 1, 1, 4)).toBe(true);
-    const on = togglePm(off, 0, 1, 4); // 일부만 켜져 있으면 전부 켠다
+    const on = togglePm(off, measureRange(0, 1, 4), 4);
     expect(Object.keys(on).length).toBe(8);
+    const cols = togglePm({}, R(0, 1, 0, 2), 4);
+    expect(cols).toEqual({ '0:1': 1, '0:2': 1 });
   });
 });
 
@@ -219,9 +231,16 @@ describe('반복 기호 펼치기', () => {
   });
   it('sliceRange/pasteRange가 반복 기호를 함께 옮긴다', () => {
     const song = { meter: '4/4', measures: [emptyMeasure(), emptyMeasure(), emptyMeasure(), emptyMeasure()], marks: {}, pm: {}, rep: { 1: { s: 1 }, 2: { e: 2 } } };
-    const c = sliceRange(song, 1, 2);
+    const c = sliceRange(song, measureRange(1, 2, 16));
     expect(c.rep).toEqual({ 0: { s: 1 }, 1: { e: 2 } });
-    pasteRange(song, c, 2);
+    pasteRange(song, c, 2 * 16);
     expect(song.rep).toEqual({ 1: { s: 1 }, 2: { s: 1 }, 3: { e: 2 } });
+  });
+  it('복수 괄호: [1,2]번 마디는 1·2번째 연주 때, 3번은 마지막에', () => {
+    expect(expandRepeats(4, { 1: { v: [1, 2], e: 3 }, 2: { v: 3 } })).toEqual([0, 1, 0, 1, 0, 2, 3]);
+    expect(voltaList([2, 1, 1])).toEqual([2, 1, 1]);
+    expect(voltaLabel([1, 2])).toBe('1,2.'); expect(voltaLabel(3)).toBe('3.'); expect(voltaLabel(0)).toBe('');
+    expect(parseVolta('1, 2')).toEqual([1, 2]); expect(parseVolta('2')).toBe(2); expect(parseVolta('abc')).toBe(0); expect(parseVolta('2,2,1')).toEqual([1, 2]);
+    expect(cleanRep({ 0: { v: [] } })).toEqual({});
   });
 });

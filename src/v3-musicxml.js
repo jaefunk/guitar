@@ -1,5 +1,5 @@
 import { TUNINGS, METERS, DEFAULT_METER } from './constants.js';
-import { emptyMeasure, parse, validMeasures, slotsOf } from './tab.js';
+import { emptyMeasure, parse, validMeasures, voltaList } from './tab.js';
 import { parseMusicXml, readScoreMetadata } from './musicxml.js';
 
 const GRID_MARKER_NAME = 'gtab-editor-source';
@@ -107,15 +107,16 @@ function attributesXml(tuningMidi, meter) {
 function barlineXml(rep, location) {
   if (!rep) return '';
   const parts = [];
+  const voltas = voltaList(rep.v);
   if (location === 'left') {
-    if (!rep.s && !rep.v) return '';
+    if (!rep.s && !voltas.length) return '';
     if (rep.s) parts.push('<bar-style>heavy-light</bar-style>');
-    if (rep.v) parts.push(`<ending number="${rep.v}" type="start"/>`);
+    if (voltas.length) parts.push(`<ending number="${voltas.join(',')}" type="start"/>`);
     if (rep.s) parts.push('<repeat direction="forward"/>');
   } else {
-    if (!rep.e && !rep.v) return '';
+    if (!rep.e && !voltas.length) return '';
     if (rep.e) parts.push('<bar-style>light-heavy</bar-style>');
-    if (rep.v) parts.push(`<ending number="${rep.v}" type="${rep.e ? 'stop' : 'discontinue'}"/>`);
+    if (voltas.length) parts.push(`<ending number="${voltas.join(',')}" type="${rep.e ? 'stop' : 'discontinue'}"/>`);
     if (rep.e) parts.push(`<repeat direction="backward"${rep.e > 2 ? ` times="${rep.e}"` : ''}/>`);
   }
   return `<barline location="${location}">${parts.join('')}</barline>`;
@@ -233,8 +234,9 @@ function repFromMeasure(measure) {
       o.e = Number.isFinite(times) && times >= 2 ? Math.min(99, Math.round(times)) : 2;
     }
     if (ending && ending.getAttribute('type') === 'start') {
-      const n = Number((ending.getAttribute('number') || '').split(/[,\s]+/)[0]);
-      if (Number.isInteger(n) && n >= 1 && n <= 9) o.v = n;
+      const nums = (ending.getAttribute('number') || '').split(/[,\s]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 9);
+      const uniq = Array.from(new Set(nums)).sort((a, b) => a - b);
+      if (uniq.length === 1) o.v = uniq[0]; else if (uniq.length > 1) o.v = uniq;
     }
   }
   return (o.s || o.e || o.v) ? o : null;

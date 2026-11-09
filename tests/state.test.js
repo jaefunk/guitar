@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   readDoc, migrateLegacy, sanitizeDoc, useStorage, load, save, state, ed, library,
   listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, currentSong, touch,
-  KEY_V4, canEditCurrentSong, importMusicXmlSong, selectBuiltInSong, sanitizeV4Doc, toDoc
+  KEY_V4, canEditCurrentSong, importMusicXmlSong, selectBuiltInSong, sanitizeV4Doc, toDoc, moveSong, importBackup, sanitizeSong
 } from '../src/state.js';
 import { emptyMeasure } from '../src/tab.js';
 import { KEY } from '../src/constants.js';
@@ -599,5 +599,36 @@ describe('곡 관리', () => {
     expect(library.currentId).toBe(other.id);
     expect(JSON.stringify(toDoc())).toBe(beforeDoc);
     expect(backing[KEY_V4]).toBe(beforeStored);
+  });
+});
+
+describe('곡 순서·백업', () => {
+  let st;
+  beforeEach(() => { st = memStorage(); useStorage(st); load(); });
+  it('moveSong은 순서만 바꾸고 저장한다', () => {
+    const a = currentSong().id, b = createSong('B').id, c = createSong('C').id;
+    expect(library.order).toEqual([a, b, c]);
+    expect(moveSong(c, -1)).toBe(true);
+    expect(library.order).toEqual([a, c, b]);
+    expect(moveSong(a, -1)).toBe(false);
+    expect(moveSong(b, 1)).toBe(false);
+    expect(JSON.parse(st.dump()[KEY_V4]).order).toEqual([a, c, b]);
+  });
+  it('importBackup은 곡만 추가하고 id가 겹치면 새 id를 준다', () => {
+    const first = currentSong().id;
+    state.title = '원본'; save();
+    const backup = JSON.parse(JSON.stringify(toDoc()));
+    backup.settings.zoom = 'l';
+    expect(importBackup(backup)).toBe(1);
+    expect(library.order.length).toBe(2);
+    expect(library.order[1]).not.toBe(first);
+    expect(library.songs[library.order[1]].title).toBe('원본');
+    expect(state.zoom).toBe('m');
+    expect(importBackup({ nope: true })).toBe(0);
+    expect(importBackup(null)).toBe(0);
+  });
+  it('반복 괄호 번호는 숫자 하나 또는 배열로 검증한다', () => {
+    const s1 = sanitizeSong({ rep: { 0: { v: [2, 1, 2] }, 1: { v: '3' }, 2: { v: [0, 12] } } }, 1);
+    expect(s1.rep).toEqual({ 0: { v: [1, 2] }, 1: { v: 3 } });
   });
 });

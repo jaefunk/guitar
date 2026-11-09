@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { drumHits, swingDelay } from '../src/audio.js';
+import { drumHits, swingDelay, beatSlots } from '../src/rhythm.js';
 
 describe('드럼 패턴', () => {
   it('끔이면 아무것도 없다', () => { expect(drumHits('off', 0, 4, 16)).toEqual([]); expect(drumHits(null, 0, 4, 16)).toEqual([]); });
@@ -33,5 +33,13 @@ describe('스윙', () => {
     expect(swingDelay(0, 0.5, 0.1)).toBe(0);
     expect(swingDelay(1, 0.5, 0.1)).toBeCloseTo(0.05);
     expect(swingDelay(3, 0, 0.1)).toBe(0);
+  });
+});
+
+describe('beatSlots', () => {
+  it('박자표별 한 박의 칸 수', () => {
+    expect(beatSlots(4, 4)).toBe(4); expect(beatSlots(3, 4)).toBe(4);
+    expect(beatSlots(6, 8)).toBe(6); expect(beatSlots(12, 8)).toBe(6); expect(beatSlots(7, 8)).toBe(2);
+    expect(beatSlots(2, 2)).toBe(8);
   });
 });
