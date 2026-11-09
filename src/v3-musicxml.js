@@ -1,5 +1,5 @@
-import { TUNINGS } from './constants.js';
-import { emptyMeasure, parse, validMeasures } from './tab.js';
+import { TUNINGS, METERS, DEFAULT_METER } from './constants.js';
+import { emptyMeasure, parse, validMeasures, slotsOf } from './tab.js';
 import { parseMusicXml, readScoreMetadata } from './musicxml.js';
 
 const GRID_MARKER_NAME = 'gtab-editor-source';
@@ -30,15 +30,16 @@ function modifierSet(value) {
   return { fret: parsed.num ? Number(parsed.num) : null, modifiers: new Set(parsed.mod.split('')) };
 }
 
-function pairedTechniqueStops(measures) {
+function pairedTechniqueStops(measures, slots) {
   const stops = new Map();
   const nextOnString = Array(6).fill(null);
   for (let measureIndex = measures.length - 1; measureIndex >= 0; measureIndex -= 1) {
     const measure = measures[measureIndex];
-    for (let slot = 15; slot >= 0; slot -= 1) {
+    for (let slot = slots - 1; slot >= 0; slot -= 1) {
       for (let stringIndex = 0; stringIndex < 6; stringIndex += 1) {
         const value = measure[stringIndex][slot];
         if (!value) continue;
+        if (value === '.') { nextOnString[stringIndex] = null; continue; } // 끊기 너머로는 기법을 잇지 않는다
         const { fret, modifiers } = modifierSet(value);
         const target = nextOnString[stringIndex];
         const starts = [
@@ -89,7 +90,8 @@ function noteXml(value, stringIndex, chord, stopTypes, tuningMidi) {
     `${dead ? '<notehead>x</notehead>' : ''}${notationXml(value, stringIndex + 1, fret, stopTypes)}</note>`;
 }
 
-function attributesXml(tuningMidi) {
+function attributesXml(tuningMidi, meter) {
+  const [beats, beatType] = (METERS[meter] ? meter : DEFAULT_METER).split('/');
   const tunings = tuningMidi.slice().reverse().map((midi, index) => {
     const [step, alter] = PITCHES[midi % 12];
     const octave = Math.floor(midi / 12) - 1;
@@ -97,38 +99,72 @@ function attributesXml(tuningMidi) {
       `${alter ? `<tuning-alter>${alter}</tuning-alter>` : ''}<tuning-octave>${octave}</tuning-octave></staff-tuning>`;
   }).join('');
   return `<attributes><divisions>4</divisions><key><fifths>0</fifths></key>` +
-    '<time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>TAB</sign><line>5</line></clef>' +
+    `<time><beats>${beats}</beats><beat-type>${beatType}</beat-type></time><clef><sign>TAB</sign><line>5</line></clef>` +
     `<staff-details><staff-lines>6</staff-lines>${tunings}</staff-details></attributes>`;
 }
 
-/** Convert the legacy 16-slot grid into a complete MusicXML 4.0 score. */
+/** 반복 기호(rep[m] = {s, e, v}) → 마디 왼쪽/오른쪽 barline */
+function barlineXml(rep, location) {
+  if (!rep) return '';
+  const parts = [];
+  if (location === 'left') {
+    if (!rep.s && !rep.v) return '';
+    if (rep.s) parts.push('<bar-style>heavy-light</bar-style>');
+    if (rep.v) parts.push(`<ending number="${rep.v}" type="start"/>`);
+    if (rep.s) parts.push('<repeat direction="forward"/>');
+  } else {
+    if (!rep.e && !rep.v) return '';
+    if (rep.e) parts.push('<bar-style>light-heavy</bar-style>');
+    if (rep.v) parts.push(`<ending number="${rep.v}" type="${rep.e ? 'stop' : 'discontinue'}"/>`);
+    if (rep.e) parts.push(`<repeat direction="backward"${rep.e > 2 ? ` times="${rep.e}"` : ''}/>`);
+  }
+  return `<barline location="${location}">${parts.join('')}</barline>`;
+}
+
+/**
+ * Convert the legacy grid into a complete MusicXML 4.0 score.
+ * 한 마디의 16분음표 칸 수는 song.meter(기본 4/4 = 16칸)가 정한다. 팜뮤트 칸은
+ * other-direction "gtab-pm", 끊기('.')는 other-direction "gtab-stop:<줄 번호>", 반복 기호는 barline으로 적는다.
+ */
 export function v3SongToMusicXml(song) {
   if (!song || !validMeasures(song.measures)) throw new Error('Invalid v3 song measures');
   const title = typeof song.title === 'string' ? song.title : '';
   const bpm = Number.isFinite(song.bpm) && song.bpm > 0 ? song.bpm : 90;
-  const stops = pairedTechniqueStops(song.measures);
+  const meter = METERS[song.meter] ? song.meter : DEFAULT_METER;
+  const slots = METERS[meter].slots;
+  if (song.measures[0][0].length !== slots) throw new Error('Invalid v3 song measures: slot count does not match meter');
+  const stops = pairedTechniqueStops(song.measures, slots);
   const tuningId = TUNINGS[song.tuning] ? song.tuning : 'standard';
   const tuningMidi = TUNINGS[tuningId].midi;
+  const pm = song.pm || {}, rep = song.rep || {};
   const measures = song.measures.map((measure, measureIndex) => {
     const body = [];
+    body.push(barlineXml(rep[measureIndex], 'left'));
     if (measureIndex === 0) {
-      body.push(attributesXml(tuningMidi));
+      body.push(attributesXml(tuningMidi, meter));
       body.push(`<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${bpm}</per-minute></metronome></direction-type><sound tempo="${bpm}"/></direction>`);
     }
-    for (let slot = 0; slot < 16; slot += 1) {
-      const mark = song.marks?.[`${measureIndex}:${slot}`];
+    for (let slot = 0; slot < slots; slot += 1) {
+      const key = `${measureIndex}:${slot}`;
+      const mark = song.marks?.[key];
       if (typeof mark === 'string' && mark) {
         body.push(`<direction placement="above"><direction-type><words>${escapeXml(mark)}</words></direction-type></direction>`);
       }
+      if (pm[key]) body.push('<direction placement="below"><direction-type><other-direction>gtab-pm</other-direction></direction-type></direction>');
       const notes = [];
       for (let stringIndex = 0; stringIndex < 6; stringIndex += 1) {
         const value = measure[stringIndex][slot];
         if (!value) continue;
-        const key = `${measureIndex}:${slot}:${stringIndex}`;
-        notes.push(noteXml(value, stringIndex, notes.length > 0, stops.get(key) || [], tuningMidi));
+        if (value === '.') {
+          body.push(`<direction placement="below"><direction-type><other-direction>gtab-stop:${stringIndex + 1}</other-direction></direction-type></direction>`);
+          continue;
+        }
+        const noteKey = `${key}:${stringIndex}`;
+        notes.push(noteXml(value, stringIndex, notes.length > 0, stops.get(noteKey) || [], tuningMidi));
       }
       body.push(notes.length ? notes.join('') : '<note><rest/><duration>1</duration><voice>1</voice><type>16th</type></note>');
     }
+    body.push(barlineXml(rep[measureIndex], 'right'));
     return `<measure number="${measureIndex + 1}">${body.join('')}</measure>`;
   }).join('');
   return '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -173,8 +209,35 @@ function finiteTextNumber(element) {
   return Number.isFinite(value) ? value : null;
 }
 
-function slotAt(quarterPosition) {
-  return Math.max(0, Math.min(15, Math.round(quarterPosition * 4)));
+function slotAt(quarterPosition, slots) {
+  return Math.max(0, Math.min((slots || 16) - 1, Math.round(quarterPosition * 4)));
+}
+
+/** 첫 <time>에서 박자표 키를 읽는다. 모르는 박자표면 4/4 */
+function meterFromPart(part) {
+  const time = part.querySelector('attributes > time');
+  const beats = finiteTextNumber(time && localChild(time, 'beats'));
+  const beatType = finiteTextNumber(time && localChild(time, 'beat-type'));
+  const key = `${beats}/${beatType}`;
+  return METERS[key] ? key : DEFAULT_METER;
+}
+
+/** barline → {s, e, v} */
+function repFromMeasure(measure) {
+  const o = {};
+  for (const barline of localChildren(measure, 'barline')) {
+    const repeat = localChild(barline, 'repeat'), ending = localChild(barline, 'ending');
+    if (repeat?.getAttribute('direction') === 'forward') o.s = 1;
+    if (repeat?.getAttribute('direction') === 'backward') {
+      const times = Number(repeat.getAttribute('times'));
+      o.e = Number.isFinite(times) && times >= 2 ? Math.min(99, Math.round(times)) : 2;
+    }
+    if (ending && ending.getAttribute('type') === 'start') {
+      const n = Number((ending.getAttribute('number') || '').split(/[,\s]+/)[0]);
+      if (Number.isInteger(n) && n >= 1 && n <= 9) o.v = n;
+    }
+  }
+  return (o.s || o.e || o.v) ? o : null;
 }
 
 function tuningMidiFromPart(part) {
@@ -214,28 +277,39 @@ function noteModifier(note) {
   return modifiers.join('');
 }
 
-/** Best-effort projection used only by the legacy quick-entry grid. */
+/** Best-effort projection used only by the legacy quick-entry grid. 박자표·팜뮤트·끊기·반복 기호도 돌려준다. */
 export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
   const doc = parseMusicXml(xml);
   const part = [...doc.documentElement.children].find((node) => node.localName === 'part' && node.getAttribute('id') === selectedPartId);
   if (!part) throw new Error(`MusicXML part not found: ${selectedPartId}`);
   const measureElements = localChildren(part, 'measure');
   if (!measureElements.length) throw new Error(`MusicXML part has no measures: ${selectedPartId}`);
-  const measures = measureElements.map(() => emptyMeasure());
-  const marks = {};
+  const meter = meterFromPart(part);
+  const slots = METERS[meter].slots;
+  const measures = measureElements.map(() => emptyMeasure(slots));
+  const marks = {}, pm = {}, rep = {};
   let divisions = 1;
   measureElements.forEach((measure, measureIndex) => {
     let cursor = 0;
     let previousNoteOnset = null;
     let previousWasPitched = false;
+    const r = repFromMeasure(measure);
+    if (r) rep[measureIndex] = r;
     for (const child of measure.children) {
       if (child.localName === 'attributes') {
         const nextDivisions = finiteTextNumber(localChild(child, 'divisions'));
         if (nextDivisions > 0) divisions = nextDivisions;
       } else if (child.localName === 'direction') {
         const words = child.querySelector('words')?.textContent?.trim();
+        const other = child.querySelector('other-direction')?.textContent?.trim();
         const offset = finiteTextNumber(localChild(child, 'offset')) || 0;
-        if (words) marks[`${measureIndex}:${slotAt(cursor + offset / divisions)}`] = words;
+        const slot = slotAt(cursor + offset / divisions, slots);
+        if (words) marks[`${measureIndex}:${slot}`] = words;
+        if (other === 'gtab-pm') pm[`${measureIndex}:${slot}`] = 1;
+        else if (other && other.indexOf('gtab-stop:') === 0) {
+          const string = Number(other.slice(10));
+          if (Number.isInteger(string) && string >= 1 && string <= 6) measures[measureIndex][string - 1][slot] = '.';
+        }
       } else if (child.localName === 'note') {
         const chord = !!localChild(child, 'chord') && previousWasPitched;
         const onset = chord && previousNoteOnset !== null ? previousNoteOnset : cursor;
@@ -245,7 +319,7 @@ export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
           const fret = finiteTextNumber(child.querySelector('technical > fret'));
           if (Number.isInteger(string) && string >= 1 && string <= 6 && fret !== null) {
             const modifier = noteModifier(child);
-            measures[measureIndex][string - 1][slotAt(onset)] = modifier === 'x' ? 'x' : `${fret}${modifier}`;
+            measures[measureIndex][string - 1][slotAt(onset, slots)] = modifier === 'x' ? 'x' : `${fret}${modifier}`;
           }
         }
         if (!chord) {
@@ -268,8 +342,11 @@ export function musicXmlToV3Song(xml, selectedPartId = 'P1') {
     title: doc.querySelector('work > work-title')?.textContent || '',
     tuning: tuningIdFromPart(part),
     bpm: metadata.tempo || 90,
+    meter,
     measures,
-    marks
+    marks,
+    pm,
+    rep
   };
 }
 

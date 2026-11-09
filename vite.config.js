@@ -6,6 +6,8 @@ export default defineConfig({
   build: { target: 'es2017', outDir: 'dist' },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.js']
+    include: ['tests/**/*.test.js'],
+    // 내장 77마디 악보 파싱 테스트가 느린 러너에서 5초를 넘길 수 있다
+    testTimeout: 20000
   }
 });

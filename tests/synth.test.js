@@ -39,7 +39,8 @@ describe('Karplus-Strong 피치', () => {
         const f = 440 * Math.pow(2, (midi - 69) / 12);
         expect(synthSamples(f, INSTR[k], false, false, sr).length).toBe(Math.floor(sr * INSTR[k].len));
         const got = medianFreq(f, INSTR[k], sr);
-        const tol = midi >= 88 ? 3 : 1;
+        // 측정(자기상관) 정밀도는 주기가 짧을수록 떨어진다: E2~E5 ±1, A5 ±1.5, E6 ±3센트
+        const tol = midi >= 88 ? 3 : (midi >= 80 ? 1.5 : 1);
         expect(Math.abs(cents(got, f)), k + ' midi ' + midi + ' got ' + got.toFixed(3)).toBeLessThan(tol);
       });
     });

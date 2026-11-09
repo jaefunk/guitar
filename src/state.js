@@ -5,25 +5,31 @@
 // save()가 책상 위 내용을 책장에 꽂힌 그 책에 다시 써 넣는다. 곡을 바꾸면
 // 책상 위의 책만 갈아 끼운다.
 import {
-  KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES
+  KEY, LEGACY_KEYS, TUNINGS, INSTR, ZOOMS, THEMES, LOOPS, DEFAULT_MEASURES, METERS, DEFAULT_METER
 } from './constants.js';
-import { emptyMeasure, validMeasures, padMeasures, cloneMeasures } from './tab.js';
+import { emptyMeasure, validMeasures, padMeasures, cloneMeasures, resizeMeasures, slotsOf } from './tab.js';
 import { isLosslessV3GridMusicXml, musicXmlToV3Song, v3SongToMusicXml } from './v3-musicxml.js';
 import { listTabParts, parseMusicXml, serializeMusicXml } from './musicxml.js';
 
 export const KEY_V4 = 'gtab-editor-v4';
 
-export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'measures', 'marks'];
+export const SONG_FIELDS = ['title', 'tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep'];
 export const SETTING_FIELDS = [
   'zoom', 'theme', 'autoAdv', 'metro', 'loop', 'padMode', 'fretShift', 'haptic',
-  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'viewMode'
+  'collapsed', 'seen', 'instr', 'volume', 'reverb', 'countIn', 'preview', 'trainer', 'drums', 'swing', 'landscapeFit', 'viewMode'
 ];
 
 export function defaultSettings() {
   return {
     zoom: 'm', theme: 'system', autoAdv: true, metro: false, loop: 'none', padMode: 'keys',
     fretShift: 0, haptic: true, collapsed: false, seen: false, instr: 'acoustic',
-    volume: 0.8, reverb: 0.25, countIn: false, preview: true, viewMode: 'grid'
+    volume: 0.8, reverb: 0.25, countIn: false, preview: true,
+    // 속도 트레이너: 반복 한 바퀴마다 step만큼 빨라져 max까지
+    trainer: { on: false, start: 60, step: 5, max: 120 },
+    landscapeFit: true, // 가로 모드에서 한 줄(4마디)을 화면 폭에 맞춤
+    drums: 'off',   // off | rock | pop | ballad
+    swing: 0,       // 0~0.7: 홀수 16분음표를 한 칸의 이 비율만큼 늦춘다 (0.67 ≈ 셋잇단 스윙)
+    viewMode: 'grid'
   };
 }
 
@@ -31,19 +37,23 @@ export function newId() {
   return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-export function defaultSong(now) {
+export function defaultSong(now, meter) {
+  meter = METERS[meter] ? meter : DEFAULT_METER;
   const ms = [];
-  for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure());
+  for (let k = 0; k < DEFAULT_MEASURES; k++) ms.push(emptyMeasure(METERS[meter].slots));
   const t = now || Date.now();
-  return { id: newId(), title: '', tuning: 'standard', bpm: 90, measures: ms, marks: {}, createdAt: t, updatedAt: t };
+  return { id: newId(), title: '', tuning: 'standard', bpm: 90, meter, measures: ms, marks: {}, pm: {}, rep: {}, createdAt: t, updatedAt: t };
 }
 
 function attachLegacyProjection(song, legacy) {
   const projection = {
     tuning: legacy.tuning,
     bpm: legacy.bpm,
+    meter: legacy.meter,
     measures: legacy.measures,
-    marks: legacy.marks
+    marks: legacy.marks,
+    pm: legacy.pm,
+    rep: legacy.rep
   };
   Object.defineProperty(song, '_legacy', { value: projection, writable: true, configurable: true });
   if (song.editorMode !== 'grid-v3') {
@@ -52,15 +62,18 @@ function attachLegacyProjection(song, legacy) {
         title: song.title,
         tuning: legacy.tuning,
         bpm: legacy.bpm,
+        meter: legacy.meter,
         measures: cloneMeasures(legacy.measures),
         marks: { ...legacy.marks },
+        pm: { ...legacy.pm },
+        rep: JSON.parse(JSON.stringify(legacy.rep || {})),
         updatedAt: song.updatedAt
       },
       writable: true,
       configurable: true
     });
   }
-  for (const field of ['tuning', 'bpm', 'measures', 'marks']) {
+  for (const field of ['tuning', 'bpm', 'meter', 'measures', 'marks', 'pm', 'rep']) {
     Object.defineProperty(song, field, {
       configurable: true,
       get() { return this._legacy[field]; },
@@ -94,8 +107,11 @@ function refreshSongMusicXml(song) {
     title: song.title,
     tuning: song.tuning,
     bpm: song.bpm,
+    meter: song.meter,
     measures: song.measures,
     marks: song.marks,
+    pm: song.pm,
+    rep: song.rep,
     createdAt: song.createdAt,
     updatedAt: song.updatedAt
   });
@@ -139,27 +155,45 @@ function musicXmlWithTitle(xml, title) {
 
 /** 책상 위 상태: 현재 곡의 필드 + 설정이 평평하게 합쳐져 있다. 편집 코드는 이것만 본다. */
 export const state = Object.assign({}, defaultSettings(), {
-  title: '', tuning: 'standard', bpm: 90, measures: [], marks: {}, readOnly: false
+  title: '', tuning: 'standard', bpm: 90, meter: DEFAULT_METER, measures: [], marks: {}, pm: {}, rep: {}, readOnly: false
 });
 
 /** 편집 세션 상태(저장 안 함) */
-export const ed = { sel: null, pending: false, undoStack: [], clip: null };
+export const ed = { sel: null, pending: false, undoStack: [], redoStack: [], clip: null, range: null };
 
 /** 책장: 저장되는 전체 문서 */
 export const library = { songs: {}, order: [], currentId: null };
 
 /* ---------- 검증 ---------- */
 export function sanitizeSong(d, now) {
-  const s = defaultSong(now);
+  const s = defaultSong(now, d && d.meter);
   if (!d || typeof d !== 'object') return s;
   if (typeof d.id === 'string' && d.id) s.id = d.id;
   if (typeof d.title === 'string') s.title = d.title;
   if (TUNINGS[d.tuning]) s.tuning = d.tuning;
   if (typeof d.bpm === 'number' && d.bpm >= 40 && d.bpm <= 240) s.bpm = d.bpm;
-  if (validMeasures(d.measures)) s.measures = padMeasures(cloneMeasures(d.measures));
+  if (validMeasures(d.measures)) {
+    const slots = slotsOf(s);
+    // 칸 수가 박자표와 어긋나면(손상 등) 박자표에 맞춰 자르거나 채운다
+    s.measures = padMeasures(resizeMeasures(d.measures, slots), slots);
+  }
   if (d.marks && typeof d.marks === 'object') {
     Object.keys(d.marks).forEach((k) => {
       if (/^\d+:\d+$/.test(k) && typeof d.marks[k] === 'string' && d.marks[k]) s.marks[k] = d.marks[k];
+    });
+  }
+  if (d.pm && typeof d.pm === 'object') {
+    Object.keys(d.pm).forEach((k) => { if (/^\d+:\d+$/.test(k) && d.pm[k]) s.pm[k] = 1; });
+  }
+  if (d.rep && typeof d.rep === 'object') {
+    Object.keys(d.rep).forEach((k) => {
+      const r = d.rep[k];
+      if (!/^\d+$/.test(k) || !r || typeof r !== 'object' || +k >= s.measures.length) return;
+      const o = {};
+      if (r.s) o.s = 1;
+      if (typeof r.e === 'number' && r.e >= 2 && r.e <= 99) o.e = Math.round(r.e);
+      if (typeof r.v === 'number' && r.v >= 1 && r.v <= 9) o.v = Math.round(r.v);
+      if (o.s || o.e || o.v) s.rep[k] = o;
     });
   }
   if (typeof d.createdAt === 'number') s.createdAt = d.createdAt;
@@ -172,15 +206,24 @@ export function sanitizeSettings(d) {
   if (!d || typeof d !== 'object') return s;
   if (ZOOMS.indexOf(d.zoom) >= 0) s.zoom = d.zoom;
   if (THEMES.indexOf(d.theme) >= 0) s.theme = d.theme;
-  ['autoAdv', 'metro', 'haptic', 'collapsed', 'seen', 'countIn', 'preview'].forEach((k) => {
+  ['autoAdv', 'metro', 'haptic', 'collapsed', 'seen', 'countIn', 'preview', 'landscapeFit'].forEach((k) => {
     if (typeof d[k] === 'boolean') s[k] = d[k];
   });
   if (LOOPS.indexOf(d.loop) >= 0) s.loop = d.loop;
   if (d.padMode === 'fret' || d.padMode === 'keys') s.padMode = d.padMode;
   if (d.fretShift === 12) s.fretShift = 12;
-  if (d.instr && INSTR[d.instr]) s.instr = d.instr;
+  if (d.instr && (INSTR[d.instr] || d.instr === 'sample')) s.instr = d.instr;
   if (typeof d.volume === 'number' && d.volume >= 0 && d.volume <= 1) s.volume = d.volume;
   if (typeof d.reverb === 'number' && d.reverb >= 0 && d.reverb <= 1) s.reverb = d.reverb;
+  if (['off', 'rock', 'pop', 'ballad'].indexOf(d.drums) >= 0) s.drums = d.drums;
+  if (typeof d.swing === 'number' && d.swing >= 0 && d.swing <= 0.7) s.swing = d.swing;
+  if (d.trainer && typeof d.trainer === 'object') {
+    const t = d.trainer, o = s.trainer;
+    if (typeof t.on === 'boolean') o.on = t.on;
+    if (typeof t.start === 'number' && t.start >= 40 && t.start <= 240) o.start = Math.round(t.start);
+    if (typeof t.step === 'number' && t.step >= 1 && t.step <= 60) o.step = Math.round(t.step);
+    if (typeof t.max === 'number' && t.max >= 40 && t.max <= 240) o.max = Math.round(t.max);
+  }
   if (d.viewMode === 'score' || d.viewMode === 'grid') s.viewMode = d.viewMode;
   return s;
 }
@@ -337,8 +380,8 @@ export function activate(id) {
   library.currentId = id;
   SONG_FIELDS.forEach((k) => { state[k] = song[k]; });
   state.readOnly = song.editorMode !== 'grid-v3';
-  padMeasures(state.measures);
-  ed.undoStack = [];
+  padMeasures(state.measures, slotsOf(state));
+  ed.undoStack = []; ed.redoStack = []; ed.range = null;
   ed.pending = false;
   ed.sel = { m: 0, s: 0, i: 0 };
 }
@@ -365,8 +408,11 @@ export function flush() {
     song._legacy = {
       tuning: restored.tuning,
       bpm: restored.bpm,
+      meter: restored.meter,
       measures: cloneMeasures(restored.measures),
-      marks: { ...restored.marks }
+      marks: { ...restored.marks },
+      pm: { ...(restored.pm || {}) },
+      rep: JSON.parse(JSON.stringify(restored.rep || {}))
     };
     song.updatedAt = restored.updatedAt;
     SONG_FIELDS.forEach((field) => { state[field] = song[field]; });
@@ -489,8 +535,11 @@ export function persistCurrentScoreMusicXml(xml) {
         title: song.title,
         tuning: song.tuning,
         bpm: song.bpm,
+        meter: song.meter,
         measures: cloneMeasures(song.measures),
         marks: { ...song.marks },
+        pm: { ...(song.pm || {}) },
+        rep: JSON.parse(JSON.stringify(song.rep || {})),
         updatedAt: song.updatedAt
       },
       writable: true,
@@ -601,8 +650,11 @@ export function duplicateSong(id) {
     title: (src.title || '제목 없음') + ' 사본',
     tuning: src.tuning,
     bpm: src.bpm,
+    meter: src.meter,
     measures: cloneMeasures(src.measures),
     marks: { ...src.marks },
+    pm: { ...(src.pm || {}) },
+    rep: JSON.parse(JSON.stringify(src.rep || {})),
     createdAt: timestamp,
     updatedAt: timestamp
   }, timestamp);

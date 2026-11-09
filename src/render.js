@@ -1,13 +1,14 @@
 // 악보 DOM 생성과 선택 표시. 값 변경은 전체 재렌더 없이 paintCell/paintMark로.
-import { STRINGS, SLOTS, PER_LINE, TUNINGS } from './constants.js';
+import { STRINGS, PER_LINE, TUNINGS } from './constants.js';
 import { state, ed } from './state.js';
-import { parse } from './tab.js';
+import { parse, slotsOf, beatOf } from './tab.js';
 import { $ } from './ui.js';
 import { pb, applyLoopMarks } from './audio.js';
 import { updateFretboard } from './fretboard.js';
+import { detectColumn } from './chords.js';
 
-/** 셀 캐시: cells[m][s][i], marks[m][i], rulers[m] */
-export const dom = { cells: [], marks: [], rulers: [] };
+/** 셀 캐시: cells[m][s][i], marks[m][i], rulers[m], mdivs[m] = 줄별 마디 컨테이너 */
+export const dom = { cells: [], marks: [], rulers: [], mdivs: [] };
 
 export function cellAt(p) {
   return dom.cells[p.m] && dom.cells[p.m][p.s] && dom.cells[p.m][p.s][p.i];
@@ -19,7 +20,12 @@ export function paintCell(c, v) {
   const p = parse(v);
   const span = document.createElement('span'); span.className = 'v';
   if (p.num) { const a = document.createElement('span'); a.textContent = p.num; span.appendChild(a); }
-  if (p.mod) { const b = document.createElement('span'); b.className = 'mod'; b.textContent = p.mod; span.appendChild(b); }
+  if (p.mod) {
+    const b = document.createElement('span');
+    b.className = 'mod' + (p.mod === '.' ? ' rest' : '');
+    b.textContent = p.mod === '.' ? '·' : p.mod;
+    span.appendChild(b);
+  }
   c.appendChild(span);
 }
 
@@ -30,14 +36,20 @@ export function paintMark(m, i) {
   const t = state.marks[m + ':' + i];
   el.classList.toggle('empty', !t);
   if (t) { const s = document.createElement('span'); s.className = 't'; s.textContent = t; el.appendChild(s); }
+  // 팜뮤트: 점선 띠. 구간의 첫 칸에 P.M. 표시
+  const pm = !!(state.pm && state.pm[m + ':' + i]);
+  el.classList.toggle('pm', pm);
+  const prevPm = pm && (i > 0 ? state.pm[m + ':' + (i - 1)] : (m > 0 && state.pm[(m - 1) + ':' + (state.measures[m - 1][0].length - 1)]));
+  el.classList.toggle('pm-start', pm && !prevPm);
 }
 
 export function render() {
   const sheet = $('sheet');
   sheet.innerHTML = '';
-  dom.cells = []; dom.marks = []; dom.rulers = [];
+  dom.cells = []; dom.marks = []; dom.rulers = []; dom.mdivs = [];
   const names = TUNINGS[state.tuning].names;
   const lines = state.measures.length / PER_LINE;
+  const SLOTS = slotsOf(state), BEAT = beatOf(state);
   for (let L = 0; L < lines; L++) {
     const sys = document.createElement('div'); sys.className = 'system';
 
@@ -63,9 +75,12 @@ export function render() {
       const m = L * PER_LINE + k;
       const md = document.createElement('div'); md.className = 'measure'; md.dataset.m = m; md.title = '마디 ' + (m + 1) + ' 처음으로 이동';
       const mn = document.createElement('span'); mn.className = 'mnum'; mn.textContent = m + 1; md.appendChild(mn);
+      const rp = state.rep && state.rep[m];
+      if (rp && rp.v) { md.classList.add('volta'); const vl = document.createElement('span'); vl.className = 'vlab'; vl.textContent = rp.v + '.'; md.appendChild(vl); }
+      if (rp && rp.e && rp.e > 2) { const tl = document.createElement('span'); tl.className = 'times'; tl.textContent = '×' + rp.e; md.appendChild(tl); }
       for (let i = 0; i < SLOTS; i++) {
-        const t = document.createElement('div'); t.className = 'tick' + (i % 4 ? ' sub' : '');
-        if (i % 4 === 0) t.textContent = (i / 4 + 1);
+        const t = document.createElement('div'); t.className = 'tick' + (i % BEAT ? ' sub' : '');
+        if (i % BEAT === 0) t.textContent = (i / BEAT + 1);
         md.appendChild(t);
       }
       dom.rulers[m] = md; ruler.appendChild(md);
@@ -79,6 +94,11 @@ export function render() {
       for (let k2 = 0; k2 < PER_LINE; k2++) {
         const m2 = L * PER_LINE + k2;
         const md2 = document.createElement('div'); md2.className = 'measure' + (k2 === 0 ? ' m0' : '');
+        const rp2 = state.rep && state.rep[m2];
+        if (rp2 && rp2.s) md2.classList.add('rs');
+        if (rp2 && rp2.e) md2.classList.add('re');
+        if (s === 2 || s === 3) md2.classList.add('dot');
+        dom.mdivs[m2] = dom.mdivs[m2] || []; dom.mdivs[m2][s] = md2;
         dom.cells[m2] = dom.cells[m2] || [];
         dom.cells[m2][s] = dom.cells[m2][s] || [];
         for (let i2 = 0; i2 < SLOTS; i2++) {
@@ -98,7 +118,23 @@ export function render() {
     sheet.appendChild(sys);
   }
   if (ed.sel && ed.sel.m >= state.measures.length) ed.sel = null;
-  applySel(); updateInfo(); updateFretboard(); applyLoopMarks();
+  if (ed.range && ed.range.to >= state.measures.length) ed.range = null;
+  applySel(); applyRange(); updateInfo(); updateFretboard(); applyLoopMarks();
+}
+
+/** 다중 선택 범위 표시 + 범위 작업 막대 */
+export function applyRange() {
+  const r = ed.range;
+  dom.rulers.forEach((el, m) => {
+    const on = !!r && m >= r.from && m <= r.to;
+    el.classList.toggle('range', on);
+    (dom.mdivs[m] || []).forEach((d) => { d.classList.toggle('range', on); });
+  });
+  const bar = $('rangeBar');
+  if (bar) {
+    bar.hidden = !r;
+    if (r) $('rangeLabel').textContent = r.from === r.to ? '마디 ' + (r.from + 1) + ' 선택 · 다른 마디 번호를 탭해 넓히기' : '마디 ' + (r.from + 1) + '~' + (r.to + 1) + ' (' + (r.to - r.from + 1) + '마디)';
+  }
 }
 
 export function eachCol(fn) {
@@ -139,16 +175,27 @@ export function setSel(n, scroll) {
     if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }
+/** 선택한 칸의 코드 이름 칩 */
+function updateChordHint() {
+  const chip = $('chordHint'); if (!chip) return;
+  const sel = ed.sel;
+  const ch = sel && !pb.playing ? detectColumn(state.measures[sel.m], sel.i, state.tuning) : null;
+  chip.hidden = !ch;
+  if (ch) { chip.textContent = ch.name; chip.dataset.name = ch.name; chip.title = ch.name + ' 코드로 인식됨. 탭하면 메모로 넣어요'; }
+}
 export function updateInfo() {
   const selInfo = $('selInfo');
   const sel = ed.sel;
+  updateChordHint();
   selInfo.classList.remove('hint', 'pend');
   if (pb.playing && pb.lastHL !== null) {
-    selInfo.textContent = '재생 중: 마디 ' + (Math.floor(pb.lastHL / SLOTS) + 1) + ' / ' + state.measures.length;
+    selInfo.textContent = '재생 중: 마디 ' + (pb.lastHL.m + 1) + ' / ' + state.measures.length + (pb.trainer ? ' · 트레이너 ' + pb.bpm + ' BPM' : '');
+    if (pb.trainer) selInfo.classList.add('pend');
     return;
   }
   if (!sel) { selInfo.textContent = '악보의 칸을 탭해서 선택하세요'; selInfo.classList.add('hint'); return; }
   const names = TUNINGS[state.tuning].names;
   if (ed.pending) { selInfo.textContent = '두 자리 프렛? 다음 숫자를 누르세요 (아니면 → 로 이동)'; selInfo.classList.add('pend'); return; }
-  selInfo.textContent = '마디 ' + (sel.m + 1) + '의 ' + (Math.floor(sel.i / 4) + 1) + '박 ' + (sel.i % 4 + 1) + '번째, ' + names[sel.s] + '줄';
+  const BEAT = beatOf(state);
+  selInfo.textContent = '마디 ' + (sel.m + 1) + '의 ' + (Math.floor(sel.i / BEAT) + 1) + '박 ' + (sel.i % BEAT + 1) + '번째, ' + names[sel.s] + '줄';
 }

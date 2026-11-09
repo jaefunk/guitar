@@ -1,31 +1,54 @@
 // 텍스트 타브(왕복 가능)와 PNG 이미지. toText/parseText/renderImage는 곡 객체를 인자로 받는 순수 함수.
-import { STRINGS, SLOTS, PER_LINE, TUNINGS } from './constants.js';
-import { parse } from './tab.js';
+import { STRINGS, PER_LINE, TUNINGS, METERS, DEFAULT_METER } from './constants.js';
+import { parse, slotsOf, beatOf } from './tab.js';
 
-/** song: {title, bpm, tuning, measures, marks} */
+/**
+ * song: {title, bpm, meter, tuning, measures, marks} → 텍스트 타브.
+ * 메모는 해당 칸의 열에 쓴다. 앞 메모와 겹치면 두 칸 띄우고 이어 쓰므로 그만큼 뒤 칸으로 밀린다.
+ */
 export function toText(song) {
   let w = 2;
   song.measures.forEach((m) => { m.forEach((r) => { r.forEach((v) => { if (v.length > w) w = v.length; }); }); });
   const names = TUNINGS[song.tuning].names;
   const labelW = Math.max.apply(null, names.map((n) => n.length));
+  const SLOTS = slotsOf(song), BEAT = beatOf(song), meter = METERS[song.meter] ? song.meter : DEFAULT_METER;
   const out = [];
   if (song.title) out.push(song.title, '');
-  out.push('(BPM ' + song.bpm + ', 한 칸 = 16분음표)', '');
+  out.push('(BPM ' + song.bpm + ', ' + meter + ', 한 칸 = 16분음표)', '');
   const lines = song.measures.length / PER_LINE;
+  const pmMap = song.pm || {}, repMap = song.rep || {};
   for (let L = 0; L < lines; L++) {
     let mline = '', any = false, pos = labelW + 1;
+    let pline = 'PM', anyPm = false, ppos = labelW + 1;
+    // 반복 기호 줄: 마디 첫 칸에 |: 와 괄호 번호, 마지막 칸에 (x횟수):|
+    let rline = 'R', anyRep = false, rpos = labelW + 1; // 줄 이름 칸이 1칸뿐일 수 있어 라벨은 한 글자
+    const put = (str, col, text) => { while (str.length < col) str += ' '; return str.slice(0, col) + text + str.slice(col + text.length); };
+    for (let k0 = 0; k0 < PER_LINE; k0++) {
+      const r = repMap[L * PER_LINE + k0], mw = SLOTS * w;
+      if (r && (r.s || r.e || r.v)) {
+        anyRep = true;
+        let c = rpos;
+        if (r.s) { rline = put(rline, c, '|:'); c += 2; }
+        if (r.v) rline = put(rline, c, r.v + '.');
+        if (r.e) { const tail = (r.e > 2 ? 'x' + r.e : '') + ':|'; rline = put(rline, rpos + mw - tail.length, tail); }
+      }
+      rpos += mw + 1;
+    }
+    if (anyRep) out.push(rline.replace(/\s+$/, ''));
     for (let k0 = 0; k0 < PER_LINE; k0++) {
       for (let j = 0; j < SLOTS; j++) {
-        const t = song.marks[(L * PER_LINE + k0) + ':' + j];
-        if (t) { any = true; while (mline.length < pos) mline += ' '; if (mline.length > pos) mline += ' '; mline += t; }
-        pos += w;
+        const key = (L * PER_LINE + k0) + ':' + j, t = song.marks[key];
+        if (t) { any = true; while (mline.length < pos) mline += ' '; if (mline.length > pos) mline += '  '; mline += t; }
+        if (pmMap[key]) { anyPm = true; while (pline.length < ppos) pline += ' '; for (let q = 0; q < w; q++) pline += '_'; }
+        pos += w; ppos += w;
       }
-      pos += 1;
+      pos += 1; ppos += 1;
     }
+    if (anyPm) out.push(pline);
     if (any) out.push(mline);
     let ruler = new Array(labelW + 2).join(' ');
     for (let k = 0; k < PER_LINE; k++) {
-      for (let b = 0; b < 4; b++) { let lab = String(b + 1); while (lab.length < w * 4) lab += ' '; ruler += lab; }
+      for (let b = 0; b < SLOTS / BEAT; b++) { let lab = String(b + 1); while (lab.length < w * BEAT) lab += ' '; ruler += lab; }
       ruler += ' ';
     }
     out.push(ruler.replace(/\s+$/, ''));
@@ -43,26 +66,50 @@ export function toText(song) {
   return out.join('\n');
 }
 
-/** 이 에디터가 내보낸 텍스트 → measures. 실패하면 null. (메모 줄은 복원하지 않음) */
+const ROW_RE = /^(\s*[A-Ga-g][b#]?\s*)\|(.*)$/;
+
+/**
+ * 이 에디터가 내보낸 텍스트 → {measures, marks, meter, bpm, title}. 실패하면 null.
+ * 헤더가 없는 옛 텍스트는 4/4로 읽는다. 다른 사이트의 타브는 정렬이 달라 대부분 실패한다.
+ */
 export function parseText(txt) {
   const lines = txt.split(/\r?\n/);
-  let rows = [];
+  let meter = null, bpm = null, title = '', headerIdx = -1;
+  for (let idx = 0; idx < lines.length && headerIdx < 0; idx++) {
+    const h = /^\s*\(BPM\s+(\d+)(?:,\s*(\d+\/\d+))?/.exec(lines[idx]);
+    if (h) { headerIdx = idx; bpm = +h[1]; if (h[2] && METERS[h[2]]) meter = h[2]; }
+  }
+  if (headerIdx > 0) {
+    for (let idx = 0; idx < headerIdx; idx++) { if (lines[idx].trim()) { title = lines[idx].trim(); break; } }
+  }
+  const SLOTS = METERS[meter || DEFAULT_METER].slots;
+
+  // 6줄 묶음 찾기. 묶음의 첫 줄 번호와 '|' 열(label 폭)을 같이 기억한다.
+  let rows = [], start = -1, col0 = 0;
   const groups = [];
-  lines.forEach((l) => {
-    const m = /^\s*([A-Ga-g][b#]?)\s*\|(.*)$/.exec(l);
-    if (m) { rows.push(m[2]); if (rows.length === STRINGS) { groups.push(rows); rows = []; } }
-    else rows = [];
+  lines.forEach((l, idx) => {
+    const m = ROW_RE.exec(l);
+    if (m) {
+      if (!rows.length) { start = idx; col0 = m[1].length + 1; }
+      rows.push(m[2]);
+      if (rows.length === STRINGS) { groups.push({ rows, start, col0 }); rows = []; }
+    } else rows = [];
   });
   if (!groups.length) return null;
-  const measures = [];
+
+  const measures = [], marks = {}, pm = {}, rep = {};
   for (let gI = 0; gI < groups.length; gI++) {
-    const parts = groups[gI].map((r) => r.replace(/\|\s*$/, '').split('|'));
+    const g = groups[gI];
+    const parts = g.rows.map((r) => r.replace(/\|\s*$/, '').split('|'));
     const n = parts[0].length;
     if (!parts.every((p) => p.length === n)) return null;
+    const firstM = measures.length;
+    const widths = [];
     for (let k = 0; k < n; k++) {
       const len = parts[0][k].length;
       if (!len || len % SLOTS) return null;
       const w = len / SLOTS, meas = [];
+      widths.push(w);
       for (let s = 0; s < STRINGS; s++) {
         const str = parts[s][k];
         if (str.length !== len) return null;
@@ -76,8 +123,42 @@ export function parseText(txt) {
       }
       measures.push(meas);
     }
+    // 열 → (마디, 칸)
+    const colToKey = (col) => {
+      let c = Math.max(0, col - g.col0), k = 0;
+      while (k < n - 1 && c >= SLOTS * widths[k] + 1) { c -= SLOTS * widths[k] + 1; k++; }
+      return (firstM + k) + ':' + Math.min(SLOTS - 1, Math.floor(c / widths[k]));
+    };
+    // 줄 순서: [R 줄(반복)] [PM 줄] [메모 줄] 눈금 줄 → 6줄. 메모 줄은 항상 공백으로 시작하므로 라벨과 안 겹친다
+    const rulerLine = lines[g.start - 1];
+    if (rulerLine !== undefined && /^\s*\d[\d\s]*$/.test(rulerLine)) {
+      let idx = g.start - 2;
+      const isPm = (l) => l !== undefined && /^\s*PM[\s_]*$/.test(l) && l.indexOf('_') >= 0;
+      const isRep = (l) => l !== undefined && /^R(\s|$)/.test(l);
+      const readPm = (l) => { for (let c = 0; c < l.length; c++) if (l[c] === '_') pm[colToKey(c)] = 1; };
+      const readRep = (l) => {
+        let col = g.col0;
+        for (let k = 0; k < n; k++) {
+          const mw = SLOTS * widths[k], seg = l.slice(col, col + mw), o = {};
+          if (seg.indexOf('|:') >= 0) o.s = 1;
+          const e = /(?:x(\d+))?:\|/.exec(seg); if (e) o.e = e[1] ? Math.max(2, +e[1]) : 2;
+          const v = /(\d)\./.exec(seg); if (v) o.v = +v[1];
+          if (o.s || o.e || o.v) rep[firstM + k] = o;
+          col += mw + 1;
+        }
+      };
+      const markLine = lines[idx];
+      if (markLine && markLine.trim() && !ROW_RE.test(markLine) && !isPm(markLine) && !isRep(markLine)) {
+        const re = /\S+(?: \S+)*/g; // 토큰 = 공백 두 칸 이상으로 구분
+        let t;
+        while ((t = re.exec(markLine))) marks[colToKey(t.index)] = t[0];
+        idx--;
+      }
+      if (isPm(lines[idx])) { readPm(lines[idx]); idx--; }
+      if (isRep(lines[idx])) readRep(lines[idx]);
+    }
   }
-  return measures;
+  return { measures, marks, pm, rep, meter: meter || DEFAULT_METER, bpm, title };
 }
 
 /** 캔버스에 악보를 그려 돌려준다. */
@@ -85,6 +166,7 @@ export function renderImage(song) {
   const P = { bg: '#ffffff', ink: '#1b2230', muted: '#6c7684', line: '#9aa3b1', bar: '#2a3342', mod: '#8a5a00', accent: '#2457d6' };
   const scale = 2, slot = 22, row = 22, labelW = 34, left = 14, top = 14, markH = 16, rulerH = 18, gap = 26;
   const names = TUNINGS[song.tuning].names, lines = song.measures.length / PER_LINE;
+  const SLOTS = slotsOf(song), BEAT = beatOf(song);
   const titleH = song.title ? 30 : 0;
   const W = left + labelW + PER_LINE * SLOTS * slot + 24, H = top + titleH + lines * (markH + rulerH + STRINGS * row + gap) + 6;
   const cv = document.createElement('canvas'); cv.width = W * scale; cv.height = H * scale;
@@ -102,12 +184,18 @@ export function renderImage(song) {
       for (let j = 0; j < SLOTS; j++) {
         const t = song.marks[m + ':' + j];
         if (t) { c.fillStyle = P.accent; c.font = '600 11px -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif'; c.fillText(t, mx + j * slot + 1, my + 12); }
+        if (song.pm && song.pm[m + ':' + j]) {
+          c.fillStyle = P.muted;
+          c.fillRect(mx + j * slot, my + 14, slot - 2, 1);
+          const prev = j > 0 ? song.pm[m + ':' + (j - 1)] : (m > 0 && song.pm[(m - 1) + ':' + (SLOTS - 1)]);
+          if (!prev) { c.font = '700 8px "Red Hat Mono", Menlo, Consolas, monospace'; c.fillText('P.M.', mx + j * slot + 1, my + 10); }
+        }
       }
       c.fillStyle = P.muted; c.font = '700 9px "Red Hat Mono", Menlo, Consolas, monospace'; c.fillText(String(m + 1), mx + 3, ry + 8);
       c.font = '500 10px "Red Hat Mono", Menlo, Consolas, monospace'; c.textAlign = 'center';
-      for (let bb = 0; bb < 4; bb++) c.fillText(String(bb + 1), mx + bb * 4 * slot + slot / 2, ry + rulerH - 2);
+      for (let bb = 0; bb < SLOTS / BEAT; bb++) c.fillText(String(bb + 1), mx + bb * BEAT * slot + slot / 2, ry + rulerH - 2);
       c.textAlign = 'left';
-      for (let j2 = 0; j2 < SLOTS; j2++) { if (j2 % 4) { c.fillStyle = P.line; c.fillRect(mx + j2 * slot + slot / 2, ry + rulerH - 5, 1, 3); } }
+      for (let j2 = 0; j2 < SLOTS; j2++) { if (j2 % BEAT) { c.fillStyle = P.line; c.fillRect(mx + j2 * slot + slot / 2, ry + rulerH - 5, 1, 3); } }
     }
     const xEnd = x0 + PER_LINE * SLOTS * slot;
     for (let s = 0; s < STRINGS; s++) {
@@ -118,6 +206,17 @@ export function renderImage(song) {
     const yTop = sy + row / 2, yBot = sy + (STRINGS - 1) * row + row / 2;
     c.fillStyle = P.bar;
     for (let k2 = 0; k2 <= PER_LINE; k2++) c.fillRect(x0 + k2 * SLOTS * slot - (k2 === PER_LINE ? 2 : 0), yTop, 2, yBot - yTop);
+    // 반복 기호: 굵은 선 + 점 2개, 괄호, 횟수
+    for (let k4 = 0; k4 < PER_LINE; k4++) {
+      const rp = song.rep && song.rep[L * PER_LINE + k4]; if (!rp) continue;
+      const mx0 = x0 + k4 * SLOTS * slot, mx1 = mx0 + SLOTS * slot, dy1 = sy + 2 * row + row / 2, dy2 = sy + 3 * row + row / 2;
+      c.fillStyle = P.bar;
+      if (rp.s) { c.fillRect(mx0, yTop, 4, yBot - yTop); c.beginPath(); c.arc(mx0 + 9, dy1, 2, 0, 7); c.arc(mx0 + 9, dy2, 2, 0, 7); c.fill(); }
+      if (rp.e) { c.fillRect(mx1 - 4, yTop, 4, yBot - yTop); c.beginPath(); c.arc(mx1 - 9, dy1, 2, 0, 7); c.arc(mx1 - 9, dy2, 2, 0, 7); c.fill(); }
+      c.fillStyle = P.ink; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.font = '700 10px "Red Hat Mono", Menlo, Consolas, monospace';
+      if (rp.v) { c.fillRect(mx0, ry, 1, rulerH - 4); c.fillRect(mx0, ry, SLOTS * slot - 4, 1); c.fillText(rp.v + '.', mx0 + 18, ry + 9); }
+      if (rp.e > 2) { c.textAlign = 'right'; c.fillText('×' + rp.e, mx1 - 6, ry + 9); c.textAlign = 'left'; }
+    }
     c.textBaseline = 'middle';
     for (let k3 = 0; k3 < PER_LINE; k3++) {
       const meas = song.measures[L * PER_LINE + k3];
@@ -131,7 +230,7 @@ export function renderImage(song) {
           c.fillStyle = P.bg; c.fillRect(cx - tw / 2 - 1, cy - 7, tw + 2, 14);
           let tx = cx - tw / 2; c.textAlign = 'left';
           if (p.num) { c.fillStyle = P.ink; c.font = monoB; c.fillText(p.num, tx, cy); tx += wn; }
-          if (p.mod) { c.fillStyle = P.mod; c.font = monoR; c.fillText(p.mod, tx, cy); }
+          if (p.mod) { c.fillStyle = p.mod === '.' ? P.muted : P.mod; c.font = monoR; c.fillText(p.mod === '.' ? '·' : p.mod, tx, cy); }
         }
       }
     }

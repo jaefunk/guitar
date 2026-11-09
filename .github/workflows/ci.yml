@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 단위 테스트
+        run: npm test
+      - name: 빌드
+        run: npm run build
+      - name: Chromium 설치
+        run: npx playwright install --with-deps chromium
+      - name: 브라우저 스모크 테스트
+        run: npm run test:e2e

@@ -1,7 +1,7 @@
 {
   "name": "guitar-tab-editor",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "데스크톱 MusicXML 4.0 전문 TAB 에디터와 레거시 빠른 격자",
   "engines": {
@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node tests/e2e/smoke.mjs"
+    "test:e2e": "npm run build && node tests/e2e/smoke.mjs",
+    "test:all": "npm test && npm run test:e2e"
   },
   "devDependencies": {
     "jsdom": "^29.1.1",

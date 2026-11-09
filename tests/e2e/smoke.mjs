@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { startOwnedPreview } from './preview-server.mjs';
 import { E2ELifecycle } from './resource-lifecycle.mjs';
 import { createAbortTimeout, createSignalAbortHandler } from './runtime-guards.mjs';
+import { runFeatureSmoke } from './feature-smoke.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const VIEWPORT = { width: 1440, height: 900 };
@@ -227,11 +228,13 @@ const run = async () => {
   );
   await runLegacySmoke(browser, preview.url, lifecycle);
   await runProfessionalWorkflow(browser, outputDir, preview.url, lifecycle);
+  console.log('4. 빠른 격자 추가 기능 (모바일 뷰포트)');
+  await runFeatureSmoke(browser, preview.url, lifecycle, check);
 };
 
 let timeout;
 try {
-  timeout = createAbortTimeout(lifecycle, 120_000);
+  timeout = createAbortTimeout(lifecycle, 300_000);
   await Promise.race([run(), timeout.promise]);
 } finally {
   timeout?.cancel();

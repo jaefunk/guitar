@@ -1,7 +1,20 @@
 // 전역 상수. SLOTS/PER_LINE은 나중에 박자표(로드맵 5번)를 위해 곡 속성으로 옮길 후보.
 export const STRINGS = 6;
-export const SLOTS = 16;      // 한 마디 = 16분음표 16칸
 export const PER_LINE = 4;    // 한 줄 = 4마디
+
+// 박자표. slots = 한 마디의 16분음표 칸 수, beat = 눈금(박) 하나의 칸 수.
+// 6/8·12/8은 점4분음표가 한 박(6칸), 7/8은 8분음표 눈금(2칸).
+export const METERS = {
+  '4/4': { slots: 16, beat: 4 },
+  '3/4': { slots: 12, beat: 4 },
+  '2/4': { slots: 8, beat: 4 },
+  '5/4': { slots: 20, beat: 4 },
+  '6/8': { slots: 12, beat: 6 },
+  '7/8': { slots: 14, beat: 2 },
+  '12/8': { slots: 24, beat: 6 }
+};
+export const DEFAULT_METER = '4/4';
+export const SLOTS = METERS[DEFAULT_METER].slots; // 기본값(테스트·초기화용). 실행 중에는 slotsOf(song)을 쓸 것.
 export const MAX_FRET = 24;
 export const DEFAULT_MEASURES = 8;
 
@@ -27,7 +40,9 @@ export const CHORDS = [
   ['Cadd9', 'x32030'], ['Dsus4', 'xx0233'], ['Asus2', 'x02200'], ['Esus4', '022200'], ['G/B', 'x20003'], ['D/F#', '2x0232']
 ];
 
-export const MODS = ['h', 'p', 'b', '/', '\\', '~', 'x'];
+// 기법 문자. 'x' 뮤트와 '.' 끊기(쉼표)는 단독으로 쓰인다.
+export const MODS = ['h', 'p', 'b', '/', '\\', '~', 'x', '.'];
+export const REST = '.';
 
 export const INSTR = {
   acoustic: { name: '어쿠스틱 (스틸)', g: 0.9965, S: 0.45, bright: 0.8, pick: 0.16, len: 3.0 },

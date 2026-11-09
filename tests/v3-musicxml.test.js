@@ -219,3 +219,66 @@ describe('v3 grid to MusicXML 4.0', () => {
     });
   });
 });
+
+describe('격자 확장 필드의 MusicXML 왕복 (박자표·팜뮤트·끊기·반복 기호)', () => {
+  it('박자표가 <time>과 마디 칸 수로 저장되고 되돌아온다', () => {
+    const measure = emptyMeasure(12);
+    measure[0][11] = '5';
+    const xml = v3SongToMusicXml(songWith([measure], { meter: '6/8' }));
+    const doc = parseMusicXml(xml);
+    expect(doc.querySelector('time beats')?.textContent).toBe('6');
+    expect(doc.querySelector('time beat-type')?.textContent).toBe('8');
+    const index = buildScoreIndex(doc, 'P1');
+    expect(index.measures[0].events).toHaveLength(12);
+    expect(index.diagnostics.filter((d) => d.code === 'MEASURE_DURATION')).toEqual([]);
+    const back = musicXmlToV3Song(xml, 'P1');
+    expect(back.meter).toBe('6/8');
+    expect(back.measures[0][0].length).toBe(12);
+    expect(back.measures[0][0][11]).toBe('5');
+    expect(isLosslessV3GridMusicXml(xml, 'P1')).toBe(true);
+  });
+  it('칸 수가 박자표와 어긋나면 거부한다', () => {
+    expect(() => v3SongToMusicXml(songWith([emptyMeasure(16)], { meter: '3/4' }))).toThrow(/slot/);
+  });
+  it('팜뮤트·끊기·반복 기호가 other-direction과 barline으로 왕복한다', () => {
+    const a = emptyMeasure(), b = emptyMeasure(), c = emptyMeasure(), d = emptyMeasure();
+    a[0][0] = '3'; a[0][4] = '.'; a[1][4] = '5'; b[2][0] = '7h'; b[2][2] = '9';
+    const song = songWith([a, b, c, d], {
+      pm: { '0:0': 1, '0:1': 1, '1:0': 1 },
+      rep: { 0: { s: 1 }, 1: { v: 1, e: 3 }, 2: { v: 2 }, 3: { e: 2 } }
+    });
+    const xml = v3SongToMusicXml(song);
+    const doc = parseMusicXml(xml);
+    expect([...doc.querySelectorAll('other-direction')].map((n) => n.textContent)).toEqual(['gtab-pm', 'gtab-pm', 'gtab-stop:1', 'gtab-pm']);
+    expect(doc.querySelector('measure[number="1"] barline[location="left"] repeat')?.getAttribute('direction')).toBe('forward');
+    const m2 = doc.querySelector('measure[number="2"]');
+    expect(m2.querySelector('barline[location="left"] ending')?.getAttribute('number')).toBe('1');
+    expect(m2.querySelector('barline[location="right"] ending')?.getAttribute('type')).toBe('stop');
+    expect(m2.querySelector('barline[location="right"] repeat')?.getAttribute('times')).toBe('3');
+    expect(doc.querySelector('measure[number="3"] barline[location="right"] ending')?.getAttribute('type')).toBe('discontinue');
+    expect(doc.querySelector('measure[number="4"] barline[location="right"] repeat')?.hasAttribute('times')).toBe(false);
+    // 끊기 칸은 음표가 되지 않는다(쉼표 자리). 같은 칸의 다른 줄 음은 그대로.
+    const index = buildScoreIndex(doc, 'P1');
+    expect(index.measures[0].events[4].notes.map((n) => [n.string, n.fret])).toEqual([[2, 5]]);
+    const back = musicXmlToV3Song(xml, 'P1');
+    expect(back.pm).toEqual(song.pm);
+    expect(back.rep).toEqual(song.rep);
+    expect(back.measures[0][0][4]).toBe('.');
+    expect(back.measures[0][1][4]).toBe('5');
+    expect(back.measures[1][2][0]).toBe('7h');
+    expect(isLosslessV3GridMusicXml(xml, 'P1')).toBe(true);
+  });
+  it('끊기 너머로는 해머온·슬라이드 짝을 잇지 않는다', () => {
+    const m = emptyMeasure();
+    m[0][0] = '3/'; m[0][1] = '.'; m[0][2] = '5';
+    const doc = parseMusicXml(v3SongToMusicXml(songWith([m])));
+    expect(doc.querySelector('slide[type="stop"]')).toBeNull();
+  });
+  it('새 필드가 없는 곡의 XML은 이전과 같다(기존 v4 문서 호환)', () => {
+    const m = emptyMeasure(); m[0][0] = '3';
+    const xml = v3SongToMusicXml(songWith([m]));
+    expect(xml).not.toContain('other-direction');
+    expect(xml).not.toContain('<barline');
+    expect(xml).toContain('<time><beats>4</beats><beat-type>4</beat-type></time>');
+  });
+});
