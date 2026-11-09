@@ -1,6 +1,6 @@
 // 텍스트 타브(왕복 가능)와 PNG 이미지. toText/parseText/renderImage는 곡 객체를 인자로 받는 순수 함수.
 import { STRINGS, PER_LINE, TUNINGS, METERS, DEFAULT_METER } from './constants.js';
-import { parse, slotsOf, beatOf } from './tab.js';
+import { parse, slotsOf, beatOf, voltaLabel, parseVolta } from './tab.js';
 
 /**
  * song: {title, bpm, meter, tuning, measures, marks} → 텍스트 타브.
@@ -25,11 +25,11 @@ export function toText(song) {
     const put = (str, col, text) => { while (str.length < col) str += ' '; return str.slice(0, col) + text + str.slice(col + text.length); };
     for (let k0 = 0; k0 < PER_LINE; k0++) {
       const r = repMap[L * PER_LINE + k0], mw = SLOTS * w;
-      if (r && (r.s || r.e || r.v)) {
+      if (r && (r.s || r.e || voltaLabel(r.v))) {
         anyRep = true;
         let c = rpos;
         if (r.s) { rline = put(rline, c, '|:'); c += 2; }
-        if (r.v) rline = put(rline, c, r.v + '.');
+        if (voltaLabel(r.v)) rline = put(rline, c, voltaLabel(r.v));
         if (r.e) { const tail = (r.e > 2 ? 'x' + r.e : '') + ':|'; rline = put(rline, rpos + mw - tail.length, tail); }
       }
       rpos += mw + 1;
@@ -142,7 +142,7 @@ export function parseText(txt) {
           const mw = SLOTS * widths[k], seg = l.slice(col, col + mw), o = {};
           if (seg.indexOf('|:') >= 0) o.s = 1;
           const e = /(?:x(\d+))?:\|/.exec(seg); if (e) o.e = e[1] ? Math.max(2, +e[1]) : 2;
-          const v = /(\d)\./.exec(seg); if (v) o.v = +v[1];
+          const v = /(\d(?:,\d)*)\./.exec(seg); if (v) o.v = parseVolta(v[1]);
           if (o.s || o.e || o.v) rep[firstM + k] = o;
           col += mw + 1;
         }
@@ -214,7 +214,7 @@ export function renderImage(song) {
       if (rp.s) { c.fillRect(mx0, yTop, 4, yBot - yTop); c.beginPath(); c.arc(mx0 + 9, dy1, 2, 0, 7); c.arc(mx0 + 9, dy2, 2, 0, 7); c.fill(); }
       if (rp.e) { c.fillRect(mx1 - 4, yTop, 4, yBot - yTop); c.beginPath(); c.arc(mx1 - 9, dy1, 2, 0, 7); c.arc(mx1 - 9, dy2, 2, 0, 7); c.fill(); }
       c.fillStyle = P.ink; c.textAlign = 'left'; c.textBaseline = 'alphabetic'; c.font = '700 10px "Red Hat Mono", Menlo, Consolas, monospace';
-      if (rp.v) { c.fillRect(mx0, ry, 1, rulerH - 4); c.fillRect(mx0, ry, SLOTS * slot - 4, 1); c.fillText(rp.v + '.', mx0 + 18, ry + 9); }
+      if (voltaLabel(rp.v)) { c.fillRect(mx0, ry, 1, rulerH - 4); c.fillRect(mx0, ry, SLOTS * slot - 4, 1); c.fillText(voltaLabel(rp.v), mx0 + 18, ry + 9); }
       if (rp.e > 2) { c.textAlign = 'right'; c.fillText('×' + rp.e, mx1 - 6, ry + 9); c.textAlign = 'left'; }
     }
     c.textBaseline = 'middle';

@@ -1,4 +1,5 @@
 import { parseMusicXml, serializeMusicXml } from './musicxml.js';
+import { detectChord } from './chords.js';
 import { buildScoreIndex } from './score-index.js';
 import {
   createHistory,
@@ -37,6 +38,13 @@ function checkbox(parent, label, name, checked) {
   const input = append(wrapper, 'input', { type: 'checkbox', name, checked });
   append(wrapper, 'span', {}, label);
   return input;
+}
+
+const PITCH_CLASS = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function pitchMidi(pitch) {
+  const pc = PITCH_CLASS[pitch?.step];
+  if (pc === undefined || !Number.isFinite(pitch?.octave)) return null;
+  return (pitch.octave + 1) * 12 + pc + (Number.isFinite(pitch.alter) ? pitch.alter : 0);
 }
 
 function allEvents(index) {
@@ -116,6 +124,9 @@ export function createScoreEditorBindings({ inspector, getSong, persistMusicXml,
     append(header, 'button', { type: 'button', 'data-score-action': 'redo', disabled: !history.canRedo() }, '다시 실행');
     append(inspector, 'p', { className: 'score-inspector-selection', 'data-event-id': currentEvent.id },
       `${currentEvent.measureNumber}마디 · ${currentEvent.id}`);
+    // 코드 자동 인식: 음이 둘 이상이면 피치클래스로 코드 이름을 보여준다
+    const chord = detectChord((currentEvent.notes || []).map((n) => pitchMidi(n.pitch)).filter((m) => m !== null));
+    if (chord) append(inspector, 'p', { className: 'score-inspector-chord', 'data-chord': chord.name }, `코드: ${chord.name}`);
     append(inspector, 'p', {
       className: 'score-inspector-error', role: 'status', 'aria-live': 'polite'
     }, '');

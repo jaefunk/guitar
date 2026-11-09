@@ -168,6 +168,78 @@ export async function runFeatureSmoke(browser, appUrl, lifecycle, check) {
     check('되돌리기 6번 후 원상복구', await cellText(1, 1, 0) === '12h' && await cellText(5, 1, 1) === '' && await page.$$eval('.mk.pm', (els) => els.length) === 0);
   }
 
+  console.log('4b-2. 칸 단위 범위 · 구간 재생 · 복수 괄호');
+  {
+    // 칸을 길게 눌러 열 범위 시작 → 다른 칸 탭으로 넓히기
+    const c1 = await page.$('.cell[data-m="1"][data-s="2"][data-i="2"]');
+    await c1.scrollIntoViewIfNeeded();
+    const b1 = await c1.boundingBox();
+    await page.mouse.move(b1.x + b1.width / 2, b1.y + b1.height / 2);
+    await page.mouse.down(); await page.waitForTimeout(600); await page.mouse.up();
+    check('칸 길게 눌러 범위 시작', !(await page.$eval('#rangeBar', (el) => el.hidden)) && (await page.textContent('#rangeLabel')).indexOf('1칸') === 0);
+    await page.click('.cell[data-m="1"][data-s="4"][data-i="5"]');
+    check('칸 범위 4칸으로 확장', (await page.textContent('#rangeLabel')).indexOf('4칸') === 0 && await page.$$eval('.cell.rng', (els) => els.length) === 24);
+    check('칸 단위면 삭제 대신 비우기', await page.textContent('#rangeBar [data-act="delete"]') === '비우기');
+    await page.click('.cell[data-m="1"][data-s="1"][data-i="2"]'); // 범위 안 칸 선택(범위 유지)
+    await page.click('.key[data-digit="7"]');
+    await page.click('#rangeBar [data-act="delete"]');
+    check('범위 비우기', await cellText(1, 1, 2) === '' && await page.$$eval('.cell', (els) => els.length) === 8 * 6 * 16);
+    await page.click('#undo');
+    check('비우기 되돌림', await cellText(1, 1, 2) === '7');
+    await page.click('#undo');
+    // 구간 재생
+    await page.click('#rangeBar [data-act="play"]');
+    await page.waitForTimeout(300);
+    check('구간 재생 시작', await page.$eval('#playBtn', (el) => el.textContent) === '■');
+    await page.click('#playBtn');
+    await page.click('#rangeBar [data-act="close"]');
+    // 복수 괄호
+    await page.click('.cell[data-m="2"][data-s="0"][data-i="0"]');
+    await openMenuItem('measureMenu', '반복 기호');
+    await page.click('#menuList .menu-item:has-text("괄호 번호 직접 넣기")');
+    await page.fill('#dlgInput', '1,2'); await page.click('#dlgOk');
+    check('1,2번 괄호 표시', await page.$eval('.ruler .measure[data-m="2"] .vlab', (el) => el.textContent) === '1,2.');
+    await openMenuItem('exportMenu', '텍스트 타브');
+    check('텍스트에 1,2. 토큰', (await page.inputValue('#exportText')).indexOf('1,2.') > 0);
+    await page.click('#closeModal');
+    await page.click('#undo');
+  }
+
+  console.log('4b-3. 곡 순서 · 백업');
+  {
+    await page.click('#songsBtn');
+    const before = await page.$$eval('#songList .song[data-id] .l', (els) => els.map((e) => e.textContent));
+    await page.click('#songList .song[data-id]:nth-child(1) .song-more');
+    await page.click('#menuList .menu-item:has-text("아래로")');
+    const after = await page.$$eval('#songList .song[data-id] .l', (els) => els.map((e) => e.textContent));
+    check('곡 순서 아래로', before.length >= 2 && after[1] === before[0] && after[0] === before[1], { before, after });
+    await page.click('#songList .song[data-id]:nth-child(2) .song-more');
+    await page.click('#menuList .menu-item:has-text("위로")');
+    check('곡 순서 위로(원복)', JSON.stringify(await page.$$eval('#songList .song[data-id] .l', (els) => els.map((e) => e.textContent))) === JSON.stringify(before));
+    await page.click('#closeSongs');
+    const [dl] = await Promise.all([page.waitForEvent('download'), openMenuItem('exportMenu', '백업 파일')]);
+    const backup = readFileSync(await dl.path(), 'utf8');
+    const parsed = JSON.parse(backup);
+    check('백업 JSON', parsed.v === 4 && parsed.order.length === before.length);
+    await page.click('#exportMenu'); await page.click('#menuList .menu-item:has-text("백업 불러오기")');
+    await page.setInputFiles('#backupFile', { name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+    await page.waitForTimeout(400);
+    await page.click('#songsBtn');
+    const n = await page.$$eval('#songList .song[data-id]', (els) => els.length);
+    check('백업 불러오기로 곡 추가', n === before.length * 2, n);
+    // 추가된 곡 정리
+    for (let k = 0; k < before.length; k++) {
+      // 목록 맨 끝은 내장곡 행이라 data-id 행 중 마지막을 고른다
+      const mores = await page.$$('#songList .song[data-id] .song-more');
+      await mores[mores.length - 1].click();
+      await page.click('#menuList .menu-item:has-text("삭제")');
+      await page.click('#dlgOk');
+      await page.waitForTimeout(150);
+    }
+    check('정리 후 곡 수', await page.$$eval('#songList .song[data-id]', (els) => els.length) === before.length);
+    await page.click('#closeSongs');
+  }
+
   console.log('4b2. 코드 인식 칩');
   {
     await page.click('.cell[data-m="6"][data-s="0"][data-i="0"]');

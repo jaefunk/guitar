@@ -146,94 +146,133 @@ export function nextNoteOnString(measures, m, s, i, slots) {
   return null;
 }
 
-/* ---------- 마디 범위 연산 (다중 선택) ---------- */
+/* ---------- 범위 연산 (칸 단위 다중 선택) ----------
+   범위는 {from:{m,i}, to:{m,i}}이고, 내부 계산은 전역 칸 번호 gA..gB(포함)로 한다.
+   여섯 줄 전체가 한 열(칸)로 움직인다. 마디 경계에 딱 맞는 범위(aligned)는 반복 기호도 함께 다룬다. */
 
-/** 'm:i' 키 맵에서 마디 from..to(포함)에 속한 항목을 상대 마디 번호 'dm:i'로 옮겨 돌려준다 */
-export function keysInRange(map, from, to) {
-  const o = {};
-  Object.keys(map || {}).forEach((k) => {
-    const p = k.split(':'), m = +p[0];
-    if (m >= from && m <= to) o[(m - from) + ':' + p[1]] = map[k];
-  });
-  return o;
+/** 범위 → {gA, gB, n, aligned, fromM, toM} */
+export function colRange(range, slots) {
+  let gA = range.from.m * slots + range.from.i, gB = range.to.m * slots + range.to.i;
+  if (gA > gB) { const t = gA; gA = gB; gB = t; }
+  const fromM = Math.floor(gA / slots), toM = Math.floor(gB / slots);
+  return { gA, gB, n: gB - gA + 1, aligned: gA % slots === 0 && gB % slots === slots - 1, fromM, toM };
 }
+/** 마디 범위 → 칸 범위 객체 */
+export function measureRange(fromM, toM, slots) {
+  return { from: { m: Math.min(fromM, toM), i: 0 }, to: { m: Math.max(fromM, toM), i: slots - 1 } };
+}
+function keyOf(g, slots) { return Math.floor(g / slots) + ':' + (g % slots); }
 
-/** 범위를 클립보드 꼴로 복사: {measures, marks, pm, rep} (키는 상대 마디 번호) */
-export function sliceRange(song, from, to) {
-  const rep = {};
-  Object.keys(song.rep || {}).forEach((k) => { if (+k >= from && +k <= to) rep[+k - from] = Object.assign({}, song.rep[k]); });
-  return {
-    measures: cloneMeasures(song.measures.slice(from, to + 1)),
-    marks: keysInRange(song.marks, from, to),
-    pm: keysInRange(song.pm, from, to),
-    rep
+/** 범위를 클립보드 꼴로 복사: {cells[6][n], marks{'k'}, pm{'k'}, rep{상대 마디}, n, aligned} */
+export function sliceRange(song, range) {
+  const slots = slotsOf(song), r = colRange(range, slots);
+  const cells = [];
+  for (let s = 0; s < STRINGS; s++) {
+    const row = [];
+    for (let g = r.gA; g <= r.gB; g++) row.push(song.measures[Math.floor(g / slots)][s][g % slots]);
+    cells.push(row);
+  }
+  const pick = (map) => {
+    const o = {};
+    for (let g = r.gA; g <= r.gB; g++) { const v = (map || {})[keyOf(g, slots)]; if (v) o[g - r.gA] = v; }
+    return o;
   };
+  const rep = {};
+  if (r.aligned) Object.keys(song.rep || {}).forEach((k) => { if (+k >= r.fromM && +k <= r.toM) rep[+k - r.fromM] = JSON.parse(JSON.stringify(song.rep[k])); });
+  return { cells, marks: pick(song.marks), pm: pick(song.pm), rep, n: r.n, aligned: r.aligned, slots };
 }
 
-/** 클립을 at 마디부터 덮어쓴다(제자리). 부족하면 마디를 늘리고 PER_LINE 배수로 채운다. */
-export function pasteRange(song, clip, at) {
-  const slots = slotsOf(song);
-  const src = resizeMeasures(clip.measures, slots);
-  while (song.measures.length < at + src.length) song.measures.push(emptyMeasure(slots));
-  src.forEach((m, k) => { song.measures[at + k] = cloneMeasure(m); });
-  ['marks', 'pm'].forEach((f) => {
-    const map = song[f] || {};
-    Object.keys(map).forEach((k) => { const m = +k.split(':')[0]; if (m >= at && m < at + src.length) delete map[k]; });
-    Object.keys(clip[f] || {}).forEach((k) => {
-      const p = k.split(':');
-      if (+p[1] < slots) map[(at + +p[0]) + ':' + p[1]] = clip[f][k];
-    });
-    song[f] = map;
-  });
-  const rep = song.rep || {};
-  for (let k = 0; k < src.length; k++) delete rep[at + k];
-  Object.keys(clip.rep || {}).forEach((k) => { rep[at + +k] = Object.assign({}, clip.rep[k]); });
-  song.rep = rep;
+/** 클립을 전역 칸 gAt부터 덮어쓴다(제자리). 부족하면 마디를 늘리고 PER_LINE 배수로 채운다. */
+export function pasteRange(song, clip, gAt) {
+  const slots = slotsOf(song), n = clip.n || (clip.cells && clip.cells[0] ? clip.cells[0].length : 0);
+  if (!n) return;
+  const need = Math.ceil((gAt + n) / slots);
+  while (song.measures.length < need) song.measures.push(emptyMeasure(slots));
+  for (let k = 0; k < n; k++) {
+    const g = gAt + k, m = Math.floor(g / slots), i = g % slots;
+    for (let s = 0; s < STRINGS; s++) song.measures[m][s][i] = clip.cells[s][k] || '';
+    const key = m + ':' + i;
+    if (clip.marks && clip.marks[k]) song.marks[key] = clip.marks[k]; else delete song.marks[key];
+    song.pm = song.pm || {};
+    if (clip.pm && clip.pm[k]) song.pm[key] = 1; else delete song.pm[key];
+  }
+  // 마디 단위로 복사한 클립을 마디 첫 칸에 붙일 때만 반복 기호도 옮긴다
+  if (clip.aligned && gAt % slots === 0 && clip.rep) {
+    const at = gAt / slots, count = n / slots;
+    song.rep = song.rep || {};
+    for (let k = 0; k < count; k++) delete song.rep[at + k];
+    Object.keys(clip.rep).forEach((k) => { song.rep[at + +k] = JSON.parse(JSON.stringify(clip.rep[k])); });
+  }
   padMeasures(song.measures, slots);
 }
 
-/**
- * 조옮김. 모든 프렛에 n을 더한다. 0 미만이나 MAX_FRET 초과가 생기면 바꾸지 않고 null.
- * 기법 글자는 유지한다.
- */
+/** 범위의 음·메모·팜뮤트를 비운다(제자리). 마디 수는 그대로. */
+export function clearRange(song, range) {
+  const slots = slotsOf(song), r = colRange(range, slots);
+  for (let g = r.gA; g <= r.gB; g++) {
+    const m = Math.floor(g / slots), i = g % slots, key = m + ':' + i;
+    for (let s = 0; s < STRINGS; s++) song.measures[m][s][i] = '';
+    delete song.marks[key];
+    if (song.pm) delete song.pm[key];
+  }
+}
+
+/** 조옮김. 모든 프렛에 n을 더한다. 0 미만이나 MAX_FRET 초과가 생기면 null. 기법 글자는 유지. */
 export function transposeMeasures(ms, n) {
   const out = cloneMeasures(ms);
   for (let m = 0; m < out.length; m++) {
     for (let s = 0; s < STRINGS; s++) {
       for (let i = 0; i < out[m][s].length; i++) {
-        const p = parse(out[m][s][i]);
-        if (!p.num) continue;
-        const f = +p.num + n;
-        if (f < 0 || f > MAX_FRET) return null;
-        out[m][s][i] = f + p.mod;
+        const v = transposeCell(out[m][s][i], n);
+        if (v === null) return null;
+        out[m][s][i] = v;
       }
+    }
+  }
+  return out;
+}
+function transposeCell(v, n) {
+  const p = parse(v);
+  if (!p.num) return v;
+  const f = +p.num + n;
+  if (f < 0 || f > MAX_FRET) return null;
+  return f + p.mod;
+}
+/** 범위 안의 칸만 조옮김. 새 measures 또는 null. */
+export function transposeRange(song, range, n) {
+  const slots = slotsOf(song), r = colRange(range, slots), out = cloneMeasures(song.measures);
+  for (let g = r.gA; g <= r.gB; g++) {
+    const m = Math.floor(g / slots), i = g % slots;
+    for (let s = 0; s < STRINGS; s++) {
+      const v = transposeCell(out[m][s][i], n);
+      if (v === null) return null;
+      out[m][s][i] = v;
     }
   }
   return out;
 }
 
 /**
- * 마디 from..to 안의 모든 칸(음·메모·팜뮤트)을 dir(+1 오른쪽, -1 왼쪽)만큼 민다.
+ * 범위 안의 모든 칸(음·메모·팜뮤트)을 dir(+1 오른쪽, -1 왼쪽)만큼 민다.
  * 범위 밖으로 밀려난 칸은 버려지고 반대쪽엔 빈 칸이 들어온다. 새 {measures, marks, pm}을 돌려준다.
  */
-export function shiftCells(song, from, to, dir) {
-  const slots = slotsOf(song), count = to - from + 1, total = count * slots;
-  const measures = cloneMeasures(song.measures);
+export function shiftRange(song, range, dir) {
+  const slots = slotsOf(song), r = colRange(range, slots), measures = cloneMeasures(song.measures);
   for (let s = 0; s < STRINGS; s++) {
     const flat = [];
-    for (let m = from; m <= to; m++) flat.push.apply(flat, song.measures[m][s]);
-    const moved = new Array(total).fill('');
-    for (let g = 0; g < total; g++) { const ng = g + dir; if (ng >= 0 && ng < total) moved[ng] = flat[g]; }
-    for (let m = from; m <= to; m++) measures[m][s] = moved.slice((m - from) * slots, (m - from + 1) * slots);
+    for (let g = r.gA; g <= r.gB; g++) flat.push(song.measures[Math.floor(g / slots)][s][g % slots]);
+    const moved = new Array(r.n).fill('');
+    for (let k = 0; k < r.n; k++) { const nk = k + dir; if (nk >= 0 && nk < r.n) moved[nk] = flat[k]; }
+    for (let k = 0; k < r.n; k++) { const g = r.gA + k; measures[Math.floor(g / slots)][s][g % slots] = moved[k]; }
   }
   const mv = (map) => {
     const o = {};
-    Object.keys(map || {}).forEach((k) => {
-      const p = k.split(':'), m = +p[0], i = +p[1];
-      if (m < from || m > to) { o[k] = map[k]; return; }
-      const ng = (m - from) * slots + i + dir;
-      if (ng < 0 || ng >= total) return;
-      o[(from + Math.floor(ng / slots)) + ':' + (ng % slots)] = map[k];
+    Object.keys(map || {}).forEach((key) => {
+      const p = key.split(':'), g = +p[0] * slots + +p[1];
+      if (g < r.gA || g > r.gB) { o[key] = map[key]; return; }
+      const ng = g + dir;
+      if (ng < r.gA || ng > r.gB) return;
+      o[keyOf(ng, slots)] = map[key];
     });
     return o;
   };
@@ -241,19 +280,34 @@ export function shiftCells(song, from, to, dir) {
 }
 
 /** 범위의 모든 칸이 팜뮤트인가 */
-export function allPm(pm, from, to, slots) {
-  for (let m = from; m <= to; m++) for (let i = 0; i < slots; i++) if (!pm || !pm[m + ':' + i]) return false;
+export function allPm(pm, range, slots) {
+  const r = colRange(range, slots);
+  for (let g = r.gA; g <= r.gB; g++) if (!pm || !pm[keyOf(g, slots)]) return false;
   return true;
 }
 /** 범위 팜뮤트 토글: 전부 켜져 있으면 끄고, 아니면 전부 켠다. 새 객체. */
-export function togglePm(pm, from, to, slots) {
-  const o = Object.assign({}, pm || {}), on = !allPm(pm, from, to, slots);
-  for (let m = from; m <= to; m++) for (let i = 0; i < slots; i++) { const k = m + ':' + i; if (on) o[k] = 1; else delete o[k]; }
+export function togglePm(pm, range, slots) {
+  const r = colRange(range, slots), o = Object.assign({}, pm || {}), on = !allPm(pm, range, slots);
+  for (let g = r.gA; g <= r.gB; g++) { const k = keyOf(g, slots); if (on) o[k] = 1; else delete o[k]; }
   return o;
 }
 
 /* ---------- 반복 기호 ---------- */
-// song.rep = { [m]: { s: 1, e: times, v: volta } }  s=반복 시작 ||:, e=반복 끝 :|| (횟수), v=괄호 번호(1, 2…)
+// song.rep = { [m]: { s: 1, e: times, v: volta } }  s=반복 시작 ||:, e=반복 끝 :|| (횟수), v=괄호 번호(1 또는 [1,2])
+
+/** 괄호 번호 → 배열. 1 → [1], [1,2] → [1,2], 없음 → [] */
+export function voltaList(v) {
+  if (Array.isArray(v)) return v.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9);
+  return Number.isInteger(v) && v >= 1 && v <= 9 ? [v] : [];
+}
+/** 괄호 표시 글자: '1.' '1,2.' */
+export function voltaLabel(v) { const l = voltaList(v); return l.length ? l.join(',') + '.' : ''; }
+/** '1,2' 같은 입력 → 정리된 값(한 개면 숫자, 여러 개면 배열, 없으면 0) */
+export function parseVolta(text) {
+  const nums = String(text || '').split(/[^0-9]+/).map(Number).filter((n) => n >= 1 && n <= 9);
+  const uniq = Array.from(new Set(nums)).sort((a, b) => a - b);
+  return uniq.length === 0 ? 0 : (uniq.length === 1 ? uniq[0] : uniq);
+}
 
 /** 마디 번호 키 맵(rep)을 삽입/삭제에 맞춰 민다 */
 export function shiftRep(rep, fromM, delta) {
@@ -271,7 +325,7 @@ export function shiftRep(rep, fromM, delta) {
 export function cleanRep(rep) {
   Object.keys(rep || {}).forEach((k) => {
     const r = rep[k];
-    if (!r || (!r.s && !r.e && !r.v)) delete rep[k];
+    if (!r || (!r.s && !r.e && !voltaList(r.v).length)) delete rep[k];
   });
   return rep;
 }
@@ -288,10 +342,11 @@ export function expandRepeats(total, rep) {
   let m = 0, start = 0, pass = 1, guard = 0, done = false; // done: 반복을 다 돌았고 새 구간을 기다리는 중
   while (m < total && guard++ < 10000) {
     const f = rep[m] || {};
+    const voltas = voltaList(f.v);
     if (f.s && start !== m) { start = m; pass = 1; done = false; }
-    else if (done && !f.v) { start = m; pass = 1; done = false; } // 괄호가 아닌 마디에서 새 구간 시작
-    if (f.v && f.v !== pass) {
-      if (f.e && f.v < pass) done = true; // 지난 번 괄호의 :|| 를 지나쳤다 → 반복 끝
+    else if (done && !voltas.length) { start = m; pass = 1; done = false; } // 괄호가 아닌 마디에서 새 구간 시작
+    if (voltas.length && voltas.indexOf(pass) < 0) {
+      if (f.e && Math.max.apply(null, voltas) < pass) done = true; // 지난 번 괄호의 :|| 를 지나쳤다 → 반복 끝
       m++; continue;
     }
     seq.push(m);

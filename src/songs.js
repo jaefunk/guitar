@@ -1,5 +1,5 @@
 // 곡 목록 시트(새 곡 / 열기 / 이름 바꾸기 / 복제 / 삭제).
-import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel, importMusicXmlSong, selectBuiltInSong } from './state.js';
+import { state, ed, library, listSongs, createSong, switchSong, renameSong, duplicateSong, deleteSong, songLabel, importMusicXmlSong, selectBuiltInSong, moveSong } from './state.js';
 import { $, openMenu, ask, toast } from './ui.js';
 import { render, setSel } from './render.js';
 import { stopPlay } from './audio.js';
@@ -130,6 +130,8 @@ function songMenu(id) {
     { key: 'song-open', k: '→', label: '열기', action: () => { openSong(id); }, disabled: id === library.currentId },
     { key: 'song-rename', k: 'A', label: '이름 바꾸기', action: () => { rename(id); }, disabled: s.editorMode !== 'grid-v3' },
     { key: 'song-duplicate', k: '⎘', label: '복제', desc: '같은 내용으로 새 곡을 만들어요', action: () => { const c = duplicateSong(id); toast('"' + songLabel(c) + '" 만듦'); openSongs(); } },
+    { key: 'song-up', k: '↑', label: '위로', desc: '목록에서 한 칸 위로', disabled: library.order.indexOf(id) === 0, action: () => { moveSong(id, -1); openSongs(); } },
+    { key: 'song-down', k: '↓', label: '아래로', desc: '목록에서 한 칸 아래로', disabled: library.order.indexOf(id) === library.order.length - 1, action: () => { moveSong(id, 1); openSongs(); } },
     { key: 'song-delete', k: '×', label: '삭제', desc: '되돌릴 수 없어요', danger: true, action: () => { remove(id); } }
   ]);
 }

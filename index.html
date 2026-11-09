@@ -37,6 +37,7 @@
     <button class="btn" id="markBtn" type="button">메모</button>
     <button class="btn" id="exportMenu" type="button">내보내기 <span class="caret">▼</span></button>
     <input id="musicXmlFile" type="file" accept=".musicxml,.xml,.mxl" hidden>
+    <input id="backupFile" type="file" accept=".json,application/json" hidden>
     <button class="btn" id="settingsBtn" type="button">설정</button>
   </div>
 </header>
@@ -69,6 +70,7 @@
       <button type="button" data-act="left" title="한 칸 왼쪽으로">⇠ 밀기</button>
       <button type="button" data-act="right" title="한 칸 오른쪽으로">밀기 ⇢</button>
       <button type="button" data-act="pm" title="팜뮤트 켜기/끄기">P.M.</button>
+      <button type="button" data-act="play" title="선택한 구간만 재생">▶ 구간</button>
       <button type="button" data-act="delete" class="danger" title="범위 삭제">삭제</button>
       <button type="button" data-act="close" title="범위 해제 (Esc)">해제</button>
     </div>
@@ -259,7 +261,8 @@
       <li>마디 메뉴 → 반복 기호에서 ||: :|| 와 1·2번 괄호를 넣으면 재생할 때 그 순서대로 연주해요. (마디·줄 반복 중엔 기호를 무시해요)</li>
       <li>마디 번호를 탭하면 그 마디 첫 칸으로 이동해요. 마디 위 빈 줄(+)을 탭하면 코드 이름, 가사, 구간 이름을 적어요.</li>
       <li>한 칸에 음을 두 개 이상 쌓으면 아래 상태줄에 코드 이름(예: Am7, G/B)이 떠요. 탭하면 메모로 들어가요.</li>
-      <li>마디 번호를 <b>길게 누르면</b> 여러 마디를 선택해요. 복사·삭제·조옮김·한 칸 밀기·팜뮤트(P.M.)를 한 번에 할 수 있어요.</li>
+      <li>마디 번호나 칸을 <b>길게 누르면</b> 범위를 선택해요. 다른 칸을 탭해 넓히고, 복사·비우기(또는 마디 삭제)·조옮김·한 칸 밀기·팜뮤트·구간 재생을 한 번에 할 수 있어요.</li>
+      <li>내보내기 → 백업 파일로 곡 전체를 저장하고, 다른 기기에서 백업 불러오기로 목록에 추가할 수 있어요.</li>
       <li>아래 ▼를 누르면 입력판을 접어 악보를 넓게 볼 수 있어요. 칸을 탭하면 다시 펼쳐져요.</li>
       <li>소리는 설정에서 악기(어쿠스틱·나일론·일렉 클린·드라이브), 음량, 리버브를 바꿀 수 있어요. 여러 줄을 같이 치면 스트럼처럼 살짝 시간차가 나요.</li>
       <li>브라우저 메뉴의 "홈 화면에 추가"로 설치하면 앱처럼 열리고 오프라인에서도 돼요.</li>

@@ -1,9 +1,9 @@
 {
   "name": "guitar-tab-editor",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
-  "description": "데스크톱 MusicXML 4.0 전문 TAB 에디터와 레거시 빠른 격자",
+  "description": "데스크톱 MusicXML 4.0 전문 TAB 에디터와 레거시 빠른 격자(폰용 입력·재생)",
   "engines": {
     "node": ">=20"
   },

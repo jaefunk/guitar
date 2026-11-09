@@ -31,7 +31,10 @@
 - 텍스트 타브 포맷: 헤더 `(BPM 90, 4/4, 한 칸 = 16분음표)`, 눈금 줄 위에 `R`(반복)·`PM`(팜뮤트)·메모 줄. `parseText`는 `{measures, marks, pm, rep, meter, bpm, title}`을 돌려준다.
 - MIDI(`midi.js`)는 격자 데이터 기준(포맷 0, PPQ 480, 줄마다 채널). 코드 인식(`chords.js`)은 피치클래스 템플릿 매칭.
 - PWA: `public/manifest.webmanifest`, `public/sw.js`(캐시 이름 `gtab-v1`), 아이콘. 빌드본에서만 서비스 워커를 등록한다.
-- 알려진 한계: 다중 선택은 마디 단위, 괄호는 마디당 번호 하나, MIDI 슬라이드는 ±2반음, 샘플은 사용자가 직접 올림. 헤드리스 Chromium은 한글 파일명 다운로드를 `download`로 보고한다.
+- 0.4: 범위 선택이 칸 단위(`ed.range = {from:{m,i}, to:{m,i}}`, `tab.js` `colRange`)가 됐다. 마디 경계에 맞는 범위는 마디 삭제·반복 기호 복사까지, 아니면 칸만 다룬다. 범위 막대의 "▶ 구간"은 `startPlay(undefined, {range:true})`.
+  괄호 번호는 숫자 또는 배열(`v: [1,2]`, `voltaList`). 곡 순서 `moveSong`, 백업 `toDoc()` JSON ↔ `importBackup`(곡만 추가, id 충돌 시 새 id).
+  드럼·스윙은 `rhythm.js`로 분리돼 전문 TAB 재생 계획(`buildPlaybackPlan`의 `drums`·`swing`)에도 들어가고, 트레이너는 컨트롤러의 `onLoop`가 새 plan으로 바꿔 끼우는 방식이다. 샘플 악기는 voice adapter가 줄 번호를 넘겨 쓴다.
+- 알려진 한계: MIDI 슬라이드는 ±2반음, 샘플은 사용자가 직접 올림. 헤드리스 Chromium은 한글 파일명 다운로드를 `download`로 보고한다. GitHub Pages 배포는 저장소 설정에서 Source를 GitHub Actions로 바꿔야 켜진다.
 
 ## 1. 현재 제품 요구사항
 
@@ -181,7 +184,7 @@ B|1---------------|...
 7. MIDI — `midi.js`. 8. 코드 인식/다이어그램 — `chords.js`. 9. 드럼/스윙 — `audio.js` drumHits/swingDelay.
 10. 샘플 음원 — `samples.js` + 설정 "샘플 악기". 11. Redo(`ed.redoStack`), 가로 맞춤(`ui.js` landscapeFitActive), PWA(`public/`).
 
-## 8b. 다음에 할 만한 것
+## 8b. 다음에 할 만한 것 (0.4에서 칸 단위 범위·구간 재생·곡 순서·백업·복수 괄호는 완료)
 
 - 칸 단위 범위 선택과 "선택 구간만 재생".
 - SoundFont(sf2) 로더 또는 기본 샘플 세트 동봉(라이선스 확인 필요).
@@ -207,8 +210,8 @@ B|1---------------|...
 
 ```
 README.md와 HANDOFF.md를 읽어줘. npm test와 npm run test:e2e가 통과하는지 먼저 확인한 뒤,
-HANDOFF 8b절의 "칸 단위 범위 선택과 선택 구간만 재생"을 구현해줘. ed.range를 {from:{m,i}, to:{m,i}}로
-넓히되 기존 마디 단위 동작(복사/삭제/조옮김/밀기/팜뮤트)은 그대로 유지하고, 스모크 테스트에 케이스를 추가해.
+HANDOFF 8b절에서 남은 항목(SoundFont 로더 또는 기본 샘플 세트, 다 카포/세뇨, 재생 중 사용자 스크롤 감지)을
+하나 골라 구현해줘. 격자와 전문 TAB 두 모드에서 모두 동작하는지 확인하고, 스모크 테스트에 케이스를 추가해.
 ```
 
 레거시 빠른 격자를 수정할 때는 4마디×16칸 데이터 호환성과 기존 저장 데이터 보존을 지킨다. 현재 제품 작업은 데스크톱 전문 TAB과 MusicXML 4.0 정본을 우선한다.

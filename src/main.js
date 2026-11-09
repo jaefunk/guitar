@@ -1,14 +1,14 @@
 // 진입점: 이벤트 바인딩과 초기화.
 import { TUNINGS, CHORDS, MODS, INSTR, METERS } from './constants.js';
 import {
-  state, ed, load, save, canEditCurrentSong, currentSong, importMusicXmlSong, persistCurrentScoreMusicXml
+  state, ed, load, save, canEditCurrentSong, currentSong, importMusicXmlSong, persistCurrentScoreMusicXml, toDoc, importBackup
 } from './state.js';
 import { $, MODALS, openMenu, toast, closeDlg, closeModals, anyModalOpen, dlgOkValue, dlgCancelValue, updatePadH, applyTheme, applyZoom, downloadBlob, safeName } from './ui.js';
 import { render, setSel } from './render.js';
 import {
   inputDigit, inputMod, del, move, doUndo, doRedo, addLine, delLine, insertMeasure, deleteMeasure,
   copyMeasure, pasteMeasure, clearMeasure, clearAll, editMark, insertChord, clearColumn, needSel, buzz, setMeter, pushUndo,
-  setRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
+  setRange, setRangeCell, extendRange, clearRange, deleteRange, transposeRange, shiftRange, togglePmRange, repeatMenuItems, setMark
 } from './edit.js';
 import { buildFretboard, fretTap, setPadMode, setCollapsed } from './fretboard.js';
 import { pb, startPlay, startScorePlay, stopPlay, setVolume, setReverb, decodeSample } from './audio.js';
@@ -134,6 +134,22 @@ function downloadMidi() {
   downloadBlob(safeName(state.title, 'tab') + '.mid', new Blob([bytes], { type: 'audio/midi' }));
   toast('MIDI ' + bytes.noteCount + '음 저장');
 }
+function downloadBackup() {
+  const doc = toDoc();
+  downloadBlob('guitar-tab-backup-' + new Date().toISOString().slice(0, 10) + '.json', new Blob([JSON.stringify(doc)], { type: 'application/json' }));
+  toast(doc.order.length + '곡 백업 저장');
+}
+function restoreBackup(file) {
+  if (!file) return;
+  file.text().then((txt) => {
+    let value;
+    try { value = JSON.parse(txt); } catch (e) { toast('백업 파일을 읽지 못했어요'); return; }
+    const n = importBackup(value);
+    if (!n) { toast('백업에서 읽을 곡이 없어요'); return; }
+    refreshSongUI();
+    toast(n + '곡을 목록에 추가했어요');
+  }, () => { toast('백업 파일을 읽지 못했어요'); });
+}
 function downloadText() {
   downloadBlob(safeName(state.title, 'tab') + '.txt', new Blob([toText(state)], { type: 'text/plain;charset=utf-8' }));
   toast('텍스트 저장');
@@ -171,9 +187,14 @@ function bind() {
   let pressT = null, pressed = false;
   const sheetEl = $('sheet');
   sheetEl.addEventListener('pointerdown', (e) => {
-    const rm = e.target.closest('.ruler .measure'); if (!rm) return;
+    const rm = e.target.closest('.ruler .measure'), cell = e.target.closest('.cell');
+    if (!rm && !cell) return;
     pressed = false;
-    pressT = setTimeout(() => { pressed = true; buzz(); if (!ed.range) setRange(+rm.dataset.m); else setRange(+rm.dataset.m); toast('범위 선택: 다른 마디 번호를 탭해 넓히세요'); }, 450);
+    pressT = setTimeout(() => {
+      pressed = true; buzz();
+      if (rm) { setRange(+rm.dataset.m); toast('범위 선택: 다른 마디 번호나 칸을 탭해 넓히세요'); }
+      else { if (ed.range) extendRange({ m: +cell.dataset.m, i: +cell.dataset.i }, false); else { setSel({ m: +cell.dataset.m, s: +cell.dataset.s, i: +cell.dataset.i }, false); setRangeCell({ m: +cell.dataset.m, i: +cell.dataset.i }); } toast('칸 범위 선택: 다른 칸을 탭해 넓히세요'); }
+    }, 450);
   });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => sheetEl.addEventListener(ev, () => { clearTimeout(pressT); }));
   sheetEl.addEventListener('contextmenu', (e) => { if (e.target.closest('.ruler .measure')) e.preventDefault(); });
@@ -184,12 +205,15 @@ function bind() {
     const rm = e.target.closest('.ruler .measure');
     if (rm) {
       const m = +rm.dataset.m;
-      if (e.shiftKey && ed.sel && !ed.range) { setRange(ed.sel.m); setRange(m); return; }
+      if (e.shiftKey && ed.sel) { if (!ed.range) setRange(ed.sel.m); extendRange({ m, i: 0 }, true, true); return; }
       if (ed.range) { setRange(m); return; }
       setSel({ m, s: ed.sel ? ed.sel.s : 0, i: 0 }, true); if (state.collapsed) setCollapsed(false); return;
     }
     const c = e.target.closest('.cell'); if (!c) return;
-    setSel({ m: +c.dataset.m, s: +c.dataset.s, i: +c.dataset.i }, false);
+    const p = { m: +c.dataset.m, s: +c.dataset.s, i: +c.dataset.i };
+    if (e.shiftKey && ed.sel) { extendRange({ m: p.m, i: p.i }, false, true); return; }
+    if (ed.range) { extendRange({ m: p.m, i: p.i }, false); setSel(p, false); return; }
+    setSel(p, false);
     if (state.collapsed) setCollapsed(false);
   });
   const d = $('digits');
@@ -305,6 +329,7 @@ function bind() {
     else if (act === 'left') shiftRange(-1);
     else if (act === 'right') shiftRange(1);
     else if (act === 'pm') togglePmRange();
+    else if (act === 'play') { if (pb.playing) stopPlay(); else if (state.viewMode !== 'score') startPlay(undefined, { range: true }); }
     else if (act === 'close') clearRange();
   });
   $('exportMenu').addEventListener('click', () => {
@@ -316,7 +341,9 @@ function bind() {
       { key: 'image-export', k: '▣', label: '이미지로 저장', desc: 'PNG 미리보기와 다운로드', action: openImage },
       { key: 'midi-export', k: '♪', label: 'MIDI 파일 (.mid)', desc: '빠른 격자 기준. 반복 기호를 펼쳐요', action: downloadMidi },
       { key: 'text-file-export', k: '↧', label: '텍스트 파일 (.txt)', desc: '텍스트 타브를 파일로 저장', action: downloadText },
-      { key: 'text-import', k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } }
+      { key: 'text-import', k: '↓', label: '텍스트 불러오기', desc: '내보낸 텍스트로 복원', action: () => { $('importText').value = ''; $('importModal').hidden = false; setTimeout(() => { $('importText').focus(); }, 40); } },
+      { key: 'backup-export', k: '⇩', label: '백업 파일 (.json)', desc: '곡 전체를 파일 하나로', action: downloadBackup },
+      { key: 'backup-import', k: '⇧', label: '백업 불러오기 (.json)', desc: '파일의 곡들을 목록에 추가', action: () => { $('backupFile').value = ''; $('backupFile').click(); } }
     ]);
   });
   $('settingsBtn').addEventListener('click', () => { $('settingsModal').hidden = false; });
@@ -334,6 +361,7 @@ function bind() {
   $('doImport').addEventListener('click', doImport);
   $('closeImg').addEventListener('click', () => { $('imgModal').hidden = true; });
   $('dlImg').addEventListener('click', downloadImage);
+  $('backupFile').addEventListener('change', function () { restoreBackup(this.files && this.files[0]); });
   $('closeChord').addEventListener('click', () => { $('chordModal').hidden = true; });
   $('closeHelp').addEventListener('click', () => { $('helpModal').hidden = true; });
   const closeCoach = () => { $('coachModal').hidden = true; state.seen = true; save(); };
